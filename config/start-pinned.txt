@@ -1,0 +1,16 @@
+# Start menu pins, one desktop entry id per line (managed by the Start menu).
+# Right-click any app in Start to pin or unpin it. Apps that aren't installed are skipped.
+chromium
+org.gnome.Nautilus
+foot
+Alacritty
+com.mitchellh.ghostty
+obsidian
+libreoffice-writer
+libreoffice-calc
+libreoffice-impress
+mpv
+imv
+org.gnome.Papers
+localsend
+btop

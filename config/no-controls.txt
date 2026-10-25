@@ -1,0 +1,7 @@
+# Apps that draw their own minimize/maximize/close buttons (and can't be told
+# to drop them), so Overtake Mode doesn't add its title bar on top. Their own
+# buttons still work: minimize and maximize requests are caught, and dragging
+# them near the top of the screen shows the snap layouts.
+# One window class per line (a regular expression). Find a window's class with:
+#   hyprctl activewindow -j | jq -r .class
+^discord$

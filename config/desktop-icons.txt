@@ -1,0 +1,10 @@
+# Desktop icons shown in Overtake Mode, top to bottom. One per line:
+#   <desktop entry id> | <label>
+# The id is the .desktop file name without ".desktop" (see ~/.local/share/applications
+# and /usr/share/applications). Built in: "trash", "browser" (your default
+# browser) and "terminal" (your default terminal). Apps that aren't installed
+# are skipped. The label is optional.
+trash | Trash
+org.gnome.Nautilus | Files
+browser | Browser
+terminal | Terminal

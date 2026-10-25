@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "id": "overtake.taskbar",
+  "name": "Overtake taskbar",
+  "version": "1.0.0",
+  "author": "Gleasonmt",
+  "description": "Taskbar, Start menu, window controls and desktop icons for Overtake Mode",
+  "kinds": [
+    "service",
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "Taskbar.qml",
+    "service": "Service.qml"
+  },
+  "barWidget": {
+    "displayName": "Overtake taskbar",
+    "description": "Start button, pinned apps and open windows across all workspaces",
+    "category": "Compositor",
+    "allowMultiple": false,
+    "defaultSection": "center"
+  }
+}

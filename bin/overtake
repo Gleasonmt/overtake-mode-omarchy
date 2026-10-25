@@ -1,0 +1,590 @@
+#!/bin/bash
+# Switch Omarchy between its own layout and Overtake Mode, a classic desktop: bottom taskbar
+# (overtake.taskbar), a date-and-time clock, familiar shortcuts (~/.config/hypr/overtake.lua)
+# and a wallpaper slideshow.
+#
+#   overtake on|off|toggle|status
+#   overtake show-desktop     # SUPER+D: jump to an empty workspace and back
+#   overtake next-wallpaper   # SUPER+CTRL+ALT+SPACE: next slideshow wallpaper
+#   overtake wallpaper-mode [rotate|day-night]   # pick or print the slideshow mode
+#   overtake minimize|maximize|close [address]  # active window when no address
+#   overtake restore <address> | restore-all
+#   overtake show <address>   # taskbar click: bring on screen if needed, then focus
+#   overtake float-all        # float any tiled window (floating ones always cover tiled ones)
+#   overtake remember | relayout  # record window places; restore them after a screen change
+#   overtake rescue           # move floating windows no screen shows back into view
+#   overtake snap <left|right|top-left|top-right|bottom-left|bottom-right|full> [address]
+#   overtake unsnap <address> # back to the size it had before snapping
+#   overtake start [quick]    # Super+S / Super+X: open the Start menu or its quick-link menu
+#   overtake settings [page]  # Super+I: the Settings window (system, bluetooth, network, ...)
+#   overtake snap-layouts     # SUPER+Z: show the snap layouts for the focused window
+#   overtake resume           # at login: restart the slideshow if the mode is on
+
+set -euo pipefail
+
+SHELL_JSON="$HOME/.config/omarchy/shell.json"
+STATE_DIR="$HOME/.local/state/overtake"
+FLAG="$STATE_DIR/enabled"
+SAVED_BAR="$STATE_DIR/omarchy-bar.json"
+DESKTOP_RETURN="$STATE_DIR/desktop-return"
+
+SLIDESHOW_DIR="$HOME/Pictures/overtake/slideshow"
+SLIDESHOW_MINUTES=15
+CURRENT_BG="$HOME/.local/state/omarchy/current/background"
+SAVED_BG="$STATE_DIR/omarchy-background"
+SLIDE_INDEX="$STATE_DIR/slide-index"
+SLIDESHOW_PID="$STATE_DIR/slideshow.pid"
+WALLPAPER_MODE_FILE="$STATE_DIR/wallpaper-mode"
+MINIMIZED="$STATE_DIR/minimized.json"
+LAYOUT="$STATE_DIR/layout.json"     # each floating window's place as fractions of its screen
+ZONES="$STATE_DIR/zones.json"       # snapped windows: address -> {ws, zone, restore: [w, h]}
+FLOATED="$STATE_DIR/floated.json"   # windows Overtake Mode made float, to tile again on off
+TASKBAR_SETTINGS="$STATE_DIR/taskbar-settings.json"  # taskbar pins etc., kept while the mode is off
+SAVED_GTK_BUTTONS="$STATE_DIR/gtk-button-layout"  # GTK apps' own title-bar buttons, restored on off
+SNAP_GAP=12
+SNAP_TITLE_BAR=32                   # room left above a snapped window for its title bar
+SNAP_STACK_MAX=3
+DAY_IMAGE="$SLIDESHOW_DIR/1-hills-day.png"
+NIGHT_IMAGE="$SLIDESHOW_DIR/2-hills-night.png"
+
+WINDOWS_BAR='{
+  "position": "bottom",
+  "transparent": false,
+  "centerAnchor": "overtake.workspaces",
+  "layout": {
+    "left": [{ "id": "overtake.taskbar", "iconSize": 22 }],
+    "center": [{ "id": "overtake.workspaces" }],
+    "right": [
+      { "id": "omarchy.system-update" },
+      { "id": "omarchy.tray" },
+      { "id": "omarchy.agents" },
+      { "id": "omarchy.keyboard-layout" },
+      { "id": "overtake.bluetooth" },
+      { "id": "omarchy.network" },
+      { "id": "overtake.audio" },
+      { "id": "omarchy.power" },
+      { "id": "omarchy.clock", "format": "h:mm AP   M/d/yyyy", "formatAlt": "dddd, MMMM d, yyyy", "verticalFormat": "h\n—\nmm" },
+      { "id": "omarchy.indicators" }
+    ]
+  }
+}'
+
+SHELL_TOML="$HOME/.config/omarchy/shell.toml"
+TOML_BEGIN="# >>> overtake (managed by ~/.local/bin/overtake)"
+TOML_END="# <<< overtake"
+
+notify() { omarchy-notification-send -g "$1" "$2" >/dev/null 2>&1 || true; }
+
+# Taller taskbar (Omarchy default is 26), kept in a marked block
+# of the machine-level shell.toml so turning the mode off removes exactly it.
+add_bar_size() {
+  remove_bar_size
+  printf '%s\n[bar]\nsize-horizontal = 40\nicon-font = 15\n%s\n' "$TOML_BEGIN" "$TOML_END" >>"$SHELL_TOML"
+}
+
+remove_bar_size() {
+  [[ -f $SHELL_TOML ]] || return 0
+  local tmp
+  tmp=$(mktemp)
+  awk -v b="$TOML_BEGIN" -v e="$TOML_END" '$0 == b { skip = 1 } !skip { print } $0 == e { skip = 0 }' "$SHELL_TOML" >"$tmp"
+  cat "$tmp" >"$SHELL_TOML"
+  rm -f "$tmp"
+}
+
+# Rewrite shell.json in place (not a rename) so the shell's file watcher sees it.
+set_bar() {
+  local tmp
+  tmp=$(mktemp)
+  jq --argjson bar "$1" '.bar = $bar' "$SHELL_JSON" >"$tmp"
+  cat "$tmp" >"$SHELL_JSON"
+  rm -f "$tmp"
+}
+
+next_wallpaper() {
+  local slides=() index=-1
+  shopt -s nullglob
+  slides=("$SLIDESHOW_DIR"/*)
+  shopt -u nullglob
+  (( ${#slides[@]} )) || return 0
+  [[ -s $SLIDE_INDEX ]] && index=$(<"$SLIDE_INDEX")
+  index=$(( (index + 1) % ${#slides[@]} ))
+  echo "$index" >"$SLIDE_INDEX"
+  omarchy-theme-bg-set "${slides[$index]}" >/dev/null 2>&1 || true
+}
+
+wallpaper_mode() {
+  [[ -s $WALLPAPER_MODE_FILE ]] && cat "$WALLPAPER_MODE_FILE" || echo rotate
+}
+
+# Today's sunrise and sunset as HHMM, from wttr.in's IP-located astronomy data
+# (the same source Omarchy's weather widget uses), cached per day. Falls back to
+# 07:00/19:00 when offline.
+sun_times() {
+  local cache="$STATE_DIR/sun-$(date +%F)" times
+  if [[ ! -s $cache ]]; then
+    rm -f "$STATE_DIR"/sun-*
+    times=$(curl -fsS --max-time 8 'https://wttr.in/?format=j1' 2>/dev/null |
+      jq -r '.weather[0].astronomy[0] | "\(.sunrise)|\(.sunset)"' 2>/dev/null) || true
+    if [[ $times == *"|"* ]]; then
+      echo "$(date -d "${times%%|*}" +%H%M) $(date -d "${times##*|}" +%H%M)" >"$cache"
+    else
+      echo "0700 1900"
+      return
+    fi
+  fi
+  cat "$cache"
+}
+
+apply_day_night() {
+  local sunrise sunset now image
+  read -r sunrise sunset < <(sun_times)
+  now=$(date +%H%M)
+  if (( 10#$now >= 10#$sunrise && 10#$now < 10#$sunset )); then image=$DAY_IMAGE; else image=$NIGHT_IMAGE; fi
+  [[ $(readlink -f "$CURRENT_BG") == "$(readlink -f "$image")" ]] || omarchy-theme-bg-set "$image" >/dev/null 2>&1 || true
+}
+
+refresh_wallpaper() {
+  if [[ $(wallpaper_mode) == day-night ]]; then apply_day_night; else next_wallpaper; fi
+}
+
+set_wallpaper_mode() {
+  case "$1" in
+    rotate | day-night) ;;
+    *) echo "Usage: overtake wallpaper-mode [rotate|day-night]" >&2; exit 1 ;;
+  esac
+  mkdir -p "$STATE_DIR"
+  echo "$1" >"$WALLPAPER_MODE_FILE"
+  if [[ -f $FLAG ]]; then
+    refresh_wallpaper
+    start_slideshow
+  fi
+  [[ $1 == day-night ]] && notify $'' "Wallpaper: Day & Night (follows sunrise and sunset)" ||
+    notify $'' "Wallpaper: Rotate (every $SLIDESHOW_MINUTES minutes)"
+}
+
+stop_slideshow() {
+  if [[ -s $SLIDESHOW_PID ]] && kill -0 "$(<"$SLIDESHOW_PID")" 2>/dev/null; then
+    kill "$(<"$SLIDESHOW_PID")" 2>/dev/null || true
+  fi
+  rm -f "$SLIDESHOW_PID"
+}
+
+start_slideshow() {
+  stop_slideshow
+  setsid overtake slideshow-loop </dev/null >/dev/null 2>&1 &
+  echo $! >"$SLIDESHOW_PID"
+}
+
+# Rotate changes the picture every SLIDESHOW_MINUTES; Day & Night only checks
+# every 5 minutes whether the sun has come up or gone down.
+slideshow_loop() {
+  while [[ -f $FLAG ]]; do
+    if [[ $(wallpaper_mode) == day-night ]]; then
+      sleep 300 && [[ -f $FLAG ]] && apply_day_night
+    else
+      sleep $(( SLIDESHOW_MINUTES * 60 )) && [[ -f $FLAG ]] && next_wallpaper
+    fi
+  done
+}
+
+turn_on() {
+  [[ -f $FLAG ]] && { echo "Overtake Mode is already on"; return; }
+  mkdir -p "$STATE_DIR"
+  jq '.bar' "$SHELL_JSON" >"$SAVED_BAR"
+  readlink -f "$CURRENT_BG" >"$SAVED_BG" 2>/dev/null || true
+  # Keep the user's own battery widget if their Omarchy bar has a custom one
+  # (a clone of omarchy.power), and the taskbar's settings (pinned apps) from
+  # last time.
+  local bar power
+  power=$(jq -r '[.. | .id? // empty | select(test("\\.power$"))][0] // "omarchy.power"' "$SAVED_BAR")
+  bar=$(jq --arg p "$power" '(.layout.right[] | select(.id == "omarchy.power") | .id) = $p' <<<"$WINDOWS_BAR")
+  # A patched widget the installer had to skip: use Omarchy's own.
+  local widget
+  for widget in workspaces bluetooth audio; do
+    [[ -d $HOME/.config/omarchy/plugins/overtake.$widget ]] && continue
+    bar=$(jq --arg from "overtake.$widget" --arg to "omarchy.$widget" \
+      '(.. | objects | select(.id? == $from) | .id) = $to | if .centerAnchor == $from then .centerAnchor = $to else . end' <<<"$bar")
+  done
+  [[ -s $TASKBAR_SETTINGS ]] && bar=$(jq --slurpfile t "$TASKBAR_SETTINGS" '.layout.left = [$t[0]]' <<<"$bar")
+  set_bar "$bar"
+  add_bar_size
+  touch "$FLAG" "$STATE_DIR/snap-request"
+  refresh_wallpaper
+  start_slideshow
+  float_all
+  # Back to their sections and places from last time, once the bar has moved.
+  setsid sh -c 'sleep 2; overtake relayout all' </dev/null >/dev/null 2>&1 &
+  # GTK apps (Files etc.) drop their own close button; Overtake Mode's title bar has one.
+  gsettings get org.gnome.desktop.wm.preferences button-layout >"$SAVED_GTK_BUTTONS" 2>/dev/null || true
+  gsettings set org.gnome.desktop.wm.preferences button-layout 'appmenu:' 2>/dev/null || true
+  hyprctl reload >/dev/null
+  notify $'\uf0ec' "Overtake Mode on (Super+Ctrl+Shift+W to switch back)"
+}
+
+turn_off() {
+  [[ -f $FLAG ]] || { echo "Overtake Mode is already off"; return; }
+  jq '[.bar.layout[][]? | select(.id == "overtake.taskbar")][0] // empty' "$SHELL_JSON" >"$TASKBAR_SETTINGS.tmp" \
+    && [[ -s $TASKBAR_SETTINGS.tmp ]] && mv "$TASKBAR_SETTINGS.tmp" "$TASKBAR_SETTINGS" || rm -f "$TASKBAR_SETTINGS.tmp"
+  [[ -s $SAVED_BAR ]] && set_bar "$(cat "$SAVED_BAR")"
+  remove_bar_size
+  rm -f "$FLAG" "$DESKTOP_RETURN"
+  restore_all
+  tile_all
+  if [[ -s $SAVED_GTK_BUTTONS ]]; then
+    gsettings set org.gnome.desktop.wm.preferences button-layout "$(tr -d "'" <"$SAVED_GTK_BUTTONS")" 2>/dev/null || true
+    rm -f "$SAVED_GTK_BUTTONS"
+  fi
+  stop_slideshow
+  [[ -s $SAVED_BG && -f $(<"$SAVED_BG") ]] && omarchy-theme-bg-set "$(<"$SAVED_BG")" >/dev/null 2>&1 || true
+  hyprctl reload >/dev/null
+  notify $'\uf0ec' "Overtake Mode off"
+}
+
+# Window controls. Minimized windows wait on the hidden special:minimized
+# workspace; minimized.json remembers where each one came from.
+window_address() {
+  if [[ -n ${1:-} ]]; then echo "$1"; else hyprctl activewindow -j | jq -r '.address // empty'; fi
+}
+
+window_workspace() {
+  hyprctl clients -j | jq -r --arg a "$1" '.[] | select(.address == $a) | .workspace.name'
+}
+
+minimize_window() {
+  local addr ws
+  addr=$(window_address "${1:-}")
+  [[ -n $addr ]] || return 0
+  ws=$(window_workspace "$addr")
+  [[ -n $ws && $ws != special:* ]] || return 0
+  mkdir -p "$STATE_DIR"
+  [[ -s $MINIMIZED ]] || echo '{}' >"$MINIMIZED"
+  jq --arg a "$addr" --arg w "$ws" '.[$a] = $w' "$MINIMIZED" >"$MINIMIZED.tmp" && mv "$MINIMIZED.tmp" "$MINIMIZED"
+  hyprctl dispatch "hl.dsp.window.move({ workspace = \"special:minimized\", follow = false, window = \"address:$addr\" })" >/dev/null
+}
+
+# $2 = "follow" to switch to the window's workspace and focus it.
+restore_window() {
+  local addr=$1 follow=${2:-follow} ws=""
+  # Back to the workspace it was minimized from (or, failing that, the last
+  # one the layout record saw it on), not the one being looked at.
+  [[ -s $MINIMIZED ]] && ws=$(jq -r --arg a "$addr" '.[$a] // empty' "$MINIMIZED")
+  [[ -n $ws || ! -s $LAYOUT ]] || ws=$(jq -r --arg a "$addr" '.[$a].ws // empty' "$LAYOUT")
+  [[ -n $ws ]] || ws=$(hyprctl activeworkspace -j | jq -r '.name')
+  if [[ $follow == follow ]]; then
+    hyprctl dispatch "hl.dsp.window.move({ workspace = \"$ws\", follow = true, window = \"address:$addr\" })" >/dev/null
+    focus_raise "$addr"
+  else
+    hyprctl dispatch "hl.dsp.window.move({ workspace = \"$ws\", follow = false, window = \"address:$addr\" })" >/dev/null
+  fi
+  if [[ -s $MINIMIZED ]]; then
+    jq --arg a "$addr" 'del(.[$a])' "$MINIMIZED" >"$MINIMIZED.tmp" && mv "$MINIMIZED.tmp" "$MINIMIZED"
+  fi
+  bring_into_view "$addr"
+}
+
+# A floating window keeps its position when a screen goes away (closing the
+# lid, undocking), so it can end up where no screen shows it. Move such a
+# window to the middle of its monitor, shrunk to fit if it's too big.
+bring_into_view() {
+  local addr=$1 info monitors
+  info=$(hyprctl clients -j | jq -c --arg a "$addr" '.[] | select(.address == $a)')
+  [[ -n $info ]] || return 0
+  [[ $(jq -r '.floating and .fullscreen == 0 and (.workspace.name | startswith("special:") | not)' <<<"$info") == true ]] || return 0
+  monitors=$(hyprctl monitors -j)
+  # Visible enough: at least 120x48 of it on some screen.
+  jq -e --argjson w "$info" 'any(.[];
+      ([$w.at[0] + $w.size[0], .x + .width / .scale] | min) - ([$w.at[0], .x] | max) >= 120 and
+      ([$w.at[1] + $w.size[1], .y + .height / .scale] | min) - ([$w.at[1], .y] | max) >= 48)' \
+    <<<"$monitors" >/dev/null && return 0
+
+  local mx my mw mh rl rt rr rb
+  read -r mx my mw mh rl rt rr rb < <(jq -r --argjson id "$(jq .monitor <<<"$info")" \
+    '(map(select(.id == $id)) + map(select(.focused)) + .)[0]
+     | "\(.x) \(.y) \((.width / .scale) | floor) \((.height / .scale) | floor) \(.reserved | join(" "))"' <<<"$monitors")
+  local uw=$((mw - rl - rr)) uh=$((mh - rt - rb - SNAP_TITLE_BAR))
+  local w h
+  w=$(jq .size[0] <<<"$info") h=$(jq .size[1] <<<"$info")
+  (( w > uw * 9 / 10 )) && w=$((uw * 9 / 10))
+  (( h > uh * 9 / 10 )) && h=$((uh * 9 / 10))
+  local x=$((mx + rl + (uw - w) / 2)) y=$((my + rt + SNAP_TITLE_BAR + (uh - h) / 2))
+  hyprctl dispatch "hl.dsp.window.resize({ x = $w, y = $h, relative = false, window = \"address:$addr\" })" >/dev/null
+  hyprctl dispatch "hl.dsp.window.move({ x = $x, y = $y, relative = false, window = \"address:$addr\" })" >/dev/null
+}
+
+# Screens coming and going (dock, lid) leave floating windows at their old
+# absolute positions. `remember` (run every few seconds by the taskbar plugin)
+# records each window's place as fractions of its screen's usable area;
+# `relayout` (run after a screen change) puts snapped windows back in their
+# zone and the rest at the same fractions of the screen they're on now.
+USABLE_JQ='def usable: {name, x: (.x + .reserved[0]), y: (.y + .reserved[1]),
+  w: ((.width / .scale | floor) - .reserved[0] - .reserved[2]),
+  h: ((.height / .scale | floor) - .reserved[1] - .reserved[3])};'
+
+remember_layout() {
+  local clients monitors
+  clients=$(hyprctl clients -j) monitors=$(hyprctl monitors -j)
+  mkdir -p "$STATE_DIR"
+  [[ -s $LAYOUT ]] || echo '{}' >"$LAYOUT"
+  # Only windows whose centre is on their own screen (skips ones a screen change
+  # has just stranded), merged over the old records; closed windows dropped.
+  jq --argjson clients "$clients" --argjson monitors "$monitors" "$USABLE_JQ"'
+    ($monitors | map({key: (.id | tostring), value: usable}) | from_entries) as $m
+    | ([$clients[] | .address]) as $live
+    | (with_entries(select(.key as $k | $live | index($k))))
+      + ([$clients[] | select(.floating and .fullscreen == 0 and .workspace.id > 0)
+          | . as $c | $m[(.monitor | tostring)] as $u | select($u != null)
+          | (.at[0] + .size[0] / 2) as $cx | (.at[1] + .size[1] / 2) as $cy
+          | select($cx >= $u.x and $cx < $u.x + $u.w and $cy >= $u.y and $cy < $u.y + $u.h)
+          | {key: .address, value: {mon: $u.name, uw: $u.w, uh: $u.h, ws: $c.workspace.name,
+              fx: (($c.at[0] - $u.x) / $u.w), fy: (($c.at[1] - $u.y) / $u.h),
+              fw: ($c.size[0] / $u.w), fh: ($c.size[1] / $u.h)}}] | from_entries)
+  ' "$LAYOUT" >"$LAYOUT.tmp" && mv "$LAYOUT.tmp" "$LAYOUT"
+}
+
+# relayout [all]: "all" puts every recorded window back (used by `on`, when
+# windows come back from tiling), not just the ones on a changed screen.
+relayout() {
+  local clients monitors addr zone cmds all=false
+  mark_arranging
+  [[ ${1:-} == all ]] && all=true
+  clients=$(hyprctl clients -j) monitors=$(hyprctl monitors -j)
+  # Snapped windows: back into their zone on whatever screen they're on now.
+  if [[ -s $ZONES ]]; then
+    while read -r addr zone; do
+      [[ -n $addr ]] && SNAP_NO_FOCUS=1 snap_window "$zone" "$addr"
+    done < <(jq -r --argjson clients "$clients" '
+      to_entries[] | .key as $a | select(any($clients[]; .address == $a and .floating and .fullscreen == 0 and .workspace.id > 0))
+      | "\(.key) \(.value.zone)"' "$ZONES")
+  fi
+  # Everything else: same fractions of its current screen, if that screen is a
+  # different one (or a different size) from when it was recorded. Any window
+  # is then kept inside its screen (shrunk if it's bigger).
+  [[ -s $LAYOUT ]] || echo '{}' >"$LAYOUT"
+  cmds=$(jq -r --argjson all "$all" --argjson clients "$clients" --argjson monitors "$monitors" --slurpfile zones <(cat "$ZONES" 2>/dev/null || echo '{}') "$USABLE_JQ"'
+    ($monitors | map({key: (.id | tostring), value: usable}) | from_entries) as $m
+    | . as $rec
+    | $clients[] | select(.floating and .fullscreen == 0 and .workspace.id > 0)
+    | select(($zones[0] // {})[.address] == null)
+    | $m[(.monitor | tostring)] as $u | select($u != null)
+    | ($rec[.address] // null) as $r
+    | ($r != null and ($all or $r.mon != $u.name or $r.uw != $u.w or $r.uh != $u.h)) as $moved
+    | (if $moved then [$r.fx * $u.w + $u.x, $r.fy * $u.h + $u.y, $r.fw * $u.w, $r.fh * $u.h]
+       else [.at[0], .at[1], .size[0], .size[1]] end | map(floor)) as $g
+    | ([[$g[2], $u.w] | min, 200] | max) as $w | ([[$g[3], $u.h] | min, 120] | max) as $h
+    | ([[$g[0], $u.x + $u.w - $w] | min, $u.x] | max) as $x | ([[$g[1], $u.y + $u.h - $h] | min, $u.y] | max) as $y
+    | select($moved or $w != .size[0] or $h != .size[1] or $x != .at[0] or $y != .at[1])
+    | "dispatch hl.dsp.window.resize({ x = \($w), y = \($h), relative = false, window = \"address:\(.address)\" }) ; " +
+      "dispatch hl.dsp.window.move({ x = \($x), y = \($y), relative = false, window = \"address:\(.address)\" })"
+  ' "$LAYOUT" | paste -sd ';')
+  [[ -z $cmds ]] || hyprctl --batch "$cmds" >/dev/null
+  rescue_all
+  remember_layout
+}
+
+rescue_all() {
+  local addr
+  mark_arranging
+  for addr in $(hyprctl clients -j | jq -r '.[] | select(.floating and (.workspace.name | startswith("special:") | not)) | .address'); do
+    bring_into_view "$addr"
+  done
+}
+
+# Taskbar click or title-bar tab: bring the window back on screen if needed,
+# then focus it (switching to its workspace).
+# Raise it too: focus alone leaves a floating window under the one covering it,
+# and focus-follows-mouse then hands focus straight back to the top one.
+show_window() {
+  bring_into_view "$1"
+  focus_raise "$1"
+}
+
+# Focus and raise without moving the mouse (Hyprland normally warps the cursor
+# to the window it focuses; a click shouldn't move the pointer).
+focus_raise() {
+  hyprctl --batch "eval hl.config({ cursor = { no_warps = true } }) ; dispatch hl.dsp.focus({ window = \"address:$1\" }) ; dispatch hl.dsp.window.bring_to_top() ; eval hl.config({ cursor = { no_warps = false } })" >/dev/null
+}
+
+restore_all() {
+  local addr
+  for addr in $(hyprctl clients -j | jq -r '.[] | select(.workspace.name == "special:minimized") | .address'); do
+    restore_window "$addr" stay
+  done
+}
+
+maximize_window() {
+  local addr
+  addr=$(window_address "${1:-}")
+  [[ -n $addr ]] && hyprctl dispatch "hl.dsp.window.fullscreen({ mode = \"maximized\", window = \"address:$addr\" })" >/dev/null
+}
+
+close_window() {
+  local addr
+  addr=$(window_address "${1:-}")
+  [[ -n $addr ]] && hyprctl dispatch "hl.dsp.window.close({ window = \"address:$addr\" })" >/dev/null
+}
+
+# ---------- Floating and snap layouts ----------
+json_set() {  # json_set <file> <jq filter> [jq args...]
+  local file=$1 filter=$2
+  shift 2
+  [[ -s $file ]] || echo '{}' >"$file"
+  jq "$@" "$filter" "$file" >"$file.tmp" && mv "$file.tmp" "$file"
+}
+
+float_all() {
+  local addr floated=()
+  mark_arranging
+  mkdir -p "$STATE_DIR"
+  for addr in $(hyprctl clients -j | jq -r '.[] | select(.workspace.id > 0 and .floating == false) | .address'); do
+    hyprctl dispatch "hl.dsp.window.float({ action = \"enable\", window = \"address:$addr\" })" >/dev/null
+    floated+=("$addr")
+  done
+  # Run again later (a window that became tiled), so add to the list rather
+  # than replace it.
+  [[ -s $FLOATED ]] || echo '[]' >"$FLOATED"
+  jq --argjson new "$(jq -n '$ARGS.positional' --args "${floated[@]}")" '. + $new | unique' "$FLOATED" >"$FLOATED.tmp" \
+    && mv "$FLOATED.tmp" "$FLOATED"
+}
+
+tile_all() {
+  local addr
+  [[ -s $FLOATED ]] || return 0
+  for addr in $(jq -r '.[]' "$FLOATED"); do
+    hyprctl dispatch "hl.dsp.window.float({ action = \"disable\", window = \"address:$addr\" })" >/dev/null 2>&1 || true
+  done
+  # Zones are kept: `on` puts snapped windows back in them.
+  rm -f "$FLOATED"
+}
+
+# Overtake is about to move windows itself. The title-bar plugin watches the
+# focused window for drags an app makes on its own; this stamp tells it to
+# ignore movement for a moment, so our own arranging isn't taken for a drag
+# out of a zone (which would unsnap it).
+mark_arranging() {
+  mkdir -p "$STATE_DIR"
+  date +%s%N >"$STATE_DIR/arranging"
+}
+
+snap_window() {
+  local zone=$1 addr info ws mon count
+  addr=$(window_address "${2:-}")
+  [[ -n $addr ]] || return 0
+  info=$(hyprctl clients -j | jq -c --arg a "$addr" '.[] | select(.address == $a)')
+  [[ -n $info ]] || return 0
+  ws=$(jq -r .workspace.name <<<"$info")
+  mon=$(jq -r .monitor <<<"$info")
+  mkdir -p "$STATE_DIR"
+
+  # Forget windows that have closed, then respect the per-zone stack limit.
+  json_set "$ZONES" 'with_entries(select(.key as $k | $live | index($k)))' \
+    --argjson live "$(hyprctl clients -j | jq '[.[].address]')"
+  count=$(jq --arg ws "$ws" --arg z "$zone" --arg a "$addr" \
+    '[to_entries[] | select(.value.ws == $ws and .value.zone == $z and .key != $a)] | length' "$ZONES")
+  if (( count >= SNAP_STACK_MAX )); then
+    notify $'' "That spot already has $SNAP_STACK_MAX windows"
+    return 0
+  fi
+
+  # Usable area of the window's monitor (logical pixels, minus the taskbar).
+  local mx my mw mh rl rt rr rb
+  read -r mx my mw mh rl rt rr rb < <(hyprctl monitors -j | jq -r --argjson id "$mon" \
+    '.[] | select(.id == $id) | "\(.x) \(.y) \((.width / .scale) | floor) \((.height / .scale) | floor) \(.reserved | join(" "))"')
+  local ux=$((mx + rl + SNAP_GAP)) uy=$((my + rt + SNAP_GAP))
+  local uw=$((mw - rl - rr - 2 * SNAP_GAP)) uh=$((mh - rt - rb - 2 * SNAP_GAP))
+  local hw=$(((uw - SNAP_GAP) / 2)) hh=$(((uh - SNAP_GAP) / 2))
+  local x y w h
+  case "$zone" in
+    left) x=$ux y=$uy w=$hw h=$uh ;;
+    right) x=$((ux + hw + SNAP_GAP)) y=$uy w=$hw h=$uh ;;
+    top-left) x=$ux y=$uy w=$hw h=$hh ;;
+    top-right) x=$((ux + hw + SNAP_GAP)) y=$uy w=$hw h=$hh ;;
+    bottom-left) x=$ux y=$((uy + hh + SNAP_GAP)) w=$hw h=$hh ;;
+    bottom-right) x=$((ux + hw + SNAP_GAP)) y=$((uy + hh + SNAP_GAP)) w=$hw h=$hh ;;
+    full) x=$ux y=$uy w=$uw h=$uh ;;
+    *) echo "Unknown zone: $zone" >&2; return 1 ;;
+  esac
+  y=$((y + SNAP_TITLE_BAR))
+  h=$((h - SNAP_TITLE_BAR))
+  mark_arranging
+
+  [[ $(jq -r .fullscreen <<<"$info") != 0 ]] && hyprctl dispatch "hl.dsp.window.fullscreen({ mode = \"maximized\", window = \"address:$addr\" })" >/dev/null
+  [[ $(jq -r .floating <<<"$info") == true ]] || hyprctl dispatch "hl.dsp.window.float({ action = \"enable\", window = \"address:$addr\" })" >/dev/null
+  hyprctl dispatch "hl.dsp.window.resize({ x = $w, y = $h, relative = false, window = \"address:$addr\" })" >/dev/null
+  hyprctl dispatch "hl.dsp.window.move({ x = $x, y = $y, relative = false, window = \"address:$addr\" })" >/dev/null
+  [[ -n ${SNAP_NO_FOCUS:-} ]] || hyprctl dispatch "hl.dsp.focus({ window = \"address:$addr\" })" >/dev/null
+
+  # Remember the pre-snap size (only the first time) so dragging it out restores it.
+  json_set "$ZONES" '.[$a] = {ws: $ws, zone: $z, restore: (.[$a].restore // $size)}' \
+    --arg a "$addr" --arg ws "$ws" --arg z "$zone" --argjson size "$(jq -c .size <<<"$info")"
+}
+
+# Dragged out of its zone: back to the pre-snap size (at most 70% of the
+# screen), keeping its top-left where it was dropped.
+unsnap_window() {
+  local addr=$1 size info w h x y mw mh
+  [[ -s $ZONES ]] || return 0
+  size=$(jq -r --arg a "$addr" '.[$a].restore // empty | "\(.[0]) \(.[1])"' "$ZONES")
+  json_set "$ZONES" 'del(.[$a])' --arg a "$addr"
+  [[ -n $size ]] || return 0
+  info=$(hyprctl clients -j | jq -c --arg a "$addr" '.[] | select(.address == $a)')
+  [[ -n $info ]] || return 0
+  mark_arranging
+  read -r x y < <(jq -r '"\(.at[0]) \(.at[1])"' <<<"$info")
+  read -r mw mh < <(hyprctl monitors -j | jq -r --argjson id "$(jq .monitor <<<"$info")" \
+    '.[] | select(.id == $id) | "\((.width / .scale) | floor) \((.height / .scale) | floor)"')
+  w=${size% *} h=${size#* }
+  (( w > mw * 7 / 10 )) && w=$((mw * 7 / 10))
+  (( h > mh * 7 / 10 )) && h=$((mh * 7 / 10))
+  hyprctl dispatch "hl.dsp.window.resize({ x = $w, y = $h, relative = false, window = \"address:$addr\" })" >/dev/null
+  hyprctl dispatch "hl.dsp.window.move({ x = $x, y = $y, relative = false, window = \"address:$addr\" })" >/dev/null
+}
+
+show_desktop() {
+  local current windows
+  current=$(hyprctl activeworkspace -j | jq -r '.id')
+  windows=$(hyprctl activeworkspace -j | jq -r '.windows')
+  if (( windows > 0 )); then
+    mkdir -p "$STATE_DIR"
+    echo "$current" >"$DESKTOP_RETURN"
+    hyprctl dispatch 'hl.dsp.focus({ workspace = "empty" })' >/dev/null
+  elif [[ -f $DESKTOP_RETURN ]]; then
+    hyprctl dispatch "hl.dsp.focus({ workspace = \"$(cat "$DESKTOP_RETURN")\" })" >/dev/null
+    rm -f "$DESKTOP_RETURN"
+  fi
+}
+
+usage() {
+  sed -n '2,/^$/p' "$0" | sed 's/^# \{0,1\}//'
+}
+
+case "${1:-help}" in
+  help|-h|--help) usage ;;
+  on) turn_on ;;
+  off) turn_off ;;
+  toggle) if [[ -f $FLAG ]]; then turn_off; else turn_on; fi ;;
+  status) [[ -f $FLAG ]] && echo on || echo off ;;
+  show-desktop) show_desktop ;;
+  next-wallpaper)
+    if [[ ! -f $FLAG ]]; then :
+    elif [[ $(wallpaper_mode) == day-night ]]; then notify $'' "Day & Night wallpaper follows the sun (switch to Rotate in the Overtake Mode menu)"
+    else next_wallpaper; fi ;;
+  wallpaper-mode) if [[ -n ${2:-} ]]; then set_wallpaper_mode "$2"; else wallpaper_mode; fi ;;
+  resume) if [[ -f $FLAG ]]; then [[ $(wallpaper_mode) == day-night ]] && apply_day_night; start_slideshow; float_all; rescue_all; fi ;;
+  slideshow-loop) slideshow_loop ;;
+  minimize) minimize_window "${2:-}" ;;
+  restore) [[ -n ${2:-} ]] && restore_window "$2" || true ;;
+  restore-all) restore_all ;;
+  show) [[ -n ${2:-} ]] && show_window "$2" || true ;;
+  rescue) rescue_all ;;
+  remember) [[ -f $FLAG ]] && remember_layout || true ;;
+  relayout) [[ -f $FLAG ]] && relayout "${2:-}" || true ;;
+  float-all) [[ -f $FLAG ]] && float_all || true ;;
+  maximize) maximize_window "${2:-}" ;;
+  close) close_window "${2:-}" ;;
+  snap) [[ -n ${2:-} ]] && snap_window "$2" "${3:-}" || true ;;
+  unsnap) [[ -n ${2:-} ]] && unsnap_window "$2" || true ;;
+  snap-layouts) mkdir -p "$STATE_DIR"; date +%s%N >"$STATE_DIR/snap-request" ;;
+  start) mkdir -p "$STATE_DIR"; echo "${2:-start} $(date +%s%N)" >"$STATE_DIR/start-request" ;;
+  settings) mkdir -p "$STATE_DIR"; echo "${2:-open} $(date +%s%N)" >"$STATE_DIR/settings-request" ;;
+  *) usage >&2; exit 1 ;;
+esac

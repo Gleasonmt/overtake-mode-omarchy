@@ -1,0 +1,9 @@
+  // Overtake Mode: switch between Omarchy's own desktop and Overtake Mode
+  // (~/.local/bin/overtake, plugin overtake.taskbar).
+  "overtake": {"icon":"\uf0ec","label":"Overtake Mode","description":"Switch between Omarchy and Overtake Mode"},
+  "overtake.omarchy": {"icon":"\uf00a","label":"Omarchy","description":"Tiling windows, top bar, keyboard first","action":"overtake off","checked":"[ \"$(overtake status)\" = off ]"},
+  "overtake.on": {"icon":"\ue900","iconFont":"omarchy","label":"Overtake","description":"Taskbar, Start menu, window buttons and familiar shortcuts","action":"overtake on","checked":"[ \"$(overtake status)\" = on ]"},
+  "overtake.settings": {"icon":"\uf013","label":"Overtake Mode settings","action":"overtake settings overtake","when":"[ \"$(overtake status)\" = on ]"},
+  "overtake.rotate": {"icon":"\uf03e","label":"Wallpaper: Rotate","description":"Cycle all slideshow wallpapers every 15 minutes","action":"overtake wallpaper-mode rotate","checked":"[ \"$(overtake wallpaper-mode)\" = rotate ]","when":"[ \"$(overtake status)\" = on ]"},
+  "overtake.day-night": {"icon":"\uf185","label":"Wallpaper: Day & Night","description":"Day hills while the sun is up, night hills after sunset","action":"overtake wallpaper-mode day-night","checked":"[ \"$(overtake wallpaper-mode)\" = day-night ]","when":"[ \"$(overtake status)\" = on ]"},
+  "overtake.next": {"icon":"\uf051","label":"Next wallpaper","description":"Skip to the next slideshow wallpaper","action":"overtake next-wallpaper","when":"[ \"$(overtake status)\" = on ]"},
