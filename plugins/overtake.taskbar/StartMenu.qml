@@ -5,6 +5,7 @@ import Quickshell.Io
 import qs.Commons
 import qs.Commons as Commons
 import qs.Ui
+import "DesktopList.js" as DesktopList
 
 // Start menu (left-click Start, or `overtake start`) and
 // the Super+X quick-link menu (right-click Start, or `overtake start quick`).
@@ -120,6 +121,25 @@ Item {
         .filter(function(l) { return l && l.charAt(0) !== "#" })
     }
     onLoadFailed: root.pinIds = root.defaultPins
+  }
+
+  // Desktop icons (Add to desktop / Remove from desktop in an app's menu).
+  property string desktopIconsText: ""
+  FileView {
+    id: desktopIconsFile
+    path: root.home + "/.config/overtake/desktop-icons.txt"
+    watchChanges: true
+    printErrors: false
+    onFileChanged: reload()
+    onLoaded: root.desktopIconsText = text()
+  }
+  function toggleDesktop(app) {
+    if (!app) return
+    var next = DesktopList.has(desktopIconsText, app.id)
+      ? DesktopList.remove(desktopIconsText, app.id)
+      : DesktopList.add(desktopIconsText, app.id, app.name)
+    desktopIconsText = next
+    desktopIconsFile.setText(next)
   }
 
   readonly property var pinnedApps: pinIds.map(function(id) { return appsById[id] }).filter(function(a) { return !!a })
@@ -494,6 +514,12 @@ Item {
             glyph: ""
             label: root.contextApp && root.taskbarPinned.indexOf(root.contextApp.id) !== -1 ? "Unpin from taskbar" : "Pin to taskbar"
             onClicked: { root.toggleTaskbarPin(root.contextApp.id); root.contextApp = null }
+          }
+          MenuRow {
+            width: contextColumn.width
+            glyph: "\uf108"
+            label: root.contextApp && DesktopList.has(root.desktopIconsText, root.contextApp.id) ? "Remove from desktop" : "Add to desktop"
+            onClicked: { root.toggleDesktop(root.contextApp); root.contextApp = null }
           }
         }
       }

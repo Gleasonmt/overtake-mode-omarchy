@@ -59,6 +59,11 @@ are never overwritten.
   Power & battery (kept in `~/.config/overtake/battery-alerts.json`). Critical
   ones get through Do Not Disturb. They replace Omarchy's single 10% laptop
   warning while the mode is on; its `battery-low` hook still runs.
+- **Desktop with right-click menus** — right-click an icon to open, pin to
+  Start, rename, move or remove it (and empty the Trash); right-click the
+  desktop for icon size, sort, show/hide icons, add a shortcut (Start → right-
+  click an app → Add to desktop), background, theme, Personalize and Display
+  settings.
 - **Desktop icons**, a **wallpaper slideshow** (rotate every 15 minutes, or
   follow sunrise and sunset), and an **Overtake Mode** entry in the Omarchy menu.
 
