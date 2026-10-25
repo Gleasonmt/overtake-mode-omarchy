@@ -378,7 +378,11 @@ Item {
       if (row.type === "info" || row.type === "choice") valueProbe.exec(["sh", "-c", row.type === "info" ? row.value : row.current])
       if (row.type === "choice") optionsProbe.exec(["sh", "-c", row.options])
       if (row.type === "list") listProbe.exec(["sh", "-c", row.lines])
-      if (row.type === "themes") { themesProbe.exec(["sh", "-c", "omarchy-theme-list"]); valueProbe.exec(["omarchy-theme-current"]) }
+      // themes: "omarchy|<name>" or "custom|<name>" per line, for the two sections
+      if (row.type === "themes") {
+        themesProbe.exec(["sh", "-c", "omarchy-theme-list | while IFS= read -r n; do d=$(printf '%s' \"$n\" | tr 'A-Z ' 'a-z-'); if [ -d \"${OMARCHY_PATH:-/usr/share/omarchy}/themes/$d\" ]; then echo \"omarchy|$n\"; else echo \"custom|$n\"; fi; done"])
+        valueProbe.exec(["omarchy-theme-current"])
+      }
     }
     Component.onCompleted: refresh()
     Timer { id: refreshLater; interval: 900; onTriggered: card.refresh() }
@@ -715,56 +719,91 @@ Item {
           }
         }
 
-        // themes: a gallery of previews
-        Grid {
+        // themes: a gallery of previews in two sections, yours first, then
+        // Omarchy's own; click a section's title to fold it away
+        Column {
           visible: card.row.type === "themes"
           width: parent.width
-          columns: 4
-          spacing: 12
+          spacing: 10
           Repeater {
-            model: card.row.type === "themes" ? card.options : []
-            Item {
+            model: card.row.type === "themes" ? [["custom", "Your themes"], ["omarchy", "Omarchy themes"]] : []
+            Column {
+              id: themeSection
               required property var modelData
-              readonly property string dir: modelData.toLowerCase().replace(/ /g, "-")
-              readonly property bool selected: modelData === card.value
-              width: (content.width - 36) / 4
-              height: width * 0.62 + 26
-              Rectangle {
-                id: frame
-                width: parent.width
-                height: parent.width * 0.62
-                radius: 6
-                color: "transparent"
-                border.width: parent.selected ? 3 : (themeArea.containsMouse ? 2 : 0)
-                border.color: parent.selected ? root.accent : Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.4)
-                Image {
-                  anchors.fill: parent
-                  anchors.margins: 3
-                  fillMode: Image.PreserveAspectCrop
-                  sourceSize.width: 320
-                  asynchronous: true
-                  source: "file:///usr/share/omarchy/themes/" + parent.parent.dir + "/preview.png"
-                  onStatusChanged: if (status === Image.Error) source = "file://" + Quickshell.env("HOME") + "/.config/omarchy/themes/" + parent.parent.dir + "/preview.png"
-                }
-              }
+              readonly property var names: card.options.filter(function(o) { return o.indexOf(modelData[0] + "|") === 0 })
+                .map(function(o) { return o.slice(o.indexOf("|") + 1) })
+              visible: names.length > 0
+              width: parent.width
+              spacing: 8
+              property bool folded: false
               Text {
-                anchors.top: frame.bottom
-                anchors.topMargin: 4
-                width: parent.width
-                horizontalAlignment: Text.AlignHCenter
-                text: modelData
-                elide: Text.ElideRight
+                text: (themeSection.folded ? "\uf054  " : "\uf078  ") + themeSection.modelData[1] + "  ·  " + themeSection.names.length
                 color: root.fg
+                opacity: sectionArea.containsMouse ? 0.9 : 0.6
                 font.family: root.fontFamily
                 font.pixelSize: 12
-                font.bold: parent.selected
+                font.bold: true
+                MouseArea {
+                  id: sectionArea
+                  anchors.fill: parent
+                  anchors.margins: -4
+                  hoverEnabled: true
+                  cursorShape: Qt.PointingHandCursor
+                  onClicked: themeSection.folded = !themeSection.folded
+                }
               }
-              MouseArea {
-                id: themeArea
-                anchors.fill: parent
-                hoverEnabled: true
-                cursorShape: Qt.PointingHandCursor
-                onClicked: { card.act("omarchy-theme-set '" + modelData + "'"); card.value = modelData }
+              Grid {
+                visible: !themeSection.folded
+                width: parent.width
+                columns: 4
+                spacing: 12
+                Repeater {
+                  model: themeSection.names
+                  Item {
+                    required property var modelData   // the theme's name
+                    readonly property string dir: modelData.toLowerCase().replace(/ /g, "-")
+                    readonly property bool selected: modelData === card.value
+                    width: (content.width - 36) / 4
+                    height: width * 0.62 + 26
+                    Rectangle {
+                      id: frame
+                      width: parent.width
+                      height: parent.width * 0.62
+                      radius: 6
+                      color: "transparent"
+                      border.width: parent.selected ? 3 : (themeArea.containsMouse ? 2 : 0)
+                      border.color: parent.selected ? root.accent : Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.4)
+                      Image {
+                        anchors.fill: parent
+                        anchors.margins: 3
+                        fillMode: Image.PreserveAspectCrop
+                        sourceSize.width: 320
+                        asynchronous: true
+                        source: "file:///usr/share/omarchy/themes/" + parent.parent.dir + "/preview.png"
+                        onStatusChanged: if (status === Image.Error) source = "file://" + Quickshell.env("HOME") + "/.config/omarchy/themes/" + parent.parent.dir + "/preview.png"
+                      }
+                    }
+                    Text {
+                      anchors.top: frame.bottom
+                      anchors.topMargin: 4
+                      width: parent.width
+                      horizontalAlignment: Text.AlignHCenter
+                      text: modelData
+                      elide: Text.ElideRight
+                      color: root.fg
+                      font.family: root.fontFamily
+                      font.pixelSize: 12
+                      font.bold: parent.selected
+                    }
+                    MouseArea {
+                      id: themeArea
+                      anchors.fill: parent
+                      hoverEnabled: true
+                      cursorShape: Qt.PointingHandCursor
+                      onClicked: { card.act("omarchy-theme-set '" + modelData + "'"); card.value = modelData }
+                    }
+                  }
+                }
               }
             }
           }

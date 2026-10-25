@@ -59,6 +59,9 @@ are never overwritten.
   Power & battery (kept in `~/.config/overtake/battery-alerts.json`). Critical
   ones get through Do Not Disturb. They replace Omarchy's single 10% laptop
   warning while the mode is on; its `battery-low` hook still runs.
+- **Themes in folders** — Omarchy menu → Style → Theme opens Omarchy themes, Your
+  themes (the ones you added) or All themes, in plain Omarchy too; Settings →
+  Personalization shows your themes first, each section foldable.
 - **Desktop with right-click menus** — right-click an icon to open, pin to
   Start, rename, move or remove it (and empty the Trash); right-click the
   desktop for icon size, sort, show/hide icons, add a shortcut (Start → right-

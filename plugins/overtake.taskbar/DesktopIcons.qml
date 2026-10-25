@@ -170,7 +170,7 @@ Item {
       { separator: true },
       { glyph: "", label: "Next desktop background", run: function() { root.run("overtake next-wallpaper") } },
       { glyph: "", label: "Change background…", run: function() { root.run("background=$(omarchy-theme-bg-switcher); [[ -n $background ]] && omarchy-theme-bg-set \"$background\"") } },
-      { glyph: "", label: "Change theme…", run: function() { root.run("theme=$(omarchy-theme-switcher); [[ -n $theme ]] && omarchy-theme-set \"$theme\"") } },
+      { glyph: "", label: "Change theme…", run: function() { root.run("omarchy-menu toggle theme") } },
       { glyph: "", label: "Personalize", run: function() { root.run("overtake settings personalization") } },
       { glyph: "", label: "Display settings", run: function() { root.run("overtake settings system") } }
     ]

@@ -5,6 +5,7 @@
 #
 #   overtake on|off|toggle|status
 #   overtake show-desktop     # SUPER+D: jump to an empty workspace and back
+#   overtake theme-picker [omarchy|custom|all]  # pick a theme from one folder; prints its name
 #   overtake next-wallpaper   # SUPER+CTRL+ALT+SPACE: next slideshow wallpaper
 #   overtake wallpaper-mode [rotate|day-night]   # pick or print the slideshow mode
 #   overtake minimize|maximize|close [address]  # active window when no address
@@ -608,6 +609,36 @@ show_desktop() {
   fi
 }
 
+# The theme picker by folder (Omarchy menu > Style > Theme): Omarchy's own
+# themes, the ones you added (~/.config/omarchy/themes that aren't Omarchy's),
+# or all of them. Same picker and output as omarchy-theme-switcher.
+theme_picker() {
+  local which=${1:-all}
+  [[ $which == all ]] && exec omarchy-theme-switcher
+  local builtin="${OMARCHY_PATH:-/usr/share/omarchy}/themes" user="$HOME/.config/omarchy/themes"
+  local cache="${XDG_CACHE_HOME:-$HOME/.cache}/overtake/theme-picker/$which"
+  local dirs=() dir name preview selected="" current
+  if [[ $which == omarchy ]]; then
+    for dir in "$builtin"/*/; do dirs+=("${dir%/}"); done
+  else
+    for dir in "$user"/*/; do
+      [[ -d $builtin/$(basename "$dir") ]] || dirs+=("${dir%/}")
+    done
+  fi
+  rm -rf "$cache"
+  mkdir -p "$cache"
+  current=$(cat "$HOME/.local/state/omarchy/current/theme.name" 2>/dev/null || true)
+  for dir in "${dirs[@]}"; do
+    name=$(basename "$dir")
+    preview=$(find -L "$dir" -maxdepth 1 -type f -iname 'preview.*' 2>/dev/null | sort | head -1)
+    [[ -n $preview ]] || preview=$(find -L "$dir/backgrounds" -maxdepth 1 -type f \( -iname '*.png' -o -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.webp' \) 2>/dev/null | sort | head -1)
+    [[ -n $preview ]] || continue
+    ln -s "$preview" "$cache/$name.${preview##*.}"
+    [[ $name == "$current" ]] && selected="$cache/$name.${preview##*.}"
+  done
+  exec omarchy-menu-images --print-name --show-labels --filterable --lazy-thumbnails --selected "$selected" "$cache"
+}
+
 usage() {
   sed -n '2,/^$/p' "$0" | sed 's/^# \{0,1\}//'
 }
@@ -619,6 +650,7 @@ case "${1:-help}" in
   toggle) if [[ -f $FLAG ]]; then turn_off; else turn_on; fi ;;
   status) [[ -f $FLAG ]] && echo on || echo off ;;
   show-desktop) show_desktop ;;
+  theme-picker) theme_picker "${2:-all}" ;;
   next-wallpaper)
     if [[ ! -f $FLAG ]]; then :
     elif [[ $(wallpaper_mode) == day-night ]]; then notify $'' "Day & Night wallpaper follows the sun (switch to Rotate in the Overtake Mode menu)"
