@@ -108,6 +108,11 @@ build_widget audio "$OMARCHY_PLUGINS/panels/audio" manifest.json Panel.qml Model
 build_widget notifications "$OMARCHY_PLUGINS/notifications" manifest.json Service.qml NotificationLogic.js components
 # Battery service without Omarchy's 10% warning (Overtake's battery alerts replace it).
 build_widget battery "$OMARCHY_PLUGINS/services/battery" manifest.json Service.qml BatteryModel.js
+# Both stay enabled in either mode (they check it themselves), so switching
+# modes needs no shell restart. The reload below picks them up.
+for id in notifications battery; do
+  [[ -d $PLUGINS/overtake.$id ]] && { omarchy plugin enable "overtake.$id" >/dev/null 2>&1 || true; }
+done
 say "plugins: overtake.taskbar, overtake.notification-center"
 
 # 4. The Omarchy menu entry (Overtake Mode, under the main menu).

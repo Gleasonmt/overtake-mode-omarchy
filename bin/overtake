@@ -213,7 +213,9 @@ slideshow_loop() {
   done
 }
 
-# Overtake's patched copies of two Omarchy services, used while the mode is on:
+# Overtake's patched copies of two Omarchy services, enabled by the installer
+# and kept loaded in both modes (they check the mode themselves, so switching
+# needs no shell restart); `switch_services off` hands back Omarchy's own:
 # overtake.notifications (close buttons, the notification center's timings and
 # per-app settings) and overtake.battery (no fixed 10% warning; BatteryAlerts
 # sends per-device ones). Omarchy keeps a service loaded until the shell
@@ -293,7 +295,8 @@ turn_on() {
   add_bar_size
   hyprctl clients -j | jq -c '[.[] | select(.workspace.id > 0 and .floating) | .address]' >"$KEEP_FLOATING" 2>/dev/null || true
   touch "$FLAG" "$STATE_DIR/snap-request"
-  refresh_wallpaper
+  # a theme's animated wallpaper stays; otherwise the slideshow's picture
+  live_wallpaper_showing || refresh_wallpaper
   start_slideshow
   float_all
   # Back to their sections and places from last time, once the bar has moved.
@@ -302,7 +305,6 @@ turn_on() {
   gsettings get org.gnome.desktop.wm.preferences button-layout >"$SAVED_GTK_BUTTONS" 2>/dev/null || true
   gsettings set org.gnome.desktop.wm.preferences button-layout 'appmenu:' 2>/dev/null || true
   hyprctl reload >/dev/null
-  switch_services on
   notify $'\uf0ec' "Overtake Mode on (Super+Ctrl+Shift+W to switch back)"
 }
 
@@ -326,9 +328,12 @@ turn_off() {
     rm -f "$SAVED_GTK_BUTTONS"
   fi
   stop_slideshow
-  [[ -s $SAVED_BG && -f $(<"$SAVED_BG") ]] && omarchy-theme-bg-set "$(<"$SAVED_BG")" >/dev/null 2>&1 || true
+  # your wallpaper back, if the slideshow replaced it (not if you've picked
+  # another one, or a theme's animated wallpaper never left)
+  if [[ -s $SAVED_BG && -f $(<"$SAVED_BG") && $(readlink -f "$CURRENT_BG") == "$SLIDESHOW_DIR"/* ]]; then
+    omarchy-theme-bg-set "$(<"$SAVED_BG")" >/dev/null 2>&1 || true
+  fi
   hyprctl reload >/dev/null
-  switch_services off
   notify $'\uf0ec' "Overtake Mode off"
 }
 
@@ -838,6 +843,7 @@ case "${1:-help}" in
   restore) [[ -n ${2:-} ]] && restore_window "$2" || true ;;
   restore-all) restore_all ;;
   minimize-all) minimize_all "${2:-}" ;;
+  services) switch_services "${2:-on}" ;;   # internal: install/uninstall
   focus-app) [[ -n ${2:-} ]] && focus_app "$2" ;;
   notification-open) notification_open "${2:-}" "${3:-}" "${4:-}" ;;
   screensaver) shift; screensaver_cmd "$@" ;;

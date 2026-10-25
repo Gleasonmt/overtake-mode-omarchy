@@ -65,7 +65,7 @@ PATCHES = {
     anchors.rightMargin: root.borderRight + Style.space(5)
     width: Style.space(22)
     height: Style.space(22)
-    visible: root.hovered || root.urgency === 2
+    visible: root.overtakeOn && (root.hovered || root.urgency === 2)
 
     Rectangle {
       anchors.fill: parent
@@ -92,7 +92,17 @@ PATCHES = {
     id: mainColumn'''),
       ("components/NotificationCard.qml",
 '''      Layout.rightMargin: Style.space(12)''',
-'''      Layout.rightMargin: Style.space(30)  // Overtake Mode: room for the close button'''),
+'''      Layout.rightMargin: Style.space(root.overtakeOn ? 30 : 12)  // Overtake Mode: room for the close button'''),
+      ("components/NotificationCard.qml",
+'''  signal closeRequested()''',
+'''  property bool overtakeOn: false   // Overtake Mode: set by the service while the mode is on
+  signal closeRequested()'''),
+      ("Service.qml",
+'''            NotificationCard {
+              id: card''',
+'''            NotificationCard {
+              id: card
+              overtakeOn: service.overtakeOn'''),
       # Toasts leave the screen for the notification center (the bell on the
       # bar) instead of piling up: critical ones after 15 s rather than never,
       # normal ones after 10 s, and the center keeps the last 50.
@@ -100,19 +110,32 @@ PATCHES = {
 '''    case NotificationUrgency.Critical:
       return 0''',
 '''    case NotificationUrgency.Critical:
-      return 15000  // Overtake Mode: then it waits in the notification center'''),
+      return service.overtakeOn ? 15000 : 0  // Overtake Mode: then it waits in the notification center'''),
       ("Service.qml",
 '''  readonly property int normalPopupDuration: 8000''',
-'''  readonly property int normalPopupDuration: 10000  // Overtake Mode'''),
+'''  readonly property int normalPopupDuration: overtakeOn ? 10000 : 8000  // Overtake Mode'''),
       ("Service.qml",
 '''  readonly property int historyLimit: 10''',
 '''  readonly property int historyLimit: 50  // Overtake Mode: the notification center's list'''),
+      ("Service.qml",
+'''      raw, service.replayCarryOver, NotificationUrgency.Normal, service.historyLimit)''',
+'''      raw, service.replayCarryOver, NotificationUrgency.Normal, service.overtakeOn ? service.historyLimit : 10)'''),
       # Per-app settings made in the notification center's Manage view.
       ("Service.qml",
 '''  readonly property int lowPopupDuration: 5000''',
 '''  // Overtake Mode: per-app settings from the notification center,
   // ~/.config/overtake/notifications.json: {"apps": {"<app>": "quiet" | "off"}}.
   property var overtakeAppModes: ({})
+  // Overtake Mode on? (its flag file). This copy stays loaded in Omarchy mode
+  // too, acting like Omarchy's own while the mode is off, so switching modes
+  // needs no shell restart.
+  property bool overtakeOn: false
+  Process {
+    id: overtakeFlag
+    command: ["test", "-f", Quickshell.env("HOME") + "/.local/state/overtake/enabled"]
+    onExited: function(code) { service.overtakeOn = code === 0 }
+  }
+  Timer { interval: 1500; running: true; repeat: true; triggeredOnStart: true; onTriggered: if (!overtakeFlag.running) overtakeFlag.running = true }
   FileView {
     path: Quickshell.env("HOME") + "/.config/overtake/notifications.json"
     watchChanges: true
@@ -131,7 +154,7 @@ PATCHES = {
     // drops its notifications; "quiet" files them in the center without a
     // pop-up, like Do Not Disturb for that app alone.
     var overtakeApp = String(notification.appName || "")
-    var overtakeMode = overtakeApp !== "omarchy-action" ? String(service.overtakeAppModes[overtakeApp] || "") : ""
+    var overtakeMode = service.overtakeOn && overtakeApp !== "omarchy-action" ? String(service.overtakeAppModes[overtakeApp] || "") : ""
     if (overtakeMode === "off") {
       delete liveRefs[snapshot.originalId]
       notification.tracked = false
@@ -157,8 +180,18 @@ PATCHES = {
     "battery": ("Service.qml",
 '''  function checkBattery() {
     var state''',
-'''  function checkBattery() {
-    return  // Overtake Mode: BatteryAlerts in overtake.taskbar sends battery warnings
+'''  // Overtake Mode on? (its flag file). This copy stays loaded in Omarchy mode
+  // too, warning as Omarchy's own does while the mode is off.
+  property bool overtakeOn: false
+  Process {
+    id: overtakeFlag
+    command: ["test", "-f", Quickshell.env("HOME") + "/.local/state/overtake/enabled"]
+    onExited: function(code) { root.overtakeOn = code === 0 }
+  }
+  Timer { interval: 1500; running: true; repeat: true; triggeredOnStart: true; onTriggered: if (!overtakeFlag.running) overtakeFlag.running = true }
+
+  function checkBattery() {
+    if (root.overtakeOn) return  // Overtake Mode: BatteryAlerts in overtake.taskbar sends battery warnings
     var state'''),
 }
 
