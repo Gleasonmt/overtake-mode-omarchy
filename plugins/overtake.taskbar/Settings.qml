@@ -14,7 +14,9 @@ import qs.Ui
 //
 // Row types: toggle (state: exit 0 = on), choice (options + current + set
 // with {} for the value), info (value from a command), link (runs a command),
-// list (one row per output line: "title|detail|button|command"), themes,
+// list (one row per output line "<key>\t<state>\t<title>"; states map each
+// state to its detail, button and argv, which gets the key, checked against
+// keyPattern, appended; nothing from the line itself is run), themes,
 // battery (each battery device's alert levels, from BatteryAlerts).
 Item {
   id: root
@@ -108,8 +110,14 @@ Item {
       { title: "Bluetooth", rows: [
         { type: "toggle", title: "Bluetooth", detail: "Turning this off disconnects Bluetooth keyboards and mice",
           state: "bluetoothctl show | grep -q 'Powered: yes'", on: "rfkill unblock bluetooth; sleep 1; bluetoothctl power on", off: "bluetoothctl power off" },
+        // Rows are "<address>\t<yes|no>\t<name>": the name (which the device itself
+        // sets) is only ever shown; the command is built from fixed parts and
+        // an address that must look like one.
         { type: "list", title: "Your devices",
-          lines: "bluetoothctl devices Paired | while read -r _ mac name; do if bluetoothctl info \"$mac\" | grep -q 'Connected: yes'; then echo \"$name|Connected|Disconnect|bluetoothctl disconnect $mac\"; else echo \"$name|Not connected|Connect|bluetoothctl connect $mac\"; fi; done" },
+          lines: "bluetoothctl devices Paired | while read -r _ mac name; do c=no; bluetoothctl info \"$mac\" | grep -q 'Connected: yes' && c=yes; printf '%s\\t%s\\t%s\\n' \"$mac\" \"$c\" \"$name\"; done",
+          keyPattern: "^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$",
+          states: { yes: { detail: "Connected", button: "Disconnect", argv: ["bluetoothctl", "disconnect"] },
+                    no: { detail: "Not connected", button: "Connect", argv: ["bluetoothctl", "connect"] } } },
         { type: "link", title: "Add a device", detail: "Pair a new keyboard, mouse, headset…", run: "omarchy-shell omarchy.bluetooth open" }
       ]},
       { title: "Input", rows: [
@@ -257,6 +265,7 @@ Item {
             radius: 24
             color: root.accent
             Text {
+              textFormat: Text.PlainText
               anchors.centerIn: parent
               text: root.user.charAt(0)
               color: root.bg
@@ -267,8 +276,8 @@ Item {
           }
           Column {
             anchors.verticalCenter: parent.verticalCenter
-            Text { text: root.user; color: root.fg; font.family: root.fontFamily; font.pixelSize: 15; font.bold: true }
-            Text { text: "Local account"; color: root.fg; opacity: 0.6; font.family: root.fontFamily; font.pixelSize: 12 }
+            Text { textFormat: Text.PlainText; text: root.user; color: root.fg; font.family: root.fontFamily; font.pixelSize: 15; font.bold: true }
+            Text { textFormat: Text.PlainText; text: "Local account"; color: root.fg; opacity: 0.6; font.family: root.fontFamily; font.pixelSize: 12 }
           }
         }
 
@@ -308,8 +317,8 @@ Item {
               anchors.left: parent.left
               anchors.leftMargin: 14
               spacing: 12
-              Text { width: 18; text: modelData.glyph; color: root.fg; font.family: root.fontFamily; font.pixelSize: 15 }
-              Text { text: modelData.name; color: root.fg; font.family: root.fontFamily; font.pixelSize: 14 }
+              Text { textFormat: Text.PlainText; width: 18; text: modelData.glyph; color: root.fg; font.family: root.fontFamily; font.pixelSize: 15 }
+              Text { textFormat: Text.PlainText; text: modelData.name; color: root.fg; font.family: root.fontFamily; font.pixelSize: 14 }
             }
             MouseArea {
               id: navArea
@@ -343,6 +352,7 @@ Item {
         spacing: 8
 
         Text {
+          textFormat: Text.PlainText
           text: root.query.trim() ? "Search results" : root.currentPage.name
           color: root.fg
           font.family: root.fontFamily
@@ -359,6 +369,7 @@ Item {
             spacing: 4
 
             Text {
+              textFormat: Text.PlainText
               text: modelData.title
               color: root.fg
               font.family: root.fontFamily
@@ -421,8 +432,10 @@ Item {
       id: listProbe
       stdout: StdioCollector {
         onStreamFinished: card.listItems = text.split("\n").filter(function(l) { return l.trim() }).map(function(l) {
-          var p = l.split("|"); return { title: p[0], detail: p[1] || "", button: p[2] || "", command: p.slice(3).join("|") }
-        })
+          var p = l.split("\t"), key = p[0] || "", state = (card.row.states || {})[p[1]]
+          if (!state || !new RegExp(card.row.keyPattern || "^$").test(key)) return null
+          return { title: p.slice(2).join(" "), detail: state.detail, button: state.button, argv: state.argv.concat([key]) }
+        }).filter(function(item) { return item !== null })
       }
     }
 
@@ -464,8 +477,9 @@ Item {
             id: titleColumn
             anchors.verticalCenter: parent.verticalCenter
             width: parent.width - control.width - 16
-            Text { width: parent.width; text: card.row.title || ""; color: root.fg; font.family: root.fontFamily; font.pixelSize: 14; elide: Text.ElideRight }
+            Text { textFormat: Text.PlainText; width: parent.width; text: card.row.title || ""; color: root.fg; font.family: root.fontFamily; font.pixelSize: 14; elide: Text.ElideRight }
             Text {
+              textFormat: Text.PlainText
               visible: !!card.row.detail
               width: parent.width
               text: card.row.detail || ""
@@ -490,6 +504,7 @@ Item {
 
               // toggle
               Text {
+                textFormat: Text.PlainText
                 visible: card.row.type === "toggle"
                 anchors.verticalCenter: parent.verticalCenter
                 text: card.stateOn ? "On" : "Off"
@@ -519,6 +534,7 @@ Item {
 
               // info / choice value
               Text {
+                textFormat: Text.PlainText
                 visible: card.row.type === "info" || card.row.type === "choice"
                 anchors.verticalCenter: parent.verticalCenter
                 text: card.row.type === "choice" ? card.label(card.value) : card.value
@@ -532,6 +548,7 @@ Item {
 
               // chevron for links and choices
               Text {
+                textFormat: Text.PlainText
                 visible: card.row.type === "link" || card.row.type === "choice"
                 anchors.verticalCenter: parent.verticalCenter
                 text: card.row.type === "choice" ? (card.expanded ? "" : "") : ""
@@ -559,6 +576,7 @@ Item {
               radius: 6
               color: selected ? root.accent : Qt.rgba(root.fg.r, root.fg.g, root.fg.b, optionArea.containsMouse ? 0.14 : 0.07)
               Text {
+                textFormat: Text.PlainText
                 id: optionText
                 anchors.centerIn: parent
                 text: card.label(modelData)
@@ -587,8 +605,8 @@ Item {
             Rectangle { anchors.top: parent.top; width: parent.width; height: 1; color: Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.08) }
             Column {
               anchors.verticalCenter: parent.verticalCenter
-              Text { text: modelData.title; color: root.fg; font.family: root.fontFamily; font.pixelSize: 13 }
-              Text { text: modelData.detail; color: root.fg; opacity: 0.6; font.family: root.fontFamily; font.pixelSize: 12 }
+              Text { text: modelData.title; textFormat: Text.PlainText; color: root.fg; font.family: root.fontFamily; font.pixelSize: 13 }
+              Text { text: modelData.detail; textFormat: Text.PlainText; color: root.fg; opacity: 0.6; font.family: root.fontFamily; font.pixelSize: 12 }
             }
             Rectangle {
               visible: modelData.button !== ""
@@ -598,13 +616,13 @@ Item {
               height: 30
               radius: 6
               color: Qt.rgba(root.fg.r, root.fg.g, root.fg.b, listButton.containsMouse ? 0.16 : 0.08)
-              Text { id: buttonText; anchors.centerIn: parent; text: modelData.button; color: root.fg; font.family: root.fontFamily; font.pixelSize: 13 }
+              Text { textFormat: Text.PlainText; id: buttonText; anchors.centerIn: parent; text: modelData.button; color: root.fg; font.family: root.fontFamily; font.pixelSize: 13 }
               MouseArea {
                 id: listButton
                 anchors.fill: parent
                 hoverEnabled: true
                 cursorShape: Qt.PointingHandCursor
-                onClicked: { card.act(modelData.command); refreshLater.interval = 2500 }
+                onClicked: { Quickshell.execDetached(modelData.argv); refreshLater.interval = 2500; refreshLater.restart() }
               }
             }
           }
@@ -617,6 +635,7 @@ Item {
           spacing: 8
 
           Text {
+            textFormat: Text.PlainText
             visible: !root.batteryAlerts || root.batteryAlerts.deviceList.length === 0
             text: "No battery devices found yet."
             color: root.fg
@@ -649,6 +668,7 @@ Item {
                   height: Math.max(deviceName.implicitHeight + deviceState.implicitHeight, 24)
 
                   Text {
+                    textFormat: Text.PlainText
                     id: deviceGlyph
                     anchors.verticalCenter: parent.verticalCenter
                     width: 26
@@ -664,6 +684,7 @@ Item {
                     anchors.leftMargin: 6
                     anchors.verticalCenter: parent.verticalCenter
                     Text {
+                      textFormat: Text.PlainText
                       id: deviceName
                       text: device.modelData.name
                       color: root.fg
@@ -673,6 +694,7 @@ Item {
                       font.bold: true
                     }
                     Text {
+                      textFormat: Text.PlainText
                       id: deviceState
                       text: device.modelData.connected
                         ? device.modelData.percent + "%" + (device.modelData.charging ? " · charging" : "") + " · " + device.modelData.kind
@@ -688,6 +710,7 @@ Item {
                     anchors.verticalCenter: parent.verticalCenter
                     spacing: 10
                     Text {
+                      textFormat: Text.PlainText
                       anchors.verticalCenter: parent.verticalCenter
                       text: device.modelData.enabled ? "Alerts on" : "Alerts off"
                       color: root.fg
@@ -760,6 +783,7 @@ Item {
               spacing: 8
               property bool folded: false
               Text {
+                textFormat: Text.PlainText
                 text: (themeSection.folded ? "\uf054  " : "\uf078  ") + themeSection.modelData[1] + "  ·  " + themeSection.names.length
                 color: root.fg
                 opacity: sectionArea.containsMouse ? 0.9 : 0.6
@@ -811,6 +835,7 @@ Item {
                       }
                     }
                     Text {
+                      textFormat: Text.PlainText
                       anchors.top: frame.bottom
                       anchors.topMargin: 4
                       width: parent.width
@@ -849,8 +874,8 @@ Item {
     spacing: 8
     Column {
       anchors.verticalCenter: parent.verticalCenter
-      Text { text: stepper.label; color: root.fg; font.family: root.fontFamily; font.pixelSize: 12 }
-      Text { text: stepper.hint; color: root.fg; opacity: 0.5; font.family: root.fontFamily; font.pixelSize: 10 }
+      Text { textFormat: Text.PlainText; text: stepper.label; color: root.fg; font.family: root.fontFamily; font.pixelSize: 12 }
+      Text { textFormat: Text.PlainText; text: stepper.hint; color: root.fg; opacity: 0.5; font.family: root.fontFamily; font.pixelSize: 10 }
     }
     Repeater {
       model: [-5, 0, 5]
@@ -866,6 +891,7 @@ Item {
           color: Qt.rgba(root.fg.r, root.fg.g, root.fg.b, stepArea.containsMouse ? 0.16 : 0.07)
         }
         Text {
+          textFormat: Text.PlainText
           anchors.centerIn: parent
           text: parent.modelData === 0 ? stepper.value + "%" : (parent.modelData < 0 ? "\u2212" : "+")
           color: parent.modelData === 0 ? root.accent : root.fg

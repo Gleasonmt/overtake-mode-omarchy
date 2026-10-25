@@ -152,6 +152,13 @@ All in `~/.config/overtake/`:
 If a future Omarchy changes one of those widgets so the change no longer
 applies, the installer says so and Overtake uses Omarchy's own one.
 
+## Privacy
+
+Overtake Mode sends nothing anywhere, with one exception: the **Day & Night**
+wallpaper mode looks up today's sunrise and sunset from
+[wttr.in](https://wttr.in), which estimates your location from your IP address.
+The default **Rotate** mode makes no network requests.
+
 ## Uninstall
 
 ```bash

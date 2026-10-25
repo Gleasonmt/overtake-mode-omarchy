@@ -550,7 +550,13 @@ notification_open() {
   local app=$1 icon=$2 body=$3 f name d entry
   while IFS= read -r f; do
     f=${f%[.,;:)]}
-    [[ -e $f ]] && { xdg-open "$f" >/dev/null 2>&1 & return 0; }
+    # only an ordinary file or folder in your home folder, never a launcher or
+    # a program (the text comes from whichever app sent the notification)
+    f=$(realpath -e -- "$f" 2>/dev/null) || continue
+    [[ $f == "$HOME"/* && ! -L $f && $f != *.desktop ]] || continue
+    [[ -d $f || ( -f $f && ! -x $f ) ]] || continue
+    xdg-open "$f" >/dev/null 2>&1 &
+    return 0
   done < <({ grep -oE "'/[^']+'" <<<"$body" | tr -d "'"; grep -oE '"/[^"]+"' <<<"$body" | tr -d '"'
              grep -oE "/[^'\"<> ]+" <<<"$body"; } || true)
   [[ -n $app ]] && focus_app "$app" && return 0

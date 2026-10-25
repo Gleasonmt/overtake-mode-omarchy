@@ -265,6 +265,7 @@ Panel {
     radius: height / 2
     color: Commons.Color.accent
     Text {
+      textFormat: Text.PlainText
       id: badgeText
       anchors.centerIn: parent
       text: root.unread > 9 ? "9+" : String(root.unread)
@@ -317,6 +318,7 @@ Panel {
               onClicked: root.view = "list"
             }
             Text {
+              textFormat: Text.PlainText
               id: title
               anchors.verticalCenter: parent.verticalCenter
               text: root.view === "manage" ? "Manage notifications" : "Notifications"
@@ -347,6 +349,7 @@ Panel {
 
         // ----- List: one group per app -----
         Text {
+          textFormat: Text.PlainText
           visible: root.view === "list" && root.entries.length === 0
           width: parent.width
           topPadding: Style.space(18)
@@ -426,6 +429,7 @@ Panel {
                           width: parent.width
                           spacing: Style.space(8)
                           Text {
+                            textFormat: Text.PlainText
                             text: group.modelData.app
                             color: root.fg
                             font.family: root.fontFamily
@@ -439,6 +443,7 @@ Panel {
                             radius: height / 2
                             color: Qt.rgba(root.fg.r, root.fg.g, root.fg.b, .14)
                             Text {
+                              textFormat: Text.PlainText
                               id: countText
                               anchors.centerIn: parent
                               text: String(group.modelData.entries.length)
@@ -448,6 +453,7 @@ Panel {
                             }
                           }
                           Text {
+                            textFormat: Text.PlainText
                             anchors.verticalCenter: parent.verticalCenter
                             visible: root.modeOf(group.modelData.app) === "quiet"
                             text: ""
@@ -457,6 +463,7 @@ Panel {
                             font.pixelSize: Style.font.caption
                           }
                           Text {
+                            textFormat: Text.PlainText
                             anchors.verticalCenter: parent.verticalCenter
                             text: root.ago(group.modelData.newest)
                             color: root.fg
@@ -483,6 +490,7 @@ Panel {
                       }
 
                       Text {
+                        textFormat: Text.PlainText
                         anchors.verticalCenter: parent.verticalCenter
                         width: Style.space(14)
                         horizontalAlignment: Text.AlignHCenter
@@ -558,6 +566,7 @@ Panel {
                                 font.bold: true
                               }
                               Text {
+                                textFormat: Text.PlainText
                                 id: itemTime
                                 anchors.baseline: itemSummary.baseline
                                 text: root.ago(item.modelData.timestamp)
@@ -599,6 +608,7 @@ Panel {
 
         // ----- Manage: each app's setting -----
         Text {
+          textFormat: Text.PlainText
           visible: root.view === "manage"
           width: parent.width
           wrapMode: Text.Wrap
@@ -647,6 +657,7 @@ Panel {
                     opacity: appRow.mode === "off" ? .4 : 1
                   }
                   Text {
+                    textFormat: Text.PlainText
                     anchors.verticalCenter: parent.verticalCenter
                     width: appList.width - Style.space(28) - Style.space(14) - modes.width - Style.space(12)
                     text: appRow.modelData
@@ -681,6 +692,7 @@ Panel {
                         radius: modes.radius
                         color: active ? Commons.Color.accent : (modeMouse.containsMouse ? Qt.rgba(root.fg.r, root.fg.g, root.fg.b, .1) : "transparent")
                         Text {
+                          textFormat: Text.PlainText
                           id: modeLabel
                           anchors.centerIn: parent
                           text: modeChip.modelData[1]
@@ -706,6 +718,7 @@ Panel {
         }
 
         Text {
+          textFormat: Text.PlainText
           visible: root.notice !== ""
           width: parent.width
           wrapMode: Text.Wrap
@@ -733,12 +746,14 @@ Panel {
             anchors.verticalCenter: parent.verticalCenter
             spacing: Style.space(2)
             Text {
+              textFormat: Text.PlainText
               text: "  Do not disturb"
               color: root.fg
               font.family: root.fontFamily
               font.pixelSize: Style.font.bodySmall
             }
             Text {
+              textFormat: Text.PlainText
               width: parent.width
               wrapMode: Text.Wrap
               text: root.dnd
@@ -777,6 +792,7 @@ Panel {
       color: ibMouse.containsMouse ? Qt.rgba(root.fg.r, root.fg.g, root.fg.b, .16) : "transparent"
     }
     Text {
+      textFormat: Text.PlainText
       anchors.centerIn: parent
       text: ib.glyph
       color: root.fg
@@ -793,6 +809,7 @@ Panel {
   }
 
   component LinkText: Text {
+    textFormat: Text.PlainText
     id: link
     signal clicked()
     color: linkMouse.containsMouse ? Commons.Color.accent : root.fg
@@ -827,6 +844,7 @@ Panel {
       visible: status === Image.Ready
     }
     Text {
+      textFormat: Text.PlainText
       anchors.centerIn: parent
       visible: !aiImage.visible
       text: ai.glyph || ""

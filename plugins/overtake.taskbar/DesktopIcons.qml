@@ -382,6 +382,7 @@ Item {
             spacing: Style.space(8)
             padding: Style.space(6)
             Text {
+              textFormat: Text.PlainText
               width: parent.width - Style.space(12)
               wrapMode: Text.Wrap
               text: root.confirm ? root.confirm.text : ""
@@ -401,6 +402,7 @@ Item {
                   radius: Style.space(5)
                   color: index === 0 ? Commons.Color.urgent : Qt.rgba(Commons.Color.foreground.r, Commons.Color.foreground.g, Commons.Color.foreground.b, choiceArea.containsMouse ? 0.16 : 0.08)
                   Text {
+                    textFormat: Text.PlainText
                     id: label
                     anchors.centerIn: parent
                     text: parent.modelData
@@ -442,6 +444,7 @@ Item {
               }
 
               Text {
+                textFormat: Text.PlainText
                 visible: !!row.modelData.header
                 anchors.verticalCenter: parent.verticalCenter
                 x: Style.space(8)
@@ -460,6 +463,7 @@ Item {
                 color: rowArea.containsMouse ? Qt.rgba(Commons.Color.foreground.r, Commons.Color.foreground.g, Commons.Color.foreground.b, 0.1) : "transparent"
 
                 Text {
+                  textFormat: Text.PlainText
                   id: rowGlyph
                   x: Style.space(8)
                   anchors.verticalCenter: parent.verticalCenter
@@ -472,6 +476,7 @@ Item {
                   font.pixelSize: Style.font.bodySmall
                 }
                 Text {
+                  textFormat: Text.PlainText
                   anchors.left: rowGlyph.right
                   anchors.leftMargin: Style.space(10)
                   anchors.right: check.left
@@ -483,6 +488,7 @@ Item {
                   font.pixelSize: Style.font.bodySmall
                 }
                 Text {
+                  textFormat: Text.PlainText
                   id: check
                   anchors.right: parent.right
                   anchors.rightMargin: Style.space(10)
