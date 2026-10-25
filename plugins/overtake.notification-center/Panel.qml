@@ -85,7 +85,7 @@ Panel {
     model: folder
     delegate: QtObject {
       Component.onCompleted: reloadTimer.restart()
-      Component.onDestruction: reloadTimer.restart()
+      Component.onDestruction: if (reloadTimer) reloadTimer.restart()   // (gone already while the shell shuts down)
     }
   }
   Timer { id: reloadTimer; interval: 150; onTriggered: root.reload() }
