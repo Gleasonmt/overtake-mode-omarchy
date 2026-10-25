@@ -120,7 +120,12 @@ close = text.rstrip().rfind("}")
 if close == -1:
     sys.exit("overtake install: can't find the closing } in " + path)
 head = text[:close].rstrip()
-if head and not head.endswith(("{", ",")):
+# Drop commas an older install left after a comment (on its own line or on
+# a marker line), then add one only if the last real entry lacks it.
+head = re.sub(r"^\s*,\s*$\n?", "", head, flags=re.M)
+head = re.sub(r"^(\s*//.*?),+\s*$", r"\1", head, flags=re.M).rstrip()
+entries = [l for l in head.split("\n") if l.strip() and not l.strip().startswith("//")]
+if entries and not entries[-1].rstrip().endswith(("{", ",")):
     head += ","
 text = head + "\n" + start + " (managed by overtake-mode-omarchy/install.sh)\n" + block.rstrip() + "\n" + end + "\n}\n"
 open(path, "w").write(text)
