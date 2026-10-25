@@ -10,8 +10,14 @@ PLUGINS="$HOME/.config/omarchy/plugins"
 HYPR="$HOME/.config/hypr"
 MENU="$HOME/.config/omarchy/extensions/omarchy-menu.jsonc"
 
-if command -v overtake >/dev/null && [[ $(overtake status 2>/dev/null) == on ]]; then
-  overtake off >/dev/null
+# Back to Omarchy first. The state folder holds your saved Omarchy bar and
+# background, so stop here if switching off fails rather than delete them.
+OVERTAKE="$HOME/.local/bin/overtake"
+if [[ -f $HOME/.local/state/overtake/enabled ]]; then
+  if ! [[ -x $OVERTAKE ]] || ! "$OVERTAKE" off >/dev/null; then
+    echo "Couldn't switch Overtake Mode off; nothing removed. Fix that first (overtake off)." >&2
+    exit 1
+  fi
 fi
 
 remove_block() {  # remove_block <file> <comment prefix>
@@ -28,15 +34,42 @@ remove_block "$HYPR/bindings.lua" "--"
 remove_block "$HYPR/autostart.lua" "--"
 remove_block "$MENU" "  //"
 
-# Hand notifications back to Omarchy's own before removing the patched copy.
-omarchy plugin disable overtake.notifications >/dev/null 2>&1 || true
-omarchy plugin disable overtake.battery >/dev/null 2>&1 || true
+# Hand notifications and battery back to Omarchy's own before removing the
+# patched copies. Disabling goes through the shell; if it isn't running, edit
+# shell.json directly so Omarchy's own aren't left disabled.
+SHELL_JSON="$HOME/.config/omarchy/shell.json"
+for id in overtake.notifications overtake.battery; do
+  omarchy plugin disable "$id" >/dev/null 2>&1 || true
+done
+if [[ -f $SHELL_JSON ]]; then
+  tmp=$(mktemp "$SHELL_JSON.XXXXXX")
+  jq '(.plugins |= (if type == "array" then map(select((if type == "object" then .id else . end) | tostring | startswith("overtake.") | not)) else . end))
+      | (.disabledPlugins |= (if type == "array" then map(select(. != "omarchy.notifications" and . != "omarchy.battery")) else . end))' \
+    "$SHELL_JSON" >"$tmp" && mv "$tmp" "$SHELL_JSON" || rm -f "$tmp"
+fi
+
+# The taller-taskbar block Overtake adds to shell.toml
+SHELL_TOML="$HOME/.config/omarchy/shell.toml"
+if [[ -f $SHELL_TOML ]]; then
+  python3 - "$SHELL_TOML" <<'PY'
+import sys, re
+p = sys.argv[1]
+t = open(p).read()
+open(p, "w").write(re.sub(r"\n?# >>> overtake.*?# <<< overtake\n?", "\n", t, flags=re.S))
+PY
+fi
+
+# Taskbar pins live with the state; keep them unless purging.
+if [[ ${1:-} != --purge && -f $HOME/.local/state/overtake/taskbar-settings.json ]]; then
+  mkdir -p "$HOME/.config/overtake"
+  cp "$HOME/.local/state/overtake/taskbar-settings.json" "$HOME/.config/overtake/taskbar-settings.json"
+fi
 rm -f "$HOME/.local/bin/overtake" "$HYPR/overtake.lua"
 rm -rf "${PLUGINS:?}/overtake.taskbar" "${PLUGINS:?}/overtake.workspaces" \
        "${PLUGINS:?}/overtake.bluetooth" "${PLUGINS:?}/overtake.audio" \
        "${PLUGINS:?}/overtake.notifications" "${PLUGINS:?}/overtake.notification-center" \
        "${PLUGINS:?}/overtake.battery" \
-       "$HOME/.local/state/overtake"
+       "$HOME/.local/state/overtake" "$HOME/.cache/overtake"
 
 if [[ ${1:-} == --purge ]]; then
   rm -rf "$HOME/.config/overtake" "$HOME/Pictures/overtake"
@@ -48,4 +81,5 @@ if [[ -z ${OVERTAKE_NO_RELOAD:-} ]] && hyprctl version >/dev/null 2>&1; then
   omarchy-menu refresh >/dev/null 2>&1 || true
 fi
 
-echo "Overtake Mode removed.${1:+ Settings and wallpapers removed too.}"
+if [[ ${1:-} == --purge ]]; then echo "Overtake Mode removed. Settings and wallpapers removed too."
+else echo "Overtake Mode removed. Your settings stay in ~/.config/overtake (./uninstall.sh --purge removes them)."; fi

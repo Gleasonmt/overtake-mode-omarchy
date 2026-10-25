@@ -802,14 +802,12 @@ Item {
                         fillMode: Image.PreserveAspectCrop
                         sourceSize.width: 320
                         asynchronous: true
-                        source: "file:///usr/share/omarchy/themes/" + parent.parent.dir + "/preview.png"
-                        // Omarchy's themes, then yours (preview.png, or preview.jpg)
-                      onStatusChanged: {
-                        if (status !== Image.Error) return
-                        var mine = "file://" + Quickshell.env("HOME") + "/.config/omarchy/themes/" + parent.parent.dir
-                        if (source.toString().indexOf("/usr/share/") !== -1) source = mine + "/preview.png"
-                        else if (source.toString().slice(-4) === ".png") source = mine + "/preview.jpg"
-                      }
+                        // Omarchy's own themes in its folder; yours in ~/.config/omarchy/themes,
+                        // preview.jpg (as these themes ship) or preview.png
+                        readonly property string mine: "file://" + Quickshell.env("HOME") + "/.config/omarchy/themes/" + parent.parent.dir
+                        source: themeSection.modelData[0] === "custom" ? mine + "/preview.jpg"
+                                                                       : "file:///usr/share/omarchy/themes/" + parent.parent.dir + "/preview.png"
+                        onStatusChanged: if (status === Image.Error && source.toString() === mine + "/preview.jpg") source = mine + "/preview.png"
                       }
                     }
                     Text {

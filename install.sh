@@ -80,6 +80,9 @@ cp -r "$REPO/plugins/overtake.notification-center" "$PLUGINS/overtake.notificati
 build_widget() {  # build_widget <name> <source dir> <manifest> <files or dirs...>
   local name=$1 source=$2 manifest=$3; shift 3
   local target="$PLUGINS/overtake.$name"
+  # An enabled copy whose rebuild fails below is removed; disable it first, so
+  # Omarchy's own (which enabling the copy disabled) comes back.
+  omarchy plugin disable "overtake.$name" >/dev/null 2>&1 || true
   rm -rf "${target:?}"
   mkdir -p "$target"
   cp -L "$source/$manifest" "$target/manifest.json"
@@ -146,7 +149,7 @@ if [[ -z ${OVERTAKE_NO_RELOAD:-} ]] && hyprctl version >/dev/null 2>&1; then
   hyprctl reload >/dev/null || true
   omarchy-restart-shell >/dev/null 2>&1 || true
   omarchy-menu refresh >/dev/null 2>&1 || true
-  if [[ $(overtake status) == on ]]; then
+  if [[ $("$HOME/.local/bin/overtake" status) == on ]]; then
     # Updating while the mode is on: switch off and on to pick up the new bar.
     overtake off >/dev/null && overtake on >/dev/null
   fi

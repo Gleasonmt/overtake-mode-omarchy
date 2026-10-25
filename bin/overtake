@@ -11,8 +11,9 @@
 #   overtake minimize|maximize|close [address]  # active window when no address
 #   overtake restore <address> | restore-all
 #   overtake focus-app <name>      # go to an app's window on its own workspace (restoring it if minimized)
+#   overtake notification-open <app> <app icon> <message>  # notification center click without its own action
 #   overtake minimize-all [monitor]   # clicking the desktop: minimize this workspace's windows
-#   overtake screensaver <on|off|start|lock|show|showing> [...]  # Settings > Screensaver
+#   overtake screensaver <on|off|enabled|start|lock|show|showing|preview> [...]  # Settings > Screensaver
 #   overtake hide-minimized   # taskbar: hide the minimized windows' workspace if it gets shown
 #   overtake show <address>   # taskbar click: bring on screen if needed, then focus
 #   overtake float-all        # float any tiled window (floating ones always cover tiled ones)
@@ -44,7 +45,7 @@ WALLPAPER_MODE_FILE="$STATE_DIR/wallpaper-mode"
 MINIMIZED="$STATE_DIR/minimized.json"
 LAYOUT="$STATE_DIR/layout.json"     # each floating window's place as fractions of its screen
 ZONES="$STATE_DIR/zones.json"       # snapped windows: address -> {ws, zone, restore: [w, h]}
-FLOATED="$STATE_DIR/floated.json"   # windows Overtake Mode made float, to tile again on off
+KEEP_FLOATING="$STATE_DIR/kept-floating.json"  # windows already floating before `on`; `off` tiles all the others
 TASKBAR_SETTINGS="$STATE_DIR/taskbar-settings.json"  # taskbar pins etc., kept while the mode is off
 SAVED_GTK_BUTTONS="$STATE_DIR/gtk-button-layout"  # GTK apps' own title-bar buttons, restored on off
 SNAP_GAP=12
@@ -170,16 +171,22 @@ set_wallpaper_mode() {
 }
 
 stop_slideshow() {
+  # the loop runs in its own session (setsid), so its group is the loop and
+  # its sleep: stop both
   if [[ -s $SLIDESHOW_PID ]] && kill -0 "$(<"$SLIDESHOW_PID")" 2>/dev/null; then
-    kill "$(<"$SLIDESHOW_PID")" 2>/dev/null || true
+    kill -- "-$(<"$SLIDESHOW_PID")" 2>/dev/null || kill "$(<"$SLIDESHOW_PID")" 2>/dev/null || true
   fi
   rm -f "$SLIDESHOW_PID"
 }
 
 start_slideshow() {
-  stop_slideshow
-  setsid overtake slideshow-loop </dev/null >/dev/null 2>&1 &
-  echo $! >"$SLIDESHOW_PID"
+  (
+    flock 7
+    stop_slideshow
+    # (without the lock's handle; the loop records its own pid: $! would be
+    # setsid's, which can fork and exit, leaving the loop unstoppable)
+    setsid overtake slideshow-loop </dev/null >/dev/null 2>&1 7>&- &
+  ) 7>"$STATE_DIR/.slideshow.lock"
 }
 
 # A theme's live (animated) wallpaper: <theme>/live/<name>.frag.qsb next to
@@ -196,6 +203,7 @@ live_wallpaper_showing() {
 # Rotate changes the picture every SLIDESHOW_MINUTES; Day & Night only checks
 # every 5 minutes whether the sun has come up or gone down.
 slideshow_loop() {
+  echo $$ >"$SLIDESHOW_PID"
   while [[ -f $FLAG ]]; do
     if [[ $(wallpaper_mode) == day-night ]]; then
       sleep 300 && [[ -f $FLAG ]] && ! live_wallpaper_showing && apply_day_night
@@ -215,7 +223,9 @@ switch_services() {  # switch_services on|off
   local listed id enabled changed=0
   listed=$(omarchy-shell shell listPlugins 2>/dev/null || true)
   for id in overtake.notifications overtake.battery; do
-    [[ -d $HOME/.config/omarchy/plugins/$id ]] || continue
+    # on: only if the installer could build it; off: whenever it's enabled,
+    # even if its folder has gone (or Omarchy's own would stay disabled)
+    [[ $1 == off || -d $HOME/.config/omarchy/plugins/$id ]] || continue
     enabled=$(jq -r --arg id "$id" '.[] | select(.id == $id) | .enabled' <<<"$listed" 2>/dev/null || true)
     if [[ $1 == on && $enabled != true ]]; then
       omarchy plugin enable "$id" >/dev/null 2>&1 && changed=1
@@ -232,10 +242,36 @@ switch_services() {  # switch_services on|off
   done
 }
 
+# on/off/toggle run one at a time (a double-tapped shortcut, or the menu and a
+# shortcut together, would otherwise interleave and save the Overtake bar as
+# "your" bar).
+# A lock folder rather than flock: programs on/off start (the slideshow loop,
+# the restarted shell) would inherit a lock file's handle and hold it forever.
+# One left by a killed run is cleared after a minute.
+MODE_LOCK="$STATE_DIR/.mode.lock.d"
+mode_lock() {
+  local i
+  mkdir -p "$STATE_DIR"
+  for i in $(seq 120); do
+    if mkdir "$MODE_LOCK" 2>/dev/null; then
+      trap 'rmdir "$MODE_LOCK" 2>/dev/null' EXIT
+      return 0
+    fi
+    [[ -n $(find "$MODE_LOCK" -maxdepth 0 -mmin +1 2>/dev/null) ]] && rmdir "$MODE_LOCK" 2>/dev/null
+    sleep 0.5
+  done
+  echo "overtake: another on/off is still running" >&2
+  exit 1
+}
+
 turn_on() {
   [[ -f $FLAG ]] && { echo "Overtake Mode is already on"; return; }
   mkdir -p "$STATE_DIR"
-  jq '.bar' "$SHELL_JSON" >"$SAVED_BAR"
+  if jq -e '[.bar | .. | .id? // empty] | index("overtake.taskbar")' "$SHELL_JSON" >/dev/null 2>&1; then
+    echo "the bar is already Overtake's; keeping the saved Omarchy bar" >&2
+  else
+    jq '.bar' "$SHELL_JSON" >"$SAVED_BAR"
+  fi
   readlink -f "$CURRENT_BG" >"$SAVED_BG" 2>/dev/null || true
   # Keep the user's own battery widget if their Omarchy bar has a custom one
   # (a clone of omarchy.power), and the taskbar's settings (pinned apps) from
@@ -250,9 +286,12 @@ turn_on() {
     bar=$(jq --arg from "overtake.$widget" --arg to "omarchy.$widget" \
       '(.. | objects | select(.id? == $from) | .id) = $to | if .centerAnchor == $from then .centerAnchor = $to else . end' <<<"$bar")
   done
+  # (pins kept by an uninstall wait in ~/.config/overtake)
+  [[ -s $TASKBAR_SETTINGS || ! -s $HOME/.config/overtake/taskbar-settings.json ]] || cp "$HOME/.config/overtake/taskbar-settings.json" "$TASKBAR_SETTINGS"
   [[ -s $TASKBAR_SETTINGS ]] && bar=$(jq --slurpfile t "$TASKBAR_SETTINGS" '.layout.left = [$t[0]]' <<<"$bar")
   set_bar "$bar"
   add_bar_size
+  hyprctl clients -j | jq -c '[.[] | select(.workspace.id > 0 and .floating) | .address]' >"$KEEP_FLOATING" 2>/dev/null || true
   touch "$FLAG" "$STATE_DIR/snap-request"
   refresh_wallpaper
   start_slideshow
@@ -271,7 +310,13 @@ turn_off() {
   [[ -f $FLAG ]] || { echo "Overtake Mode is already off"; return; }
   jq '[.bar.layout[][]? | select(.id == "overtake.taskbar")][0] // empty' "$SHELL_JSON" >"$TASKBAR_SETTINGS.tmp" \
     && [[ -s $TASKBAR_SETTINGS.tmp ]] && mv "$TASKBAR_SETTINGS.tmp" "$TASKBAR_SETTINGS" || rm -f "$TASKBAR_SETTINGS.tmp"
-  [[ -s $SAVED_BAR ]] && set_bar "$(cat "$SAVED_BAR")"
+  if [[ -s $SAVED_BAR ]]; then
+    set_bar "$(cat "$SAVED_BAR")"
+  else
+    # no saved bar (state removed?): fall back to Omarchy's default one
+    set_bar "$(jq '.bar' "${OMARCHY_PATH:-/usr/share/omarchy}/config/omarchy/shell.json")"
+    notify $'\uf071' "Overtake couldn't find your saved bar, so Omarchy's default bar is back"
+  fi
   remove_bar_size
   rm -f "$FLAG" "$DESKTOP_RETURN"
   restore_all
@@ -483,7 +528,9 @@ hide_minimized() {
 focus_app() {
   local info addr ws
   info=$(hyprctl clients -j | jq -c --arg p "$1" '
-    sort_by(.focusHistoryID) | first(.[] | select((.class // "") | test($p; "i"))) // empty')
+    ($p | ascii_downcase) as $q
+    | sort_by(.focusHistoryID)
+    | first(.[] | select([(.class // ""), (.initialClass // "")] | any(ascii_downcase | contains($q)))) // empty')
   [[ -n $info ]] || return 1
   addr=$(jq -r .address <<<"$info") ws=$(jq -r .workspace.name <<<"$info")
   if [[ $ws == special:minimized ]]; then
@@ -492,6 +539,29 @@ focus_app() {
     [[ $ws == special:* ]] || hyprctl dispatch "hl.dsp.focus({ workspace = \"$ws\" })" >/dev/null
     focus_raise "$addr"
   fi
+}
+
+# A notification clicked in the notification center that carries no action of
+# its own: open a file the message names (quoted paths first, as they may
+# hold spaces, then unquoted ones up to a space); else go to the app's window
+# where it lives; else launch the app from its desktop entry (which also
+# reopens one closed to the tray). Exit 1 when none of that is possible.
+notification_open() {
+  local app=$1 icon=$2 body=$3 f name d entry
+  while IFS= read -r f; do
+    f=${f%[.,;:)]}
+    [[ -e $f ]] && { xdg-open "$f" >/dev/null 2>&1 & return 0; }
+  done < <({ grep -oE "'/[^']+'" <<<"$body" | tr -d "'"; grep -oE '"/[^"]+"' <<<"$body" | tr -d '"'
+             grep -oE "/[^'\"<> ]+" <<<"$body"; } || true)
+  [[ -n $app ]] && focus_app "$app" && return 0
+  for name in "$app" "$icon"; do
+    [[ -n $name ]] || continue
+    for d in "$HOME/.local/share/applications" /usr/share/applications; do
+      entry=$(find "$d" -maxdepth 1 -iname "$name.desktop" -print -quit 2>/dev/null || true)
+      [[ -n $entry ]] && { uwsm-app -- gtk-launch "$(basename "$entry")" >/dev/null 2>&1 & return 0; }
+    done
+  done
+  return 1
 }
 
 # Clicking empty desktop: minimize every window on the workspace that screen
@@ -589,28 +659,26 @@ json_set() {  # json_set <file> <jq filter> [jq args...]
 }
 
 float_all() {
-  local addr floated=()
+  local addr
   mark_arranging
-  mkdir -p "$STATE_DIR"
   for addr in $(hyprctl clients -j | jq -r '.[] | select(.workspace.id > 0 and .floating == false) | .address'); do
-    hyprctl dispatch "hl.dsp.window.float({ action = \"enable\", window = \"address:$addr\" })" >/dev/null
-    floated+=("$addr")
+    hyprctl dispatch "hl.dsp.window.float({ action = \"enable\", window = \"address:$addr\" })" >/dev/null || true
   done
-  # Run again later (a window that became tiled), so add to the list rather
-  # than replace it.
-  [[ -s $FLOATED ]] || echo '[]' >"$FLOATED"
-  jq --argjson new "$(jq -n '$ARGS.positional' --args "${floated[@]}")" '. + $new | unique' "$FLOATED" >"$FLOATED.tmp" \
-    && mv "$FLOATED.tmp" "$FLOATED"
 }
 
+# Back to tiling for `off`: every floating window on a normal workspace except
+# the ones that were already floating before `on` (dialogs, pickers, ones you
+# floated yourself). Windows opened while the mode was on float by its rule,
+# so a list of "windows the mode floated" would miss them.
 tile_all() {
-  local addr
-  [[ -s $FLOATED ]] || return 0
-  for addr in $(jq -r '.[]' "$FLOATED"); do
+  local addr keep='[]'
+  [[ -s $KEEP_FLOATING ]] && keep=$(<"$KEEP_FLOATING")
+  for addr in $(hyprctl clients -j | jq -r --argjson keep "$keep" \
+      '.[] | select(.workspace.id > 0 and .floating and (.address as $a | $keep | index($a) | not)) | .address'); do
     hyprctl dispatch "hl.dsp.window.float({ action = \"disable\", window = \"address:$addr\" })" >/dev/null 2>&1 || true
   done
   # Zones are kept: `on` puts snapped windows back in them.
-  rm -f "$FLOATED"
+  rm -f "$KEEP_FLOATING"
 }
 
 # Overtake is about to move windows itself. The title-bar plugin watches the
@@ -715,6 +783,7 @@ show_desktop() {
 # or all of them. Same picker and output as omarchy-theme-switcher.
 theme_picker() {
   local which=${1:-all}
+  shopt -s nullglob
   [[ $which == all ]] && exec omarchy-theme-switcher
   local builtin="${OMARCHY_PATH:-/usr/share/omarchy}/themes" user="$HOME/.config/omarchy/themes"
   local cache="${XDG_CACHE_HOME:-$HOME/.cache}/overtake/theme-picker/$which"
@@ -731,8 +800,8 @@ theme_picker() {
   current=$(cat "$HOME/.local/state/omarchy/current/theme.name" 2>/dev/null || true)
   for dir in "${dirs[@]}"; do
     name=$(basename "$dir")
-    preview=$(find -L "$dir" -maxdepth 1 -type f -iname 'preview.*' 2>/dev/null | sort | head -1)
-    [[ -n $preview ]] || preview=$(find -L "$dir/backgrounds" -maxdepth 1 -type f \( -iname '*.png' -o -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.webp' \) 2>/dev/null | sort | head -1)
+    preview=$(find -L "$dir" -maxdepth 1 -type f -iname 'preview.*' 2>/dev/null | sort | head -1 || true)
+    [[ -n $preview ]] || preview=$(find -L "$dir/backgrounds" -maxdepth 1 -type f \( -iname '*.png' -o -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.webp' \) 2>/dev/null | sort | head -1 || true)
     [[ -n $preview ]] || continue
     ln -s "$preview" "$cache/$name.${preview##*.}"
     [[ $name == "$current" ]] && selected="$cache/$name.${preview##*.}"
@@ -746,9 +815,9 @@ usage() {
 
 case "${1:-help}" in
   help|-h|--help) usage ;;
-  on) turn_on ;;
-  off) turn_off ;;
-  toggle) if [[ -f $FLAG ]]; then turn_off; else turn_on; fi ;;
+  on) mode_lock; turn_on ;;
+  off) mode_lock; turn_off ;;
+  toggle) mode_lock; if [[ -f $FLAG ]]; then turn_off; else turn_on; fi ;;
   status) [[ -f $FLAG ]] && echo on || echo off ;;
   show-desktop) show_desktop ;;
   theme-picker) theme_picker "${2:-all}" ;;
@@ -758,12 +827,12 @@ case "${1:-help}" in
     else next_wallpaper; fi ;;
   wallpaper-mode) if [[ -n ${2:-} ]]; then set_wallpaper_mode "$2"; else wallpaper_mode; fi ;;
   resume) if [[ -f $FLAG ]]; then [[ $(wallpaper_mode) == day-night ]] && ! live_wallpaper_showing && apply_day_night; start_slideshow; float_all; rescue_all; fi ;;
-  slideshow-loop) slideshow_loop ;;
   minimize) minimize_window "${2:-}" ;;
   restore) [[ -n ${2:-} ]] && restore_window "$2" || true ;;
   restore-all) restore_all ;;
   minimize-all) minimize_all "${2:-}" ;;
   focus-app) [[ -n ${2:-} ]] && focus_app "$2" ;;
+  notification-open) notification_open "${2:-}" "${3:-}" "${4:-}" ;;
   screensaver) shift; screensaver_cmd "$@" ;;
   hide-minimized) hide_minimized ;;
   show) [[ -n ${2:-} ]] && show_window "$2" || true ;;
@@ -779,5 +848,6 @@ case "${1:-help}" in
   snap-layouts) mkdir -p "$STATE_DIR"; date +%s%N >"$STATE_DIR/snap-request" ;;
   start) mkdir -p "$STATE_DIR"; echo "${2:-start} $(date +%s%N)" >"$STATE_DIR/start-request" ;;
   settings) mkdir -p "$STATE_DIR"; echo "${2:-open} $(date +%s%N)" >"$STATE_DIR/settings-request" ;;
-  *) usage >&2; exit 1 ;;
+  slideshow-loop) slideshow_loop ;;   # internal: the slideshow's background loop
+  *) echo "overtake: unknown command '$1' (overtake help lists them)" >&2; exit 1 ;;
 esac

@@ -180,21 +180,8 @@ Panel {
     }
     if (openProc.running) return
     openProc.entry = entry
-    openProc.command = ["bash", "-c",
-      "body=$1 app=$2 icon=$3\n" +
-      "while IFS= read -r f; do [[ -e $f ]] && { xdg-open \"$f\" >/dev/null 2>&1 & exit 0; }; " +
-      "done < <(grep -oE \"/[^'\\\"<>]+\" <<<\"$body\" | sed 's/[.,;:)]*$//')\n" +
-      "[[ -n $app ]] && hyprctl clients -j | jq -e --arg a \"$app\" 'any(.[]; (.class | ascii_downcase | contains($a | ascii_downcase)) or (.initialClass | ascii_downcase | contains($a | ascii_downcase)))' >/dev/null " +
-      "&& { overtake focus-app \"$app\" || /usr/share/omarchy/bin/omarchy-hyprland-focus-app \"$app\"; exit 0; }\n" +
-      // no window (closed to the tray, like Discord, or not running): launch
-      // it from its desktop entry, which also reopens a tray app's window
-      "for name in \"$app\" \"$icon\"; do [[ -n $name ]] || continue\n" +
-      "  for d in \"$HOME/.local/share/applications\" /usr/share/applications; do\n" +
-      "    f=$(find \"$d\" -maxdepth 1 -iname \"$name.desktop\" -print -quit 2>/dev/null)\n" +
-      "    [[ -n $f ]] && { uwsm-app -- gtk-launch \"$(basename \"$f\")\" >/dev/null 2>&1 & exit 0; }\n" +
-      "  done\n" +
-      "done\n" +
-      "exit 1", "_", String(entry.body || "").replace(/<[^>]*>/g, ""), String(entry.app || ""), String(entry.appIcon || "")]
+    openProc.command = ["overtake", "notification-open", String(entry.app || ""), String(entry.appIcon || ""),
+                        String(entry.body || "").replace(/<[^>]*>/g, "")]
     openProc.running = true
   }
   Process {

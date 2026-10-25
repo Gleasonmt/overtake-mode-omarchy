@@ -743,7 +743,7 @@ Item {
           anchors.right: parent.right
           anchors.verticalCenter: parent.verticalCenter
           label: "Open in File Explorer"
-          onClicked: root.run("uwsm-app -- nautilus --new-window " + JSON.stringify(root.filesPath))
+          onClicked: { Quickshell.execDetached(["uwsm-app", "--", "nautilus", "--new-window", root.filesPath]); root.close() }   // argv: a folder name never reaches a shell
         }
       }
 
