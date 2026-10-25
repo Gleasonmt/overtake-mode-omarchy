@@ -69,21 +69,21 @@ o.launch_on_start("overtake resume")'
 say "Hyprland: ~/.config/hypr/overtake.lua, plus marked blocks in bindings.lua and autostart.lua"
 
 # 3. Shell plugins: the taskbar (Start menu, title bars, desktop icons,
-#    Settings), and three Omarchy bar widgets copied from this machine's
-#    Omarchy and patched. A widget whose patch no longer applies is left out,
-#    and Overtake uses Omarchy's own one instead.
+#    Settings), three Omarchy bar widgets and Omarchy's notifications, copied
+#    from this machine's Omarchy and patched. One whose patch no longer
+#    applies is left out, and Overtake uses Omarchy's own one instead.
 mkdir -p "$PLUGINS"
 rm -rf "${PLUGINS:?}/overtake.taskbar"
 cp -r "$REPO/plugins/overtake.taskbar" "$PLUGINS/overtake.taskbar"
 
-build_widget() {  # build_widget <name> <source dir> <manifest> <files...>
+build_widget() {  # build_widget <name> <source dir> <manifest> <files or dirs...>
   local name=$1 source=$2 manifest=$3; shift 3
   local target="$PLUGINS/overtake.$name"
   rm -rf "${target:?}"
   mkdir -p "$target"
   cp -L "$source/$manifest" "$target/manifest.json"
   local file
-  for file in "$@"; do cp -L "$source/$file" "$target/"; done
+  for file in "$@"; do cp -rL "$source/$file" "$target/"; done
   jq --arg id "overtake.$name" --arg name "Overtake ${name^}" --arg from "omarchy.$name" '
     .id = $id | .name = $name
     | if (.barWidget | type) == "object" then .barWidget.displayName = $name else . end
@@ -100,6 +100,8 @@ build_widget() {  # build_widget <name> <source dir> <manifest> <files...>
 build_widget workspaces "$OMARCHY_PLUGINS/bar/widgets" Workspaces.manifest.json Workspaces.qml
 build_widget bluetooth "$OMARCHY_PLUGINS/panels/bluetooth" manifest.json Panel.qml Model.js
 build_widget audio "$OMARCHY_PLUGINS/panels/audio" manifest.json Panel.qml Model.js
+# Notifications with a close button; `overtake on` switches to it, `off` back.
+build_widget notifications "$OMARCHY_PLUGINS/notifications" manifest.json Service.qml NotificationLogic.js components
 say "plugin: overtake.taskbar"
 
 # 4. The Omarchy menu entry (Overtake Mode, under the main menu).

@@ -87,11 +87,12 @@ All in `~/.config/overtake/`:
 | `~/.config/hypr/bindings.lua`, `autostart.lua` | a few lines between `>>> overtake` / `<<< overtake` markers |
 | `~/.config/omarchy/plugins/overtake.taskbar` | taskbar, Start menu, title bars, desktop icons, Settings |
 | `~/.config/omarchy/plugins/overtake.{workspaces,bluetooth,audio}` | copies of Omarchy's own widgets, made from your installed Omarchy, with small changes (no gaps in the workspace list; right-click opens the Bluetooth and sound panels instead of turning Bluetooth off or muting) |
+| `~/.config/omarchy/plugins/overtake.notifications` | a copy of Omarchy's notifications with a close button on each card (always shown on critical ones, which never time out). Used only while the mode is on; switching restarts the shell, since Omarchy keeps its notification service loaded until then |
 | `~/.config/omarchy/extensions/omarchy-menu.jsonc` | the Overtake Mode menu entry, between markers |
 | `~/.config/overtake/`, `~/Pictures/overtake/` | your settings and the wallpapers |
 
 If a future Omarchy changes one of those widgets so the change no longer
-applies, the installer says so and Overtake uses Omarchy's own widget.
+applies, the installer says so and Overtake uses Omarchy's own one.
 
 ## Uninstall
 
