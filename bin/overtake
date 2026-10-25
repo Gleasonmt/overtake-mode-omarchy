@@ -176,14 +176,25 @@ start_slideshow() {
   echo $! >"$SLIDESHOW_PID"
 }
 
+# A theme's live (animated) wallpaper: <theme>/live/<name>.frag.qsb next to
+# <theme>/backgrounds/<name>.*, drawn by the live-wallpaper shell plugin. The
+# slideshow leaves one alone; next-wallpaper still switches away by hand.
+live_wallpaper_showing() {
+  local bg
+  bg=$(readlink -f "$CURRENT_BG" 2>/dev/null) || return 1
+  [[ $bg == */backgrounds/* ]] || return 1
+  local name=${bg##*/}
+  [[ -f ${bg%/backgrounds/*}/live/${name%.*}.frag.qsb ]]
+}
+
 # Rotate changes the picture every SLIDESHOW_MINUTES; Day & Night only checks
 # every 5 minutes whether the sun has come up or gone down.
 slideshow_loop() {
   while [[ -f $FLAG ]]; do
     if [[ $(wallpaper_mode) == day-night ]]; then
-      sleep 300 && [[ -f $FLAG ]] && apply_day_night
+      sleep 300 && [[ -f $FLAG ]] && ! live_wallpaper_showing && apply_day_night
     else
-      sleep $(( SLIDESHOW_MINUTES * 60 )) && [[ -f $FLAG ]] && next_wallpaper
+      sleep $(( SLIDESHOW_MINUTES * 60 )) && [[ -f $FLAG ]] && ! live_wallpaper_showing && next_wallpaper
     fi
   done
 }
@@ -583,7 +594,7 @@ case "${1:-help}" in
     elif [[ $(wallpaper_mode) == day-night ]]; then notify $'' "Day & Night wallpaper follows the sun (switch to Rotate in the Overtake Mode menu)"
     else next_wallpaper; fi ;;
   wallpaper-mode) if [[ -n ${2:-} ]]; then set_wallpaper_mode "$2"; else wallpaper_mode; fi ;;
-  resume) if [[ -f $FLAG ]]; then [[ $(wallpaper_mode) == day-night ]] && apply_day_night; start_slideshow; float_all; rescue_all; fi ;;
+  resume) if [[ -f $FLAG ]]; then [[ $(wallpaper_mode) == day-night ]] && ! live_wallpaper_showing && apply_day_night; start_slideshow; float_all; rescue_all; fi ;;
   slideshow-loop) slideshow_loop ;;
   minimize) minimize_window "${2:-}" ;;
   restore) [[ -n ${2:-} ]] && restore_window "$2" || true ;;
