@@ -91,6 +91,8 @@ grouped by app, with per-app Show / Quiet / Off and Do Not Disturb.
 - **Screensaver & lock settings** — Settings → Screensaver & lock (or right-click
   the desktop): on/off, when it starts and when the screen locks, and what it shows:
   Omarchy's logo, your wallpaper turned into screensaver art, an image, or your own text.
+- **Image folders** — opening an image opens its whole folder in the image viewer,
+  so the left and right arrow keys step through the others.
 - **Themes in folders** — Omarchy menu → Style → Theme opens Omarchy themes, Your
   themes (the ones you added) or All themes, in plain Omarchy too; Settings →
   Personalization shows your themes first, each section foldable.

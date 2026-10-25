@@ -64,6 +64,11 @@ if [[ ${1:-} != --purge && -f $HOME/.local/state/overtake/taskbar-settings.json 
   mkdir -p "$HOME/.config/overtake"
   cp "$HOME/.local/state/overtake/taskbar-settings.json" "$HOME/.config/overtake/taskbar-settings.json"
 fi
+# Images back to Omarchy's own viewer entry
+for t in image/png image/jpeg image/jpg image/gif image/bmp image/webp image/tiff image/avif image/heif image/jxl image/svg+xml; do
+  [[ $(xdg-mime query default "$t" 2>/dev/null) == overtake-image-viewer.desktop ]] && xdg-mime default imv.desktop "$t"
+done
+rm -f "$HOME/.local/share/applications/overtake-image-viewer.desktop"
 rm -f "$HOME/.local/bin/overtake" "$HYPR/overtake.lua"
 rm -rf "${PLUGINS:?}/overtake.taskbar" "${PLUGINS:?}/overtake.workspaces" \
        "${PLUGINS:?}/overtake.bluetooth" "${PLUGINS:?}/overtake.audio" \

@@ -149,6 +149,32 @@ mkdir -p "$PICTURES/slideshow"
 cp "$REPO"/wallpapers/*.png "$PICTURES/slideshow/"
 say "settings: ~/.config/overtake (existing files kept); wallpapers: ~/Pictures/overtake/slideshow"
 
+# Images open with their whole folder, so the arrow keys step through the
+# others (imv-dir, which ships with imv). Only while images still open with
+# Omarchy's imv; your own choice of viewer is left alone.
+APPS="$HOME/.local/share/applications"
+IMAGE_TYPES="image/png image/jpeg image/jpg image/gif image/bmp image/webp image/tiff image/avif image/heif image/jxl image/svg+xml"
+if command -v imv-dir >/dev/null; then
+  mkdir -p "$APPS"
+  cat >"$APPS/overtake-image-viewer.desktop" <<'DESKTOP'
+[Desktop Entry]
+Name=Image Viewer
+Comment=Opens the image with the rest of its folder (left/right arrows step through them)
+Exec=imv-dir %F
+Icon=imv
+Type=Application
+Terminal=false
+NoDisplay=true
+Categories=Graphics;Viewer;
+MimeType=image/png;image/jpeg;image/jpg;image/gif;image/bmp;image/webp;image/tiff;image/avif;image/heif;image/jxl;image/svg+xml;
+DESKTOP
+  for t in $IMAGE_TYPES; do
+    current=$(xdg-mime query default "$t" 2>/dev/null || true)
+    [[ -z $current || $current == imv.desktop ]] && xdg-mime default overtake-image-viewer.desktop "$t"
+  done
+  say "images: open with their folder (arrow keys step through them)"
+fi
+
 # 6. Load it all (OVERTAKE_NO_RELOAD=1 skips this, for testing).
 if [[ -z ${OVERTAKE_NO_RELOAD:-} ]] && hyprctl version >/dev/null 2>&1; then
   hyprctl reload >/dev/null || true
