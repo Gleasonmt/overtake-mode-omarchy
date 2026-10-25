@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "id": "overtake.notification-center",
+  "name": "Overtake Mode notification center",
+  "version": "1.0.0",
+  "author": "Gleasonmt",
+  "description": "A bell at the end of the bar: notifications that have left the screen, to act on, remove or clear, and Do Not Disturb",
+  "kinds": ["bar-widget"],
+  "entryPoints": { "barWidget": "Panel.qml" },
+  "barWidget": {
+    "displayName": "Notification center",
+    "description": "Notifications that have left the screen, and Do Not Disturb",
+    "category": "System",
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}

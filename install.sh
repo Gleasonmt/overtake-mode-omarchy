@@ -73,8 +73,9 @@ say "Hyprland: ~/.config/hypr/overtake.lua, plus marked blocks in bindings.lua a
 #    from this machine's Omarchy and patched. One whose patch no longer
 #    applies is left out, and Overtake uses Omarchy's own one instead.
 mkdir -p "$PLUGINS"
-rm -rf "${PLUGINS:?}/overtake.taskbar"
+rm -rf "${PLUGINS:?}/overtake.taskbar" "${PLUGINS:?}/overtake.notification-center"
 cp -r "$REPO/plugins/overtake.taskbar" "$PLUGINS/overtake.taskbar"
+cp -r "$REPO/plugins/overtake.notification-center" "$PLUGINS/overtake.notification-center"
 
 build_widget() {  # build_widget <name> <source dir> <manifest> <files or dirs...>
   local name=$1 source=$2 manifest=$3; shift 3
@@ -102,7 +103,7 @@ build_widget bluetooth "$OMARCHY_PLUGINS/panels/bluetooth" manifest.json Panel.q
 build_widget audio "$OMARCHY_PLUGINS/panels/audio" manifest.json Panel.qml Model.js
 # Notifications with a close button; `overtake on` switches to it, `off` back.
 build_widget notifications "$OMARCHY_PLUGINS/notifications" manifest.json Service.qml NotificationLogic.js components
-say "plugin: overtake.taskbar"
+say "plugins: overtake.taskbar, overtake.notification-center"
 
 # 4. The Omarchy menu entry (Overtake Mode, under the main menu).
 mkdir -p "$(dirname "$MENU")"

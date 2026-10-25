@@ -65,7 +65,8 @@ WINDOWS_BAR='{
       { "id": "overtake.audio" },
       { "id": "omarchy.power" },
       { "id": "omarchy.clock", "format": "h:mm AP   M/d/yyyy", "formatAlt": "dddd, MMMM d, yyyy", "verticalFormat": "h\n—\nmm" },
-      { "id": "omarchy.indicators" }
+      { "id": "omarchy.indicators", "items": ["Dictation", "ScreenRecording", "Reminder", "NightLight", "StayAwake"] },
+      { "id": "overtake.notification-center" }
     ]
   }
 }'

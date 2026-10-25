@@ -43,8 +43,11 @@ are never overwritten.
   and switching back and forth with Omarchy mode.
 - **Settings** — Super + I opens a Settings window for display, sound,
   Bluetooth, Wi-Fi, power, themes, fonts, default apps, time and updates.
-- **Notifications you can close** — each one has an × button (shown on hover,
-  and always on critical alerts, which never time out on their own).
+- **Notification center** — toasts slide off after 10 seconds (critical ones
+  after 15) into the bell at the end of the taskbar, which counts new ones.
+  Its panel lists them to click (runs the toast's action or brings its app
+  forward), remove one by one, or clear, with a Do Not Disturb switch. Toasts
+  on screen have an × too.
 - **Desktop icons**, a **wallpaper slideshow** (rotate every 15 minutes, or
   follow sunrise and sunset), and an **Overtake Mode** entry in the Omarchy menu.
 
@@ -89,7 +92,8 @@ All in `~/.config/overtake/`:
 | `~/.config/hypr/bindings.lua`, `autostart.lua` | a few lines between `>>> overtake` / `<<< overtake` markers |
 | `~/.config/omarchy/plugins/overtake.taskbar` | taskbar, Start menu, title bars, desktop icons, Settings |
 | `~/.config/omarchy/plugins/overtake.{workspaces,bluetooth,audio}` | copies of Omarchy's own widgets, made from your installed Omarchy, with small changes (no gaps in the workspace list; right-click opens the Bluetooth and sound panels instead of turning Bluetooth off or muting) |
-| `~/.config/omarchy/plugins/overtake.notifications` | a copy of Omarchy's notifications with a close button on each card (always shown on critical ones, which never time out). Used only while the mode is on; switching restarts the shell, since Omarchy keeps its notification service loaded until then |
+| `~/.config/omarchy/plugins/overtake.notifications` | a copy of Omarchy's notifications with a close button on each card, critical toasts leaving after 15 s instead of never, and a 50-entry history for the notification center. Used only while the mode is on; switching restarts the shell, since Omarchy keeps its notification service loaded until then |
+| `~/.config/omarchy/plugins/overtake.notification-center` | the bell and its panel; it reads Omarchy's notification history folder (`~/.local/state/omarchy/notifications/history`). `omarchy-shell overtake.notification-center toggle` opens it |
 | `~/.config/omarchy/extensions/omarchy-menu.jsonc` | the Overtake Mode menu entry, between markers |
 | `~/.config/overtake/`, `~/Pictures/overtake/` | your settings and the wallpapers |
 

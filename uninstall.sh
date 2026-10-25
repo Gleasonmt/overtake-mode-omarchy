@@ -33,7 +33,7 @@ omarchy plugin disable overtake.notifications >/dev/null 2>&1 || true
 rm -f "$HOME/.local/bin/overtake" "$HYPR/overtake.lua"
 rm -rf "${PLUGINS:?}/overtake.taskbar" "${PLUGINS:?}/overtake.workspaces" \
        "${PLUGINS:?}/overtake.bluetooth" "${PLUGINS:?}/overtake.audio" \
-       "${PLUGINS:?}/overtake.notifications" \
+       "${PLUGINS:?}/overtake.notifications" "${PLUGINS:?}/overtake.notification-center" \
        "$HOME/.local/state/overtake"
 
 if [[ ${1:-} == --purge ]]; then

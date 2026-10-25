@@ -93,6 +93,20 @@ PATCHES = {
       ("components/NotificationCard.qml",
 '''      Layout.rightMargin: Style.space(12)''',
 '''      Layout.rightMargin: Style.space(30)  // Overtake Mode: room for the close button'''),
+      # Toasts leave the screen for the notification center (the bell on the
+      # bar) instead of piling up: critical ones after 15 s rather than never,
+      # normal ones after 10 s, and the center keeps the last 50.
+      ("Service.qml",
+'''    case NotificationUrgency.Critical:
+      return 0''',
+'''    case NotificationUrgency.Critical:
+      return 15000  // Overtake Mode: then it waits in the notification center'''),
+      ("Service.qml",
+'''  readonly property int normalPopupDuration: 8000''',
+'''  readonly property int normalPopupDuration: 10000  // Overtake Mode'''),
+      ("Service.qml",
+'''  readonly property int historyLimit: 10''',
+'''  readonly property int historyLimit: 50  // Overtake Mode: the notification center's list'''),
     ],
 }
 
