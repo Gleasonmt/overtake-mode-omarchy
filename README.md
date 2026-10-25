@@ -51,6 +51,8 @@ are never overwritten.
   each app is set to Show, Quiet (no pop-ups, still collected) or Off
   (saved in `~/.config/overtake/notifications.json`). Do Not Disturb sits at the
   bottom. Toasts on screen have an × too.
+- **Touchpad right-click in the corner** — the bottom-right of the touchpad
+  right-clicks, as on most laptops (Omarchy uses a two-finger click).
 - **Battery alerts for every device** — the laptop and anything connected that
   reports a battery (Bluetooth or USB mice, keyboards, headsets, controllers)
   each get a Low and a Critical alert at levels you choose, in Settings →

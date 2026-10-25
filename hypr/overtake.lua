@@ -54,3 +54,8 @@ o.bind("SUPER + SUPER_L", "Start menu", "overtake start", { release = true })
 
 -- Resize windows by dragging their edges and corners.
 hl.config({ general = { resize_on_border = true } })
+
+-- Touchpad: the bottom-right corner right-clicks, as on most laptops (Omarchy
+-- uses a two-finger click, which makes the whole bottom edge a left click).
+-- Two-finger click and tap still work.
+hl.config({ input = { touchpad = { clickfinger_behavior = false } } })
