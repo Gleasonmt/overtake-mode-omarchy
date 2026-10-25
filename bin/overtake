@@ -10,6 +10,7 @@
 #   overtake wallpaper-mode [rotate|day-night]   # pick or print the slideshow mode
 #   overtake minimize|maximize|close [address]  # active window when no address
 #   overtake restore <address> | restore-all
+#   overtake focus-app <name>      # go to an app's window on its own workspace (restoring it if minimized)
 #   overtake minimize-all [monitor]   # clicking the desktop: minimize this workspace's windows
 #   overtake screensaver <on|off|start|lock|show|showing> [...]  # Settings > Screensaver
 #   overtake hide-minimized   # taskbar: hide the minimized windows' workspace if it gets shown
@@ -475,6 +476,24 @@ hide_minimized() {
   done
 }
 
+# Go to an app's window where it lives (the notification center's click):
+# matched by class like omarchy-hyprland-focus-app, the most recently used
+# window first. A minimized one is restored to the workspace it came from and
+# followed there; any other is reached by switching to its workspace.
+focus_app() {
+  local info addr ws
+  info=$(hyprctl clients -j | jq -c --arg p "$1" '
+    sort_by(.focusHistoryID) | first(.[] | select((.class // "") | test($p; "i"))) // empty')
+  [[ -n $info ]] || return 1
+  addr=$(jq -r .address <<<"$info") ws=$(jq -r .workspace.name <<<"$info")
+  if [[ $ws == special:minimized ]]; then
+    restore_window "$addr" follow
+  else
+    [[ $ws == special:* ]] || hyprctl dispatch "hl.dsp.focus({ workspace = \"$ws\" })" >/dev/null
+    focus_raise "$addr"
+  fi
+}
+
 # Clicking empty desktop: minimize every window on the workspace that screen
 # shows (the focused screen's when none is given).
 minimize_all() {
@@ -744,6 +763,7 @@ case "${1:-help}" in
   restore) [[ -n ${2:-} ]] && restore_window "$2" || true ;;
   restore-all) restore_all ;;
   minimize-all) minimize_all "${2:-}" ;;
+  focus-app) [[ -n ${2:-} ]] && focus_app "$2" ;;
   screensaver) shift; screensaver_cmd "$@" ;;
   hide-minimized) hide_minimized ;;
   show) [[ -n ${2:-} ]] && show_window "$2" || true ;;

@@ -185,7 +185,7 @@ Panel {
       "while IFS= read -r f; do [[ -e $f ]] && { xdg-open \"$f\" >/dev/null 2>&1 & exit 0; }; " +
       "done < <(grep -oE \"/[^'\\\"<>]+\" <<<\"$body\" | sed 's/[.,;:)]*$//')\n" +
       "[[ -n $app ]] && hyprctl clients -j | jq -e --arg a \"$app\" 'any(.[]; (.class | ascii_downcase | contains($a | ascii_downcase)) or (.initialClass | ascii_downcase | contains($a | ascii_downcase)))' >/dev/null " +
-      "&& { /usr/share/omarchy/bin/omarchy-hyprland-focus-app \"$app\"; exit 0; }\n" +
+      "&& { overtake focus-app \"$app\" || /usr/share/omarchy/bin/omarchy-hyprland-focus-app \"$app\"; exit 0; }\n" +
       // no window (closed to the tray, like Discord, or not running): launch
       // it from its desktop entry, which also reopens a tray app's window
       "for name in \"$app\" \"$icon\"; do [[ -n $name ]] || continue\n" +
