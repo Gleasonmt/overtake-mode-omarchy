@@ -11,7 +11,7 @@ import qs.Ui
 // notification history folder; Overtake's notifications keep the last 50 and
 // give critical ones 15 seconds on screen instead of forever). The bell shows
 // how many arrived since the center was last opened. The panel groups them by
-// app, newest app first; a group expands to its notifications, to act on
+// app, newest app first, all closed; a group expands to its notifications, to act on
 // (click), remove (x) or clear. The gear switches to Manage, where each app
 // is set to Show, Quiet (no pop-ups, still collected) or Off; Overtake's
 // notifications read those from ~/.config/overtake/notifications.json. Do Not
@@ -179,8 +179,8 @@ Panel {
     next[app] = !isOpen(app)
     expanded = next
   }
-  // A lone group starts open.
-  function isOpen(app) { return expanded[app] !== undefined ? expanded[app] : groups.length === 1 }
+  // Every group starts closed, so the panel always opens on the short list.
+  function isOpen(app) { return !!expanded[app] }
 
   Process {
     id: dndProc
