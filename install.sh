@@ -40,7 +40,7 @@ import sys, re
 path, prefix, block = sys.argv[1:4]
 start, end = f"{prefix} >>> overtake", f"{prefix} <<< overtake"
 text = open(path).read()
-new = f"{start} (managed by overtake-mode/install.sh)\n{block.rstrip()}\n{end}\n"
+new = f"{start} (managed by overtake-mode-omarchy/install.sh)\n{block.rstrip()}\n{end}\n"
 pattern = re.compile(re.escape(start) + r".*?" + re.escape(end) + r"\n?", re.S)
 if pattern.search(text):
     text = pattern.sub(lambda _: new, text, count=1)
@@ -117,7 +117,7 @@ if close == -1:
 head = text[:close].rstrip()
 if head and not head.endswith(("{", ",")):
     head += ","
-text = head + "\n" + start + " (managed by overtake-mode/install.sh)\n" + block.rstrip() + "\n" + end + "\n}\n"
+text = head + "\n" + start + " (managed by overtake-mode-omarchy/install.sh)\n" + block.rstrip() + "\n" + end + "\n}\n"
 open(path, "w").write(text)
 PY
 say "menu: Overtake Mode in the Omarchy menu"

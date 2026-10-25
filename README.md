@@ -13,8 +13,8 @@ shortcut switches either way, and Omarchy itself isn't changed.
 ## Install
 
 ```bash
-git clone https://github.com/Gleasonmt/overtake-mode.git
-cd overtake-mode
+git clone https://github.com/Gleasonmt/overtake-mode-omarchy.git
+cd overtake-mode-omarchy
 ./install.sh
 ```
 
