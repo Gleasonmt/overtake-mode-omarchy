@@ -9,8 +9,8 @@ shortcut switches either way, and Omarchy itself isn't changed.
 
 ![Overtake Mode: the desktop, taskbar and Start menu](media/desktop-start.webp)
 
-> Status: early, private preview for friends to try. Tested on Omarchy 4.0.6
-> (Hyprland, the Quickshell-based Omarchy shell). Feedback welcome in Issues.
+> Status: early. Tested on Omarchy 4.0.6 (Hyprland, the Quickshell-based
+> Omarchy shell). Feedback and pull requests welcome in Issues.
 
 ## Install
 
@@ -180,3 +180,7 @@ The default **Rotate** mode makes no network requests.
 
 Original art made for this project; see `wallpapers/src` for the scripts that
 draw some of them.
+
+## License
+
+[MIT](LICENSE)
