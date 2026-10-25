@@ -204,10 +204,10 @@ Panel {
         anchors.top: parent.top
         spacing: Style.space(10)
 
-        // Header: title, Do Not Disturb, Clear all
+        // Header: title, and Clear all for the list below
         Item {
           width: parent.width
-          implicitHeight: Math.max(title.implicitHeight, dndSwitch.implicitHeight)
+          implicitHeight: title.implicitHeight
 
           Text {
             id: title
@@ -220,42 +220,23 @@ Panel {
             font.bold: true
           }
 
-          Row {
+          Text {
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
-            spacing: Style.space(12)
-
-            Text {
-              anchors.verticalCenter: parent.verticalCenter
-              text: "Do not disturb"
-              color: root.fg
-              opacity: .7
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.bodySmall
-            }
-            ToggleSwitch {
-              id: dndSwitch
-              anchors.verticalCenter: parent.verticalCenter
-              checked: root.dnd
-              onToggled: root.toggleDnd()
-            }
-            Text {
-              id: clearAllText
-              anchors.verticalCenter: parent.verticalCenter
-              visible: root.entries.length > 0
-              text: "Clear all"
-              color: clearMouse.containsMouse ? Commons.Color.accent : root.fg
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.bodySmall
-              font.underline: clearMouse.containsMouse
-              MouseArea {
-                id: clearMouse
-                anchors.fill: parent
-                anchors.margins: -Style.space(4)
-                hoverEnabled: true
-                cursorShape: Qt.PointingHandCursor
-                onClicked: root.clearAll()
-              }
+            visible: root.entries.length > 0
+            text: "Clear all"
+            color: clearMouse.containsMouse ? Commons.Color.accent : root.fg
+            opacity: clearMouse.containsMouse ? 1 : .75
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.bodySmall
+            font.underline: clearMouse.containsMouse
+            MouseArea {
+              id: clearMouse
+              anchors.fill: parent
+              anchors.margins: -Style.space(4)
+              hoverEnabled: true
+              cursorShape: Qt.PointingHandCursor
+              onClicked: root.clearAll()
             }
           }
         }
@@ -408,6 +389,50 @@ Panel {
                 }
               }
             }
+          }
+        }
+
+        // Footer: Do Not Disturb, apart from the list
+        Rectangle {
+          width: parent.width
+          height: 1
+          color: Qt.rgba(root.fg.r, root.fg.g, root.fg.b, .12)
+        }
+        Item {
+          width: parent.width
+          implicitHeight: Math.max(dndLabels.implicitHeight, dndSwitch.implicitHeight)
+
+          Column {
+            id: dndLabels
+            anchors.left: parent.left
+            anchors.right: dndSwitch.left
+            anchors.rightMargin: Style.space(12)
+            anchors.verticalCenter: parent.verticalCenter
+            spacing: Style.space(2)
+            Text {
+              text: "\uf1f6  Do not disturb"
+              color: root.fg
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.bodySmall
+            }
+            Text {
+              width: parent.width
+              wrapMode: Text.Wrap
+              text: root.dnd
+                ? "On: pop-ups are hidden; notifications still collect here"
+                : "Off: notifications pop up, then collect here"
+              color: root.fg
+              opacity: .55
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+            }
+          }
+          ToggleSwitch {
+            id: dndSwitch
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            checked: root.dnd
+            onToggled: root.toggleDnd()
           }
         }
       }
