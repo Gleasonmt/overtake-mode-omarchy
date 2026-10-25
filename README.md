@@ -45,9 +45,12 @@ are never overwritten.
   Bluetooth, Wi-Fi, power, themes, fonts, default apps, time and updates.
 - **Notification center** — toasts slide off after 10 seconds (critical ones
   after 15) into the bell at the end of the taskbar, which counts new ones.
-  Its panel lists them to click (runs the toast's action or brings its app
-  forward), remove one by one, or clear, with a Do Not Disturb switch. Toasts
-  on screen have an × too.
+  Its panel groups them by app, newest first; open an app to see its
+  notifications, click one to act on it (runs its action or brings the app
+  forward), or clear one, an app's, or all. The gear opens **Manage**, where
+  each app is set to Show, Quiet (no pop-ups, still collected) or Off
+  (saved in `~/.config/overtake/notifications.json`). Do Not Disturb sits at the
+  bottom. Toasts on screen have an × too.
 - **Desktop icons**, a **wallpaper slideshow** (rotate every 15 minutes, or
   follow sunrise and sunset), and an **Overtake Mode** entry in the Omarchy menu.
 

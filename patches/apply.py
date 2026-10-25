@@ -107,6 +107,42 @@ PATCHES = {
       ("Service.qml",
 '''  readonly property int historyLimit: 10''',
 '''  readonly property int historyLimit: 50  // Overtake Mode: the notification center's list'''),
+      # Per-app settings made in the notification center's Manage view.
+      ("Service.qml",
+'''  readonly property int lowPopupDuration: 5000''',
+'''  // Overtake Mode: per-app settings from the notification center,
+  // ~/.config/overtake/notifications.json: {"apps": {"<app>": "quiet" | "off"}}.
+  property var overtakeAppModes: ({})
+  FileView {
+    path: Quickshell.env("HOME") + "/.config/overtake/notifications.json"
+    watchChanges: true
+    printErrors: false
+    onFileChanged: reload()
+    onLoaded: {
+      try { service.overtakeAppModes = (JSON.parse(text()) || {}).apps || {} } catch (e) { service.overtakeAppModes = {} }
+    }
+    onLoadFailed: service.overtakeAppModes = {}
+  }
+
+  readonly property int lowPopupDuration: 5000'''),
+      ("Service.qml",
+'''    if (service.doNotDisturb && !shouldBypassDnd(notification)) {''',
+'''    // Overtake Mode: the app's setting from the notification center. "off"
+    // drops its notifications; "quiet" files them in the center without a
+    // pop-up, like Do Not Disturb for that app alone.
+    var overtakeApp = String(notification.appName || "")
+    var overtakeMode = overtakeApp !== "omarchy-action" ? String(service.overtakeAppModes[overtakeApp] || "") : ""
+    if (overtakeMode === "off") {
+      delete liveRefs[snapshot.originalId]
+      notification.tracked = false
+      return
+    }
+    if (overtakeMode === "quiet" && !shouldBypassDnd(notification) && !isEphemeral(notification)) {
+      writeSilenced(notification, snapshot)
+      return
+    }
+
+    if (service.doNotDisturb && !shouldBypassDnd(notification)) {'''),
     ],
 }
 

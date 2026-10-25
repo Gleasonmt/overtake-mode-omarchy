@@ -10,9 +10,12 @@ import qs.Ui
 // move here when they time out or are closed (Omarchy files each one in its
 // notification history folder; Overtake's notifications keep the last 50 and
 // give critical ones 15 seconds on screen instead of forever). The bell shows
-// how many arrived since the center was last opened; the panel lists them,
-// newest first, to act on (click), remove (x) or clear, and has a Do Not
-// Disturb switch.
+// how many arrived since the center was last opened. The panel groups them by
+// app, newest app first; a group expands to its notifications, to act on
+// (click), remove (x) or clear. The gear switches to Manage, where each app
+// is set to Show, Quiet (no pop-ups, still collected) or Off; Overtake's
+// notifications read those from ~/.config/overtake/notifications.json. Do Not
+// Disturb sits at the bottom.
 Panel {
   id: root
   moduleName: "overtake.notification-center"
@@ -22,6 +25,7 @@ Panel {
   readonly property string historyDir: home + "/.local/state/omarchy/notifications/history"
   readonly property string imagesDir: home + "/.local/state/omarchy/notifications/images"
   readonly property string seenFile: home + "/.local/state/overtake/notifications-seen"
+  readonly property string modesFile: home + "/.config/overtake/notifications.json"
   readonly property bool vertical: bar ? bar.vertical : false
   readonly property color fg: bar ? bar.barForeground : Commons.Color.foreground
   readonly property string fontFamily: bar ? bar.fontFamily : Style.font.family
@@ -29,7 +33,41 @@ Panel {
   property var entries: []   // history entries, newest first; each has .file
   property double seen: 0    // newest timestamp the user has seen in the panel
   property bool dnd: false
+  property string view: "list"   // "list" or "manage"
+  property var expanded: ({})    // app -> true while its group is open
+  property var appModes: ({})    // app -> "quiet" | "off" (absent = show)
   readonly property int unread: entries.filter(function(e) { return (e.timestamp || 0) > seen }).length
+
+  // One group per app, newest first: { app, icon, glyph, entries, newest, critical }.
+  readonly property var groups: {
+    var byApp = {}, out = []
+    entries.forEach(function(e) {
+      var app = String(e.app || "Notifications")
+      var g = byApp[app]
+      if (!g) {
+        g = byApp[app] = { app: app, icon: "", glyph: "", entries: [], newest: 0, critical: false }
+        out.push(g)
+      }
+      g.entries.push(e)
+      g.newest = Math.max(g.newest, e.timestamp || 0)
+      if (!g.icon) g.icon = iconFor(e)
+      if (!g.glyph && e.glyph) g.glyph = e.glyph
+      if (e.urgency === 2) g.critical = true
+    })
+    return out.sort(function(a, b) { return b.newest - a.newest })
+  }
+
+  // Apps for Manage: everything with notifications, plus any with a setting
+  // (an app set to Off sends nothing new, but must stay listed to undo it).
+  readonly property var knownApps: {
+    var names = groups.map(function(g) { return g.app })
+    Object.keys(appModes).forEach(function(app) { if (names.indexOf(app) === -1) names.push(app) })
+    return names.sort(function(a, b) { return a.toLowerCase().localeCompare(b.toLowerCase()) })
+  }
+  function groupFor(app) {
+    for (var i = 0; i < groups.length; i++) if (groups[i].app === app) return groups[i]
+    return null
+  }
 
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
@@ -90,13 +128,33 @@ Panel {
     seenView.setText(String(newest) + "\n")
   }
 
-  // ---------- Actions ----------
-  function remove(entry) {
-    if (!entry || !entry.file) return
-    // the entry's file and any images Omarchy saved for it
-    Quickshell.execDetached(["bash", "-c", "stem=${1##*/}; rm -f -- \"$1\" \"$2/${stem%.json}\"-*", "_", entry.file, root.imagesDir])
-    entries = entries.filter(function(e) { return e.file !== entry.file })
+  FileView {
+    id: modesView
+    path: root.modesFile
+    watchChanges: true
+    printErrors: false
+    onFileChanged: reload()
+    onLoaded: { try { root.appModes = (JSON.parse(text()) || {}).apps || {} } catch (e) { root.appModes = {} } }
+    onLoadFailed: root.appModes = {}
   }
+  function modeOf(app) { return appModes[app] || "show" }
+  function setMode(app, mode) {
+    var next = Object.assign({}, appModes)
+    if (mode === "show") delete next[app]
+    else next[app] = mode
+    appModes = next
+    modesView.setText(JSON.stringify({ apps: next }, null, 2) + "\n")
+  }
+
+  // ---------- Actions ----------
+  function removeAll(list) {
+    var files = list.map(function(e) { return e.file }).filter(function(f) { return !!f })
+    if (!files.length) return
+    // each entry's file and any images Omarchy saved for it
+    Quickshell.execDetached(["bash", "-c", "img=$1; shift; for f; do stem=${f##*/}; rm -f -- \"$f\" \"$img/${stem%.json}\"-*; done", "_", root.imagesDir].concat(files))
+    entries = entries.filter(function(e) { return files.indexOf(e.file) === -1 })
+  }
+  function remove(entry) { removeAll([entry]) }
 
   function clearAll() {
     Quickshell.execDetached(["omarchy-shell", "notifications", "clear"])
@@ -116,6 +174,14 @@ Panel {
     close()
   }
 
+  function toggleGroup(app) {
+    var next = Object.assign({}, expanded)
+    next[app] = !isOpen(app)
+    expanded = next
+  }
+  // A lone group starts open.
+  function isOpen(app) { return expanded[app] !== undefined ? expanded[app] : groups.length === 1 }
+
   Process {
     id: dndProc
     command: ["omarchy-shell", "notifications", "dndState"]
@@ -128,7 +194,10 @@ Panel {
   }
   Timer { interval: 30000; running: true; repeat: true; triggeredOnStart: true; onTriggered: root.refreshDnd() }
 
-  onOpenedChanged: if (opened) { refreshDnd(); reload(); markSeen() }
+  onOpenedChanged: {
+    if (opened) { refreshDnd(); reload(); markSeen() }
+    else { view = "list"; expanded = {} }
+  }
   onEntriesChanged: if (opened) markSeen()
 
   function ago(ts) {
@@ -139,14 +208,15 @@ Panel {
     return Qt.formatDateTime(new Date(ts), "MMM d, h:mm AP")
   }
 
+  // The app's own icon for its group (a message's picture, like a sender's
+  // avatar, only when the app has no icon).
   function iconFor(entry) {
-    var image = String(entry.image || "")
-    if (image) return image.charAt(0) === "/" ? "file://" + image : image
     var icon = String(entry.appIcon || "")
-    if (!icon) return ""
     if (icon.charAt(0) === "/") return "file://" + icon
     if (icon.indexOf("://") !== -1) return icon
-    return Quickshell.iconPath(icon, true)
+    if (icon) return Quickshell.iconPath(icon, true)
+    var picture = String(entry.image || "")
+    return picture ? (picture.charAt(0) === "/" ? "file://" + picture : picture) : ""
   }
 
   // ---------- The bell ----------
@@ -188,13 +258,16 @@ Panel {
     bar: root.bar
     open: root.opened
     focusTarget: keyCatcher
-    contentWidth: panel.fittedContentWidth(Style.space(400))
+    contentWidth: panel.fittedContentWidth(Style.space(420))
     contentHeight: panel.fittedContentHeight(column.implicitHeight)
 
     PanelKeyCatcher {
       id: keyCatcher
       anchors.fill: parent
-      onCloseRequested: root.close()
+      onCloseRequested: {
+        if (root.view === "manage") root.view = "list"
+        else root.close()
+      }
       onTabRequested: function(direction) { root.switchPanel(direction) }
 
       Column {
@@ -204,45 +277,52 @@ Panel {
         anchors.top: parent.top
         spacing: Style.space(10)
 
-        // Header: title, and Clear all for the list below
+        // Header: back (in Manage), title, Clear all, the gear
         Item {
           width: parent.width
-          implicitHeight: title.implicitHeight
+          implicitHeight: Math.max(title.implicitHeight, Style.space(24))
 
-          Text {
-            id: title
+          Row {
             anchors.left: parent.left
             anchors.verticalCenter: parent.verticalCenter
-            text: "Notifications"
-            color: root.fg
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.body
-            font.bold: true
+            spacing: Style.space(6)
+            IconButton {
+              visible: root.view === "manage"
+              glyph: ""
+              onClicked: root.view = "list"
+            }
+            Text {
+              id: title
+              anchors.verticalCenter: parent.verticalCenter
+              text: root.view === "manage" ? "Manage notifications" : "Notifications"
+              color: root.fg
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.body
+              font.bold: true
+            }
           }
 
-          Text {
+          Row {
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
-            visible: root.entries.length > 0
-            text: "Clear all"
-            color: clearMouse.containsMouse ? Commons.Color.accent : root.fg
-            opacity: clearMouse.containsMouse ? 1 : .75
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.bodySmall
-            font.underline: clearMouse.containsMouse
-            MouseArea {
-              id: clearMouse
-              anchors.fill: parent
-              anchors.margins: -Style.space(4)
-              hoverEnabled: true
-              cursorShape: Qt.PointingHandCursor
+            spacing: Style.space(10)
+            LinkText {
+              anchors.verticalCenter: parent.verticalCenter
+              visible: root.view === "list" && root.entries.length > 0
+              text: "Clear all"
               onClicked: root.clearAll()
+            }
+            IconButton {
+              visible: root.view === "list"
+              glyph: ""
+              onClicked: root.view = "manage"
             }
           }
         }
 
+        // ----- List: one group per app -----
         Text {
-          visible: root.entries.length === 0
+          visible: root.view === "list" && root.entries.length === 0
           width: parent.width
           topPadding: Style.space(18)
           bottomPadding: Style.space(18)
@@ -255,135 +335,235 @@ Panel {
         }
 
         Flickable {
-          visible: root.entries.length > 0
+          visible: root.view === "list" && root.entries.length > 0
           width: parent.width
-          height: Math.min(list.implicitHeight, Style.space(520))
-          contentHeight: list.implicitHeight
+          height: Math.min(groupList.implicitHeight, Style.space(540))
+          contentHeight: groupList.implicitHeight
           clip: true
           boundsBehavior: Flickable.StopAtBounds
 
           Column {
-            id: list
+            id: groupList
             width: parent.width
             spacing: Style.space(6)
 
             Repeater {
-              model: root.entries
+              model: root.groups
 
               Rectangle {
-                id: row
+                id: group
                 required property var modelData
-                width: list.width
-                implicitHeight: rowContent.implicitHeight + Style.space(16)
+                readonly property bool open: root.isOpen(modelData.app)
+                width: groupList.width
+                implicitHeight: groupColumn.implicitHeight
                 radius: Style.cornerRadius > 0 ? Style.space(6) : 0
-                color: Qt.rgba(root.fg.r, root.fg.g, root.fg.b, rowMouse.containsMouse ? .1 : .05)
-                border.width: modelData.urgency === 2 ? 1 : 0
+                color: Qt.rgba(root.fg.r, root.fg.g, root.fg.b, .05)
+                border.width: modelData.critical ? 1 : 0
                 border.color: Commons.Color.urgent
 
-                MouseArea {
-                  id: rowMouse
-                  anchors.fill: parent
-                  hoverEnabled: true
-                  cursorShape: Qt.PointingHandCursor
-                  acceptedButtons: Qt.LeftButton | Qt.MiddleButton
-                  onClicked: function(mouse) {
-                    if (mouse.button === Qt.MiddleButton) root.remove(row.modelData)
-                    else root.activate(row.modelData)
-                  }
-                }
+                Column {
+                  id: groupColumn
+                  width: parent.width
 
-                Row {
-                  id: rowContent
-                  x: Style.space(10)
-                  y: Style.space(8)
-                  width: parent.width - Style.space(20)
-                  spacing: Style.space(10)
+                  // The app's row: icon, name and count, latest message, chevron, clear
+                  Rectangle {
+                    width: parent.width
+                    implicitHeight: headRow.implicitHeight + Style.space(16)
+                    radius: group.radius
+                    color: headMouse.containsMouse ? Qt.rgba(root.fg.r, root.fg.g, root.fg.b, .06) : "transparent"
 
-                  Item {
-                    width: Style.space(28)
-                    height: Style.space(28)
-                    Image {
-                      id: rowIcon
-                      anchors.fill: parent
-                      source: root.iconFor(row.modelData)
-                      sourceSize.width: width * 2
-                      sourceSize.height: height * 2
-                      fillMode: Image.PreserveAspectFit
-                      asynchronous: true
-                      visible: status === Image.Ready
-                    }
-                    Text {
-                      anchors.centerIn: parent
-                      visible: !rowIcon.visible
-                      text: row.modelData.glyph || ""
-                      color: root.fg
-                      opacity: .7
-                      font.family: root.fontFamily
-                      font.pixelSize: Style.space(16)
-                    }
-                  }
-
-                  Column {
-                    width: parent.width - Style.space(28) - Style.space(10) - Style.space(24)
-                    spacing: Style.space(2)
-
-                    Text {
-                      width: parent.width
-                      text: (row.modelData.app || "Notification") + "  ·  " + root.ago(row.modelData.timestamp)
-                      elide: Text.ElideRight
-                      color: root.fg
-                      opacity: .55
-                      font.family: root.fontFamily
-                      font.pixelSize: Style.font.caption
-                    }
-                    Text {
-                      width: parent.width
-                      text: row.modelData.summary || ""
-                      textFormat: Text.PlainText
-                      elide: Text.ElideRight
-                      color: root.fg
-                      font.family: root.fontFamily
-                      font.pixelSize: Style.font.bodySmall
-                      font.bold: true
-                    }
-                    Text {
-                      width: parent.width
-                      visible: text.length > 0
-                      text: String(row.modelData.body || "").replace(/<[^>]*>/g, "")
-                      textFormat: Text.PlainText
-                      wrapMode: Text.Wrap
-                      maximumLineCount: 3
-                      elide: Text.ElideRight
-                      color: root.fg
-                      opacity: .8
-                      font.family: root.fontFamily
-                      font.pixelSize: Style.font.bodySmall
-                    }
-                  }
-
-                  // remove this one
-                  Item {
-                    width: Style.space(24)
-                    height: Style.space(24)
-                    opacity: rowMouse.containsMouse || xMouse.containsMouse ? 1 : .35
-                    Rectangle {
-                      anchors.fill: parent
-                      radius: width / 2
-                      color: xMouse.containsMouse ? Qt.rgba(root.fg.r, root.fg.g, root.fg.b, .16) : "transparent"
-                    }
-                    Text {
-                      anchors.centerIn: parent
-                      text: ""
-                      color: root.fg
-                      font.family: root.fontFamily
-                      font.pixelSize: Style.space(12)
-                    }
                     MouseArea {
-                      id: xMouse
+                      id: headMouse
                       anchors.fill: parent
                       hoverEnabled: true
                       cursorShape: Qt.PointingHandCursor
-                      onClicked: root.remove(row.modelData)
+                      onClicked: root.toggleGroup(group.modelData.app)
+                    }
+
+                    Row {
+                      id: headRow
+                      x: Style.space(10)
+                      y: Style.space(8)
+                      width: parent.width - Style.space(20)
+                      spacing: Style.space(10)
+
+                      AppIcon {
+                        anchors.verticalCenter: parent.verticalCenter
+                        source: group.modelData.icon
+                        glyph: group.modelData.glyph
+                      }
+
+                      Column {
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: parent.width - Style.space(28) - Style.space(14) - Style.space(24) - parent.spacing * 3
+                        spacing: Style.space(2)
+                        Row {
+                          width: parent.width
+                          spacing: Style.space(8)
+                          Text {
+                            text: group.modelData.app
+                            color: root.fg
+                            font.family: root.fontFamily
+                            font.pixelSize: Style.font.bodySmall
+                            font.bold: true
+                          }
+                          Rectangle {
+                            anchors.verticalCenter: parent.verticalCenter
+                            height: Style.space(16)
+                            width: Math.max(height, countText.implicitWidth + Style.space(10))
+                            radius: height / 2
+                            color: Qt.rgba(root.fg.r, root.fg.g, root.fg.b, .14)
+                            Text {
+                              id: countText
+                              anchors.centerIn: parent
+                              text: String(group.modelData.entries.length)
+                              color: root.fg
+                              font.family: root.fontFamily
+                              font.pixelSize: Style.font.caption
+                            }
+                          }
+                          Text {
+                            anchors.verticalCenter: parent.verticalCenter
+                            visible: root.modeOf(group.modelData.app) === "quiet"
+                            text: ""
+                            color: root.fg
+                            opacity: .5
+                            font.family: root.fontFamily
+                            font.pixelSize: Style.font.caption
+                          }
+                          Text {
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: root.ago(group.modelData.newest)
+                            color: root.fg
+                            opacity: .5
+                            font.family: root.fontFamily
+                            font.pixelSize: Style.font.caption
+                          }
+                        }
+                        Text {
+                          width: parent.width
+                          visible: !group.open
+                          text: {
+                            var e = group.modelData.entries[0]
+                            var body = String(e.body || "").replace(/<[^>]*>/g, "").replace(/\s+/g, " ")
+                            return (e.summary || "") + (body ? " — " + body : "")
+                          }
+                          textFormat: Text.PlainText
+                          elide: Text.ElideRight
+                          color: root.fg
+                          opacity: .7
+                          font.family: root.fontFamily
+                          font.pixelSize: Style.font.caption
+                        }
+                      }
+
+                      Text {
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: Style.space(14)
+                        horizontalAlignment: Text.AlignHCenter
+                        text: group.open ? "" : ""
+                        color: root.fg
+                        opacity: .5
+                        font.family: root.fontFamily
+                        font.pixelSize: Style.font.caption
+                      }
+
+                      IconButton {
+                        anchors.verticalCenter: parent.verticalCenter
+                        glyph: ""
+                        dim: !headMouse.containsMouse
+                        onClicked: root.removeAll(group.modelData.entries)
+                      }
+                    }
+                  }
+
+                  // Its notifications, when open
+                  Column {
+                    visible: group.open
+                    width: parent.width
+                    bottomPadding: Style.space(6)
+                    spacing: Style.space(2)
+
+                    Repeater {
+                      model: group.open ? group.modelData.entries : []
+
+                      Rectangle {
+                        id: item
+                        required property var modelData
+                        x: Style.space(12)
+                        width: group.width - Style.space(18)
+                        implicitHeight: itemRow.implicitHeight + Style.space(12)
+                        radius: group.radius
+                        color: Qt.rgba(root.fg.r, root.fg.g, root.fg.b, itemMouse.containsMouse ? .09 : 0)
+
+                        MouseArea {
+                          id: itemMouse
+                          anchors.fill: parent
+                          hoverEnabled: true
+                          cursorShape: Qt.PointingHandCursor
+                          acceptedButtons: Qt.LeftButton | Qt.MiddleButton
+                          onClicked: function(mouse) {
+                            if (mouse.button === Qt.MiddleButton) root.remove(item.modelData)
+                            else root.activate(item.modelData)
+                          }
+                        }
+
+                        Row {
+                          id: itemRow
+                          x: Style.space(10)
+                          y: Style.space(6)
+                          width: parent.width - Style.space(14)
+                          spacing: Style.space(8)
+
+                          Column {
+                            width: parent.width - Style.space(24) - parent.spacing
+                            spacing: Style.space(2)
+                            Row {
+                              width: parent.width
+                              spacing: Style.space(8)
+                              Text {
+                                id: itemSummary
+                                width: Math.min(implicitWidth, parent.width - itemTime.implicitWidth - Style.space(8))
+                                text: item.modelData.summary || ""
+                                textFormat: Text.PlainText
+                                elide: Text.ElideRight
+                                color: root.fg
+                                font.family: root.fontFamily
+                                font.pixelSize: Style.font.bodySmall
+                                font.bold: true
+                              }
+                              Text {
+                                id: itemTime
+                                anchors.baseline: itemSummary.baseline
+                                text: root.ago(item.modelData.timestamp)
+                                color: root.fg
+                                opacity: .5
+                                font.family: root.fontFamily
+                                font.pixelSize: Style.font.caption
+                              }
+                            }
+                            Text {
+                              width: parent.width
+                              visible: text.length > 0
+                              text: String(item.modelData.body || "").replace(/<[^>]*>/g, "")
+                              textFormat: Text.PlainText
+                              wrapMode: Text.Wrap
+                              maximumLineCount: 3
+                              elide: Text.ElideRight
+                              color: root.fg
+                              opacity: .8
+                              font.family: root.fontFamily
+                              font.pixelSize: Style.font.bodySmall
+                            }
+                          }
+
+                          IconButton {
+                            glyph: ""
+                            dim: !itemMouse.containsMouse
+                            onClicked: root.remove(item.modelData)
+                          }
+                        }
+                      }
                     }
                   }
                 }
@@ -392,7 +572,115 @@ Panel {
           }
         }
 
-        // Footer: Do Not Disturb, apart from the list
+        // ----- Manage: each app's setting -----
+        Text {
+          visible: root.view === "manage"
+          width: parent.width
+          wrapMode: Text.Wrap
+          text: root.knownApps.length
+            ? "Show: pop-ups, then kept here.  Quiet: kept here, no pop-ups.  Off: nothing from that app."
+            : "Apps appear here once they've sent a notification."
+          color: root.fg
+          opacity: .6
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+        }
+
+        Flickable {
+          visible: root.view === "manage" && root.knownApps.length > 0
+          width: parent.width
+          height: Math.min(appList.implicitHeight, Style.space(480))
+          contentHeight: appList.implicitHeight
+          clip: true
+          boundsBehavior: Flickable.StopAtBounds
+
+          Column {
+            id: appList
+            width: parent.width
+            spacing: Style.space(4)
+
+            Repeater {
+              model: root.knownApps
+
+              Item {
+                id: appRow
+                required property string modelData
+                readonly property var group: root.groupFor(modelData)
+                readonly property string mode: root.modeOf(modelData)
+                width: appList.width
+                implicitHeight: Style.space(38)
+
+                Row {
+                  anchors.left: parent.left
+                  anchors.leftMargin: Style.space(4)
+                  anchors.verticalCenter: parent.verticalCenter
+                  spacing: Style.space(10)
+                  AppIcon {
+                    anchors.verticalCenter: parent.verticalCenter
+                    source: appRow.group ? appRow.group.icon : ""
+                    glyph: appRow.group ? appRow.group.glyph : ""
+                    opacity: appRow.mode === "off" ? .4 : 1
+                  }
+                  Text {
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: appList.width - Style.space(28) - Style.space(14) - modes.width - Style.space(12)
+                    text: appRow.modelData
+                    elide: Text.ElideRight
+                    color: root.fg
+                    opacity: appRow.mode === "off" ? .5 : 1
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.bodySmall
+                  }
+                }
+
+                // Show | Quiet | Off
+                Rectangle {
+                  id: modes
+                  anchors.right: parent.right
+                  anchors.verticalCenter: parent.verticalCenter
+                  width: modeRow.implicitWidth + Style.space(4)
+                  height: Style.space(26)
+                  radius: Style.cornerRadius > 0 ? height / 2 : 0
+                  color: Qt.rgba(root.fg.r, root.fg.g, root.fg.b, .07)
+                  Row {
+                    id: modeRow
+                    anchors.centerIn: parent
+                    Repeater {
+                      model: [["show", "Show"], ["quiet", "Quiet"], ["off", "Off"]]
+                      Rectangle {
+                        id: modeChip
+                        required property var modelData
+                        readonly property bool active: appRow.mode === modelData[0]
+                        width: modeLabel.implicitWidth + Style.space(18)
+                        height: Style.space(22)
+                        radius: modes.radius
+                        color: active ? Commons.Color.accent : (modeMouse.containsMouse ? Qt.rgba(root.fg.r, root.fg.g, root.fg.b, .1) : "transparent")
+                        Text {
+                          id: modeLabel
+                          anchors.centerIn: parent
+                          text: modeChip.modelData[1]
+                          color: modeChip.active ? Commons.Color.background : root.fg
+                          font.family: root.fontFamily
+                          font.pixelSize: Style.font.caption
+                          font.bold: modeChip.active
+                        }
+                        MouseArea {
+                          id: modeMouse
+                          anchors.fill: parent
+                          hoverEnabled: true
+                          cursorShape: Qt.PointingHandCursor
+                          onClicked: root.setMode(appRow.modelData, modeChip.modelData[0])
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+
+        // ----- Footer: Do Not Disturb, apart from the list -----
         Rectangle {
           width: parent.width
           height: 1
@@ -410,7 +698,7 @@ Panel {
             anchors.verticalCenter: parent.verticalCenter
             spacing: Style.space(2)
             Text {
-              text: "\uf1f6  Do not disturb"
+              text: "  Do not disturb"
               color: root.fg
               font.family: root.fontFamily
               font.pixelSize: Style.font.bodySmall
@@ -419,7 +707,7 @@ Panel {
               width: parent.width
               wrapMode: Text.Wrap
               text: root.dnd
-                ? "On: pop-ups are hidden; notifications still collect here"
+                ? "On: pop-ups are hidden for every app; notifications still collect here"
                 : "Off: notifications pop up, then collect here"
               color: root.fg
               opacity: .55
@@ -436,6 +724,81 @@ Panel {
           }
         }
       }
+    }
+  }
+
+  // ---------- Small pieces ----------
+  component IconButton: Item {
+    id: ib
+    property string glyph: ""
+    property bool dim: false
+    signal clicked()
+    width: Style.space(24)
+    height: Style.space(24)
+    opacity: dim && !ibMouse.containsMouse ? .35 : 1
+    Rectangle {
+      anchors.fill: parent
+      radius: width / 2
+      color: ibMouse.containsMouse ? Qt.rgba(root.fg.r, root.fg.g, root.fg.b, .16) : "transparent"
+    }
+    Text {
+      anchors.centerIn: parent
+      text: ib.glyph
+      color: root.fg
+      font.family: root.fontFamily
+      font.pixelSize: Style.space(12)
+    }
+    MouseArea {
+      id: ibMouse
+      anchors.fill: parent
+      hoverEnabled: true
+      cursorShape: Qt.PointingHandCursor
+      onClicked: ib.clicked()
+    }
+  }
+
+  component LinkText: Text {
+    id: link
+    signal clicked()
+    color: linkMouse.containsMouse ? Commons.Color.accent : root.fg
+    opacity: linkMouse.containsMouse ? 1 : .75
+    font.family: root.fontFamily
+    font.pixelSize: Style.font.bodySmall
+    font.underline: linkMouse.containsMouse
+    MouseArea {
+      id: linkMouse
+      anchors.fill: parent
+      anchors.margins: -Style.space(4)
+      hoverEnabled: true
+      cursorShape: Qt.PointingHandCursor
+      onClicked: link.clicked()
+    }
+  }
+
+  component AppIcon: Item {
+    id: ai
+    property string source: ""
+    property string glyph: ""
+    width: Style.space(28)
+    height: Style.space(28)
+    Image {
+      id: aiImage
+      anchors.fill: parent
+      source: ai.source
+      sourceSize.width: width * 2
+      sourceSize.height: height * 2
+      fillMode: Image.PreserveAspectFit
+      asynchronous: true
+      visible: status === Image.Ready
+    }
+    Text {
+      anchors.centerIn: parent
+      visible: !aiImage.visible
+      text: ai.glyph || ""
+      color: root.fg
+      opacity: .7
+      font.family: root.fontFamily
+      font.pixelSize: Style.space(16)
     }
   }
 }
