@@ -104,8 +104,10 @@ Panel {
           try { out.push(JSON.parse(line)) } catch (e) {}
         })
         // Omarchy's own "you just did that" toasts (Overtake Mode on, silenced
-        // notifications, ...) are feedback, not something to come back to.
-        out = out.filter(function(e) { return e.app !== "omarchy-action" })
+        // notifications, ...) are feedback, not something to come back to,
+        // unless they carry an action (a screenshot's "click to edit").
+        out = out.filter(function(e) { return e.app !== "omarchy-action" || !!e.execArgv })
+        out.forEach(function(e) { if (e.app === "omarchy-action") e.app = "Omarchy" })
         out.sort(function(a, b) { return (b.timestamp || 0) - (a.timestamp || 0) })
         root.entries = out
       }
@@ -163,15 +165,38 @@ Panel {
 
   // Like clicking the toast: run its action if it carried one, otherwise
   // bring the app that sent it to the front. Then it's done with.
+  // What clicking does, in order: the toast's own action; a file the message
+  // names (a screenshot "saved to '...png'"), opened; the app that sent it,
+  // brought forward if it's open. If none of those can happen the entry
+  // stays in the list rather than vanishing for nothing.
   function activate(entry) {
     var argv = null
     try { argv = JSON.parse(entry.execArgv || "") } catch (e) {}
-    if (Array.isArray(argv) && argv.length && typeof argv[0] === "string" && argv[0] && argv[0].charAt(0) !== "-")
+    if (Array.isArray(argv) && argv.length && typeof argv[0] === "string" && argv[0] && argv[0].charAt(0) !== "-") {
       Quickshell.execDetached(argv)
-    else if (entry.app)
-      Quickshell.execDetached(["/usr/share/omarchy/bin/omarchy-hyprland-focus-app", String(entry.app)])
-    remove(entry)
-    close()
+      remove(entry)
+      close()
+      return
+    }
+    if (openProc.running) return
+    openProc.entry = entry
+    openProc.command = ["bash", "-c",
+      "body=$1 app=$2\n" +
+      "while IFS= read -r f; do [[ -e $f ]] && { xdg-open \"$f\" >/dev/null 2>&1 & exit 0; }; " +
+      "done < <(grep -oE \"/[^'\\\"<>]+\" <<<\"$body\" | sed 's/[.,;:)]*$//')\n" +
+      "[[ -n $app ]] && hyprctl clients -j | jq -e --arg a \"$app\" 'any(.[]; (.class | ascii_downcase | contains($a | ascii_downcase)) or (.initialClass | ascii_downcase | contains($a | ascii_downcase)))' >/dev/null " +
+      "&& { /usr/share/omarchy/bin/omarchy-hyprland-focus-app \"$app\"; exit 0; }\n" +
+      "exit 1", "_", String(entry.body || "").replace(/<[^>]*>/g, ""), String(entry.app || "")]
+    openProc.running = true
+  }
+  Process {
+    id: openProc
+    property var entry: null
+    onExited: function(code) {
+      if (code === 0) { root.remove(entry); root.close() }
+      else Quickshell.execDetached(["notify-send", "-a", "omarchy-action", "-u", "low", "Nothing to open",
+                                    "The app that sent it isn't running and it doesn't name a file."])
+    }
   }
 
   function toggleGroup(app) {
