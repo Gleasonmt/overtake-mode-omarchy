@@ -9,6 +9,7 @@
 #   overtake wallpaper-mode [rotate|day-night]   # pick or print the slideshow mode
 #   overtake minimize|maximize|close [address]  # active window when no address
 #   overtake restore <address> | restore-all
+#   overtake hide-minimized   # taskbar: hide the minimized windows' workspace if it gets shown
 #   overtake show <address>   # taskbar click: bring on screen if needed, then focus
 #   overtake float-all        # float any tiled window (floating ones always cover tiled ones)
 #   overtake remember | relayout  # record window places; restore them after a screen change
@@ -256,9 +257,7 @@ minimize_window() {
   [[ -n $addr ]] || return 0
   ws=$(window_workspace "$addr")
   [[ -n $ws && $ws != special:* ]] || return 0
-  mkdir -p "$STATE_DIR"
-  [[ -s $MINIMIZED ]] || echo '{}' >"$MINIMIZED"
-  jq --arg a "$addr" --arg w "$ws" '.[$a] = $w' "$MINIMIZED" >"$MINIMIZED.tmp" && mv "$MINIMIZED.tmp" "$MINIMIZED"
+  json_set "$MINIMIZED" '.[$a] = $w' --arg a "$addr" --arg w "$ws"
   hyprctl dispatch "hl.dsp.window.move({ workspace = \"special:minimized\", follow = false, window = \"address:$addr\" })" >/dev/null
 }
 
@@ -276,9 +275,7 @@ restore_window() {
   else
     hyprctl dispatch "hl.dsp.window.move({ workspace = \"$ws\", follow = false, window = \"address:$addr\" })" >/dev/null
   fi
-  if [[ -s $MINIMIZED ]]; then
-    jq --arg a "$addr" 'del(.[$a])' "$MINIMIZED" >"$MINIMIZED.tmp" && mv "$MINIMIZED.tmp" "$MINIMIZED"
-  fi
+  [[ -s $MINIMIZED ]] && json_set "$MINIMIZED" 'del(.[$a])' --arg a "$addr"
   bring_into_view "$addr"
 }
 
@@ -323,11 +320,9 @@ USABLE_JQ='def usable: {name, x: (.x + .reserved[0]), y: (.y + .reserved[1]),
 remember_layout() {
   local clients monitors
   clients=$(hyprctl clients -j) monitors=$(hyprctl monitors -j)
-  mkdir -p "$STATE_DIR"
-  [[ -s $LAYOUT ]] || echo '{}' >"$LAYOUT"
   # Only windows whose centre is on their own screen (skips ones a screen change
   # has just stranded), merged over the old records; closed windows dropped.
-  jq --argjson clients "$clients" --argjson monitors "$monitors" "$USABLE_JQ"'
+  json_set "$LAYOUT" "$USABLE_JQ"'
     ($monitors | map({key: (.id | tostring), value: usable}) | from_entries) as $m
     | ([$clients[] | .address]) as $live
     | (with_entries(select(.key as $k | $live | index($k))))
@@ -338,7 +333,7 @@ remember_layout() {
           | {key: .address, value: {mon: $u.name, uw: $u.w, uh: $u.h, ws: $c.workspace.name,
               fx: (($c.at[0] - $u.x) / $u.w), fy: (($c.at[1] - $u.y) / $u.h),
               fw: ($c.size[0] / $u.w), fh: ($c.size[1] / $u.h)}}] | from_entries)
-  ' "$LAYOUT" >"$LAYOUT.tmp" && mv "$LAYOUT.tmp" "$LAYOUT"
+  ' --argjson clients "$clients" --argjson monitors "$monitors"
 }
 
 # relayout [all]: "all" puts every recorded window back (used by `on`, when
@@ -404,6 +399,17 @@ focus_raise() {
   hyprctl --batch "eval hl.config({ cursor = { no_warps = true } }) ; dispatch hl.dsp.focus({ window = \"address:$1\" }) ; dispatch hl.dsp.window.bring_to_top() ; eval hl.config({ cursor = { no_warps = false } })" >/dev/null
 }
 
+# Hyprland shows a special workspace when something focuses a window on it
+# (focus returning to a minimized window after a menu closes, an app asking to
+# be activated). Minimized windows have no title bar and can't be minimized
+# again from there, so hide it straight away; the taskbar restores them.
+hide_minimized() {
+  local mon
+  for mon in $(hyprctl monitors -j | jq -r '.[] | select(.specialWorkspace.name == "special:minimized") | .name'); do
+    hyprctl --batch "dispatch hl.dsp.focus({ monitor = \"$mon\" }) ; dispatch hl.dsp.workspace.toggle_special(\"minimized\")" >/dev/null
+  done
+}
+
 restore_all() {
   local addr
   for addr in $(hyprctl clients -j | jq -r '.[] | select(.workspace.name == "special:minimized") | .address'); do
@@ -424,11 +430,19 @@ close_window() {
 }
 
 # ---------- Floating and snap layouts ----------
+# Several overtake processes can write the same state file at once (quick
+# clicks, the taskbar's periodic `remember`), so writes take a lock and their
+# own temp file, and an empty result never replaces the file.
 json_set() {  # json_set <file> <jq filter> [jq args...]
   local file=$1 filter=$2
   shift 2
-  [[ -s $file ]] || echo '{}' >"$file"
-  jq "$@" "$filter" "$file" >"$file.tmp" && mv "$file.tmp" "$file"
+  mkdir -p "$STATE_DIR"
+  (
+    flock 9
+    [[ -s $file ]] || echo '{}' >"$file"
+    tmp=$(mktemp "$file.XXXXXX")
+    if jq "$@" "$filter" "$file" >"$tmp" && [[ -s $tmp ]]; then mv "$tmp" "$file"; else rm -f "$tmp"; fi
+  ) 9>"$STATE_DIR/.lock"
 }
 
 float_all() {
@@ -574,6 +588,7 @@ case "${1:-help}" in
   minimize) minimize_window "${2:-}" ;;
   restore) [[ -n ${2:-} ]] && restore_window "$2" || true ;;
   restore-all) restore_all ;;
+  hide-minimized) hide_minimized ;;
   show) [[ -n ${2:-} ]] && show_window "$2" || true ;;
   rescue) rescue_all ;;
   remember) [[ -f $FLAG ]] && remember_layout || true ;;

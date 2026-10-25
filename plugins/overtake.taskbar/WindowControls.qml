@@ -294,6 +294,10 @@ Item {
       if (root.modeOn && event.name === "changefloatingmode" && String(event.data).split(",")[1] === "0") floatTimer.restart()
       // An app's own minimize button: Hyprland only announces the request
       // ("minimized>>ADDRESS,1"), so carry it out.
+      // Minimized windows live on special:minimized; if Hyprland shows it (focus
+      // landing on one of them), hide it again.
+      if (root.modeOn && event.name === "activespecial" && String(event.data).split(",")[0] === "special:minimized")
+        root.run(["hide-minimized"])
       if (root.modeOn && event.name === "minimized") {
         var parts = String(event.data).split(",")
         if (parts[1] === "1") root.run(["minimize", "0x" + parts[0]])
