@@ -59,6 +59,11 @@ are never overwritten.
   Power & battery (kept in `~/.config/overtake/battery-alerts.json`). Critical
   ones get through Do Not Disturb. They replace Omarchy's single 10% laptop
   warning while the mode is on; its `battery-low` hook still runs.
+- **Click the desktop to see it** — a click on empty desktop minimizes the
+  windows on that workspace.
+- **Screensaver & lock settings** — Settings → Screensaver & lock (or right-click
+  the desktop): on/off, when it starts and when the screen locks, and what it shows:
+  Omarchy's logo, your wallpaper turned into screensaver art, an image, or your own text.
 - **Themes in folders** — Omarchy menu → Style → Theme opens Omarchy themes, Your
   themes (the ones you added) or All themes, in plain Omarchy too; Settings →
   Personalization shows your themes first, each section foldable.

@@ -13,8 +13,9 @@ import "DesktopList.js" as DesktopList
 // double-click opens, right-click gives Open, Pin to Start, Rename, Move up /
 // down and Remove from desktop (and Empty Trash on the Trash). Right-click on
 // the desktop itself gives the view options (icon size, sort, show icons),
-// Add a shortcut, background and theme, Personalize, Display settings and a
-// terminal; double-click opens Omarchy's background picker as before.
+// Add a shortcut, background and theme, screensaver, Personalize, Display
+// settings and a terminal. A plain click on the desktop minimizes the windows
+// on that screen's workspace.
 //
 // The icons live in ~/.config/overtake/desktop-icons.txt ("<id> | <label>").
 // Besides desktop entry ids it understands "trash", "browser" (your default
@@ -171,6 +172,7 @@ Item {
       { glyph: "", label: "Next desktop background", run: function() { root.run("overtake next-wallpaper") } },
       { glyph: "", label: "Change background…", run: function() { root.run("background=$(omarchy-theme-bg-switcher); [[ -n $background ]] && omarchy-theme-bg-set \"$background\"") } },
       { glyph: "", label: "Change theme…", run: function() { root.run("omarchy-menu toggle theme") } },
+      { glyph: "\uf26c", label: "Screensaver settings…", run: function() { root.run("overtake settings screensaver") } },
       { glyph: "", label: "Personalize", run: function() { root.run("overtake settings personalization") } },
       { glyph: "", label: "Display settings", run: function() { root.run("overtake settings system") } }
     ]
@@ -212,15 +214,17 @@ Item {
       MouseArea {
         anchors.fill: parent
         acceptedButtons: Qt.LeftButton | Qt.RightButton
+        // A click on the desktop itself minimizes this screen's windows, a quick
+        // way to the desktop (one that only closes a menu or a rename doesn't).
         onClicked: function(mouse) {
+          var busy = root.menuRows.length > 0 || root.renaming !== ""
           root.selected = ""
           root.renaming = ""
           if (mouse.button === Qt.RightButton) root.showMenu(desk.modelData.name, Qt.point(mouse.x, mouse.y), root.desktopMenu())
-          else root.closeMenu()
-        }
-        onDoubleClicked: function(mouse) {
-          if (mouse.button === Qt.LeftButton)
-            root.run("background=$(omarchy-theme-bg-switcher); [[ -n $background ]] && omarchy-theme-bg-set \"$background\"")
+          else {
+            root.closeMenu()
+            if (!busy) Quickshell.execDetached(["overtake", "minimize-all", desk.modelData.name])
+          }
         }
       }
 

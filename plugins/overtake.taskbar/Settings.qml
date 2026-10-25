@@ -81,6 +81,29 @@ Item {
         { type: "battery", title: "Battery alerts", detail: "A notification when a device drops to its Low level, and again at Critical. Every device with a battery shows up here once connected." }
       ]}
     ]},
+    { id: "screensaver", name: "Screensaver & lock", glyph: "\uf26c", sections: [
+      { title: "Screensaver", rows: [
+        { type: "toggle", title: "Screensaver", detail: "Show the screensaver when the computer has been idle",
+          state: "overtake screensaver enabled", on: "overtake screensaver on", off: "overtake screensaver off" },
+        { type: "choice", title: "Start after", detail: "How long the computer is idle before it starts",
+          options: "printf '60\\n120\\n150\\n300\\n600\\n900\\n1800\\n'", current: "overtake screensaver start", set: "overtake screensaver start {}",
+          labels: { "60": "1 minute", "120": "2 minutes", "150": "2½ minutes", "300": "5 minutes", "600": "10 minutes", "900": "15 minutes", "1800": "30 minutes" } },
+        { type: "link", title: "Preview", detail: "Start it now (move the mouse or press a key to stop it)", run: "overtake screensaver preview" }
+      ]},
+      { title: "What it shows", rows: [
+        { type: "info", title: "Showing", value: "overtake screensaver showing" },
+        { type: "link", title: "Omarchy logo", detail: "The screensaver Omarchy comes with", run: "overtake screensaver show omarchy" },
+        { type: "link", title: "Your wallpaper", detail: "Turns the wallpaper you're using now into screensaver art", run: "overtake screensaver show wallpaper" },
+        { type: "link", title: "From an image…", detail: "Pick a PNG or SVG to turn into screensaver art", run: "overtake screensaver show image" },
+        { type: "link", title: "Your own text…", detail: "Write or paste text or ASCII art", run: "overtake screensaver show text" }
+      ]},
+      { title: "Lock", rows: [
+        { type: "choice", title: "Lock after", detail: "Lock the screen after the computer has been idle this long",
+          options: "printf '120\\n300\\n600\\n900\\n1800\\n3600\\n0\\n'", current: "overtake screensaver lock", set: "overtake screensaver lock {}",
+          labels: { "120": "2 minutes", "300": "5 minutes", "600": "10 minutes", "900": "15 minutes", "1800": "30 minutes", "3600": "1 hour", "0": "Never" } },
+        { type: "link", title: "Lock now", run: "omarchy-system-lock" }
+      ]}
+    ]},
     { id: "bluetooth", name: "Bluetooth & devices", glyph: "", sections: [
       { title: "Bluetooth", rows: [
         { type: "toggle", title: "Bluetooth", detail: "Turning this off disconnects Bluetooth keyboards and mice",

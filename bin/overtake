@@ -10,6 +10,8 @@
 #   overtake wallpaper-mode [rotate|day-night]   # pick or print the slideshow mode
 #   overtake minimize|maximize|close [address]  # active window when no address
 #   overtake restore <address> | restore-all
+#   overtake minimize-all [monitor]   # clicking the desktop: minimize this workspace's windows
+#   overtake screensaver <on|off|start|lock|show|showing> [...]  # Settings > Screensaver
 #   overtake hide-minimized   # taskbar: hide the minimized windows' workspace if it gets shown
 #   overtake show <address>   # taskbar click: bring on screen if needed, then focus
 #   overtake float-all        # float any tiled window (floating ones always cover tiled ones)
@@ -473,6 +475,65 @@ hide_minimized() {
   done
 }
 
+# Clicking empty desktop: minimize every window on the workspace that screen
+# shows (the focused screen's when none is given).
+minimize_all() {
+  local ws addr
+  if [[ -n ${1:-} ]]; then
+    ws=$(hyprctl monitors -j | jq -r --arg m "$1" '.[] | select(.name == $m) | .activeWorkspace.name')
+  else
+    ws=$(hyprctl activeworkspace -j | jq -r '.name')
+  fi
+  [[ -n $ws && $ws != special:* ]] || return 0
+  for addr in $(hyprctl clients -j | jq -r --arg w "$ws" '.[] | select(.workspace.name == $w) | .address'); do
+    minimize_window "$addr"
+  done
+}
+
+# Screensaver settings, using Omarchy's own pieces: the screensaver-off toggle,
+# the idle timeouts in shell.json (seconds; 0 = never), and the art in
+# ~/.config/omarchy/branding/screensaver.txt.
+SCREENSAVER_ART="$HOME/.config/omarchy/branding/screensaver.txt"
+screensaver_cmd() {
+  case "${1:-}" in
+    on) omarchy-toggle-enabled screensaver-off && omarchy-toggle screensaver-off >/dev/null; true ;;
+    off) omarchy-toggle-enabled screensaver-off || omarchy-toggle screensaver-off >/dev/null; true ;;
+    enabled) ! omarchy-toggle-enabled screensaver-off ;;
+    start|lock)
+      local key=screensaver tmp
+      [[ $1 == lock ]] && key=lock
+      if [[ -z ${2:-} ]]; then jq -r --arg k "$key" '.idle[$k] // (if $k == "lock" then 300 else 150 end)' "$SHELL_JSON"; return; fi
+      [[ $2 =~ ^[0-9]+$ ]] || { echo "seconds, please" >&2; return 1; }
+      tmp=$(mktemp "$SHELL_JSON.XXXXXX")
+      jq --arg k "$key" --argjson v "$2" '.idle[$k] = $v' "$SHELL_JSON" >"$tmp" && mv "$tmp" "$SHELL_JSON"
+      omarchy-shell shell reloadConfig >/dev/null 2>&1 || true ;;
+    show)
+      local omarchy="${OMARCHY_PATH:-/usr/share/omarchy}"
+      case "${2:-}" in
+        omarchy) cp "$omarchy/logo.txt" "$SCREENSAVER_ART" ;;
+        text) omarchy-launch-editor "$SCREENSAVER_ART" >/dev/null 2>&1; return ;;
+        image) omarchy-branding-screensaver image; return ;;
+        wallpaper)
+          # The art is drawn in dots on black: a dark (night) wallpaper is
+          # flipped first so its lights become the dots, a bright one keeps its
+          # dark shapes as the dots.
+          local bg tmp mean
+          bg=$(readlink -f "$CURRENT_BG")
+          tmp=$(mktemp --suffix=.png)
+          mean=$(magick "$bg" -colorspace gray -format '%[fx:mean < 0.4 ? 1 : 0]' info: 2>/dev/null || echo 0)
+          if [[ $mean == 1 ]]; then magick "$bg" -negate "$tmp"; else cp "$bg" "$tmp"; fi
+          omarchy-transcode-ascii "$tmp" "$SCREENSAVER_ART" >/dev/null || { rm -f "$tmp"; return 1; }
+          rm -f "$tmp" ;;
+        *) echo "show omarchy|text|image|wallpaper" >&2; return 1 ;;
+      esac
+      omarchy-launch-screensaver force >/dev/null 2>&1 & ;;
+    showing)
+      if cmp -s "$SCREENSAVER_ART" "${OMARCHY_PATH:-/usr/share/omarchy}/logo.txt"; then echo "Omarchy logo"; else echo "Your own"; fi ;;
+    preview) omarchy-launch-screensaver force >/dev/null 2>&1 & ;;
+    *) echo "overtake screensaver on|off|enabled|start [s]|lock [s]|show <omarchy|text|image|wallpaper>|showing|preview" >&2; return 1 ;;
+  esac
+}
+
 restore_all() {
   local addr
   for addr in $(hyprctl clients -j | jq -r '.[] | select(.workspace.name == "special:minimized") | .address'); do
@@ -682,6 +743,8 @@ case "${1:-help}" in
   minimize) minimize_window "${2:-}" ;;
   restore) [[ -n ${2:-} ]] && restore_window "$2" || true ;;
   restore-all) restore_all ;;
+  minimize-all) minimize_all "${2:-}" ;;
+  screensaver) shift; screensaver_cmd "$@" ;;
   hide-minimized) hide_minimized ;;
   show) [[ -n ${2:-} ]] && show_window "$2" || true ;;
   rescue) rescue_all ;;
