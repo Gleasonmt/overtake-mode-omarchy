@@ -14,13 +14,15 @@ import qs.Ui
 //
 // Row types: toggle (state: exit 0 = on), choice (options + current + set
 // with {} for the value), info (value from a command), link (runs a command),
-// list (one row per output line: "title|detail|button|command"), themes.
+// list (one row per output line: "title|detail|button|command"), themes,
+// battery (each battery device's alert levels, from BatteryAlerts).
 Item {
   id: root
 
   property bool open: false
   property string page: "system"
   property string query: ""
+  property var batteryAlerts: null
 
   function show(which) {
     if (which && pageById(which)) page = which
@@ -54,13 +56,10 @@ Item {
       { title: "Notifications", rows: [
         { type: "toggle", title: "Do not disturb", detail: "Silence notification pop-ups",
           state: "[ \"$(omarchy-shell notifications isDnd)\" = on ]", on: "omarchy-shell notifications setDnd true", off: "omarchy-shell notifications setDnd false" },
-        { type: "link", title: "Notification history", run: "omarchy-shell notifications showHistory" }
+        { type: "link", title: "Notification center", detail: "Notifications that have left the screen, and each app's settings (the bell on the taskbar)", run: "omarchy-shell overtake.notification-center open" }
       ]},
       { title: "Power & battery", rows: [
-        { type: "choice", title: "Power mode", detail: "Balance battery life and performance",
-          options: "powerprofilesctl list | sed -n 's/^[* ] *\\([a-z-]*\\):$/\\1/p'", current: "powerprofilesctl get", set: "omarchy-powerprofiles-set {}" },
-        { type: "info", title: "Battery", value: "upower -i $(upower -e | grep BAT | head -1) | awk '/percentage/{p=$2} /state/{s=$2} END{print p\"  \"s}'" },
-        { type: "link", title: "Battery and device charge", run: "omarchy-shell omarchy.power open" }
+        { type: "link", title: "Power & battery", detail: "Power mode, battery and the alerts for each device's battery", run: "overtake settings battery" }
       ]},
       { title: "About", rows: [
         { type: "info", title: "Device name", value: "cat /etc/hostname" },
@@ -69,6 +68,17 @@ Item {
         { type: "info", title: "Memory", value: "free -h | awk '/Mem:/{print $2}'" },
         { type: "info", title: "System", value: "echo Omarchy $(omarchy-version)" },
         { type: "link", title: "More about this PC", run: "omarchy-launch-about" }
+      ]}
+    ]},
+    { id: "battery", name: "Power & battery", glyph: "\uf240", sections: [
+      { title: "Power", rows: [
+        { type: "choice", title: "Power mode", detail: "Balance battery life and performance",
+          options: "powerprofilesctl list | sed -n 's/^[* ] *\\([a-z-]*\\):$/\\1/p'", current: "powerprofilesctl get", set: "omarchy-powerprofiles-set {}" },
+        { type: "info", title: "Battery", value: "upower -i $(upower -e | grep BAT | head -1) | awk '/percentage/{p=$2} /state/{s=$2} END{print p\"  \"s}'" },
+        { type: "link", title: "Battery and device charge", run: "omarchy-shell omarchy.power open" }
+      ]},
+      { title: "Battery alerts", rows: [
+        { type: "battery", title: "Battery alerts", detail: "A notification when a device drops to its Low level, and again at Critical. Every device with a battery shows up here once connected." }
       ]}
     ]},
     { id: "bluetooth", name: "Bluetooth & devices", glyph: "", sections: [
@@ -573,6 +583,138 @@ Item {
           }
         }
 
+        // battery: each device's alert levels
+        Column {
+          visible: card.row.type === "battery"
+          width: parent.width
+          spacing: 8
+
+          Text {
+            visible: !root.batteryAlerts || root.batteryAlerts.deviceList.length === 0
+            text: "No battery devices found yet."
+            color: root.fg
+            opacity: 0.6
+            font.family: root.fontFamily
+            font.pixelSize: 12
+          }
+
+          Repeater {
+            model: card.row.type === "battery" && root.batteryAlerts ? root.batteryAlerts.deviceList : []
+
+            Rectangle {
+              id: device
+              required property var modelData
+              width: parent.width
+              height: deviceColumn.implicitHeight + 20
+              radius: 6
+              color: Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.04)
+
+              Column {
+                id: deviceColumn
+                x: 12
+                y: 10
+                width: parent.width - 24
+                spacing: 8
+
+                // name, charge, on/off
+                Item {
+                  width: parent.width
+                  height: Math.max(deviceName.implicitHeight + deviceState.implicitHeight, 24)
+
+                  Text {
+                    id: deviceGlyph
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: 26
+                    text: ({ Laptop: "\uf109", Mouse: "\uf245", Keyboard: "\uf11c", Headset: "\uf025", Headphones: "\uf025",
+                             GamingInput: "\uf11b", Phone: "\uf10b", Tablet: "\uf10a" })[device.modelData.kind] || "\uf240"
+                    color: root.fg
+                    opacity: device.modelData.connected ? 0.9 : 0.4
+                    font.family: root.fontFamily
+                    font.pixelSize: 16
+                  }
+                  Column {
+                    anchors.left: deviceGlyph.right
+                    anchors.leftMargin: 6
+                    anchors.verticalCenter: parent.verticalCenter
+                    Text {
+                      id: deviceName
+                      text: device.modelData.name
+                      color: root.fg
+                      opacity: device.modelData.connected ? 1 : 0.6
+                      font.family: root.fontFamily
+                      font.pixelSize: 13
+                      font.bold: true
+                    }
+                    Text {
+                      id: deviceState
+                      text: device.modelData.connected
+                        ? device.modelData.percent + "%" + (device.modelData.charging ? " · charging" : "") + " · " + device.modelData.kind
+                        : "Not connected · " + device.modelData.kind
+                      color: root.fg
+                      opacity: 0.6
+                      font.family: root.fontFamily
+                      font.pixelSize: 12
+                    }
+                  }
+                  Row {
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
+                    spacing: 10
+                    Text {
+                      anchors.verticalCenter: parent.verticalCenter
+                      text: device.modelData.enabled ? "Alerts on" : "Alerts off"
+                      color: root.fg
+                      font.family: root.fontFamily
+                      font.pixelSize: 12
+                    }
+                    Rectangle {
+                      anchors.verticalCenter: parent.verticalCenter
+                      width: 40
+                      height: 20
+                      radius: 10
+                      color: device.modelData.enabled ? root.accent : "transparent"
+                      border.width: device.modelData.enabled ? 0 : 1
+                      border.color: Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.6)
+                      Rectangle {
+                        width: 12
+                        height: 12
+                        radius: 6
+                        anchors.verticalCenter: parent.verticalCenter
+                        x: device.modelData.enabled ? parent.width - width - 4 : 4
+                        color: device.modelData.enabled ? root.bg : Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.8)
+                      }
+                      MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: root.batteryAlerts.setLevel(device.modelData.key, "enabled", !device.modelData.enabled)
+                      }
+                    }
+                  }
+                }
+
+                // Low and Critical levels
+                Row {
+                  visible: device.modelData.enabled
+                  x: 32
+                  spacing: 24
+                  LevelStepper {
+                    label: "Low"
+                    hint: "heads-up"
+                    value: device.modelData.low
+                    onStep: function(delta) { root.batteryAlerts.setLevel(device.modelData.key, "low", device.modelData.low + delta) }
+                  }
+                  LevelStepper {
+                    label: "Critical"
+                    hint: "urgent alert"
+                    value: device.modelData.critical
+                    onStep: function(delta) { root.batteryAlerts.setLevel(device.modelData.key, "critical", device.modelData.critical + delta) }
+                  }
+                }
+              }
+            }
+          }
+        }
+
         // themes: a gallery of previews
         Grid {
           visible: card.row.type === "themes"
@@ -626,6 +768,52 @@ Item {
               }
             }
           }
+        }
+      }
+    }
+  }
+
+  // −  20%  +   for a battery alert level (steps of 5)
+  component LevelStepper: Row {
+    id: stepper
+    property string label: ""
+    property string hint: ""
+    property int value: 0
+    signal step(int delta)
+    spacing: 8
+    Column {
+      anchors.verticalCenter: parent.verticalCenter
+      Text { text: stepper.label; color: root.fg; font.family: root.fontFamily; font.pixelSize: 12 }
+      Text { text: stepper.hint; color: root.fg; opacity: 0.5; font.family: root.fontFamily; font.pixelSize: 10 }
+    }
+    Repeater {
+      model: [-5, 0, 5]
+      Item {
+        required property int modelData
+        anchors.verticalCenter: parent.verticalCenter
+        width: modelData === 0 ? 44 : 26
+        height: 26
+        Rectangle {
+          visible: parent.modelData !== 0
+          anchors.fill: parent
+          radius: 13
+          color: Qt.rgba(root.fg.r, root.fg.g, root.fg.b, stepArea.containsMouse ? 0.16 : 0.07)
+        }
+        Text {
+          anchors.centerIn: parent
+          text: parent.modelData === 0 ? stepper.value + "%" : (parent.modelData < 0 ? "\u2212" : "+")
+          color: parent.modelData === 0 ? root.accent : root.fg
+          font.family: root.fontFamily
+          font.pixelSize: parent.modelData === 0 ? 14 : 15
+          font.bold: parent.modelData === 0
+        }
+        MouseArea {
+          id: stepArea
+          visible: parent.modelData !== 0
+          anchors.fill: parent
+          hoverEnabled: true
+          cursorShape: Qt.PointingHandCursor
+          onClicked: stepper.step(parent.modelData)
         }
       }
     }

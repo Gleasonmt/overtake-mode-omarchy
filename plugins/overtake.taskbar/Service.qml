@@ -3,9 +3,9 @@ import Quickshell
 import Quickshell.Io
 
 // Overtake Mode's always-loaded pieces: the min/max/close controls on the
-// focused window, the desktop icons, and the Settings window. The controls
-// and icons show only while Overtake Mode is on (~/.local/bin/overtake
-// creates the flag file); Settings opens on request.
+// focused window, the desktop icons, battery alerts, and the Settings window.
+// The controls, icons and alerts work only while Overtake Mode is on
+// (~/.local/bin/overtake creates the flag file); Settings opens on request.
 Item {
   id: root
 
@@ -36,8 +36,14 @@ Item {
     modeOn: root.modeOn
   }
 
+  BatteryAlerts {
+    id: batteryAlerts
+    modeOn: root.modeOn
+  }
+
   Settings {
     id: settings
+    batteryAlerts: batteryAlerts
   }
 
   // `overtake settings [page]` writes "<page> <time>" here. A rewrite

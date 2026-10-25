@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Patch a copy of an Omarchy plugin for Overtake Mode.
 
-  apply.py <workspaces|bluetooth|audio|notifications> <plugin-dir>
+  apply.py <workspaces|bluetooth|audio|notifications|battery> <plugin-dir>
 
 Each patch is one or more exact replacements. If Omarchy has changed any code
 one expects, nothing is written and it exits 1, so the installer can fall back
@@ -143,7 +143,23 @@ PATCHES = {
     }
 
     if (service.doNotDisturb && !shouldBypassDnd(notification)) {'''),
+      # A critical battery alert (BatteryAlerts) gets through Do Not Disturb.
+      ("Service.qml",
+'''  function shouldBypassDnd(notification) {
+    return NotificationLogic.shouldBypassDnd(notification, NotificationUrgency.Critical)''',
+'''  function shouldBypassDnd(notification) {
+    // Overtake Mode: a critical battery alert always gets through.
+    if (String(notification.appName || "") === "Battery" && notification.urgency === NotificationUrgency.Critical) return true
+    return NotificationLogic.shouldBypassDnd(notification, NotificationUrgency.Critical)'''),
     ],
+    # Overtake Mode's battery alerts (per device, levels you choose) replace
+    # Omarchy's single 10% laptop warning; power profiles still switch here.
+    "battery": ("Service.qml",
+'''  function checkBattery() {
+    var state''',
+'''  function checkBattery() {
+    return  // Overtake Mode: BatteryAlerts in overtake.taskbar sends battery warnings
+    var state'''),
 }
 
 name, plugin_dir = sys.argv[1], sys.argv[2]

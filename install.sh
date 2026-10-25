@@ -103,6 +103,8 @@ build_widget bluetooth "$OMARCHY_PLUGINS/panels/bluetooth" manifest.json Panel.q
 build_widget audio "$OMARCHY_PLUGINS/panels/audio" manifest.json Panel.qml Model.js
 # Notifications with a close button; `overtake on` switches to it, `off` back.
 build_widget notifications "$OMARCHY_PLUGINS/notifications" manifest.json Service.qml NotificationLogic.js components
+# Battery service without Omarchy's 10% warning (Overtake's battery alerts replace it).
+build_widget battery "$OMARCHY_PLUGINS/services/battery" manifest.json Service.qml BatteryModel.js
 say "plugins: overtake.taskbar, overtake.notification-center"
 
 # 4. The Omarchy menu entry (Overtake Mode, under the main menu).

@@ -51,6 +51,12 @@ are never overwritten.
   each app is set to Show, Quiet (no pop-ups, still collected) or Off
   (saved in `~/.config/overtake/notifications.json`). Do Not Disturb sits at the
   bottom. Toasts on screen have an × too.
+- **Battery alerts for every device** — the laptop and anything connected that
+  reports a battery (Bluetooth or USB mice, keyboards, headsets, controllers)
+  each get a Low and a Critical alert at levels you choose, in Settings →
+  Power & battery (kept in `~/.config/overtake/battery-alerts.json`). Critical
+  ones get through Do Not Disturb. They replace Omarchy's single 10% laptop
+  warning while the mode is on; its `battery-low` hook still runs.
 - **Desktop icons**, a **wallpaper slideshow** (rotate every 15 minutes, or
   follow sunrise and sunset), and an **Overtake Mode** entry in the Omarchy menu.
 
@@ -96,6 +102,7 @@ All in `~/.config/overtake/`:
 | `~/.config/omarchy/plugins/overtake.taskbar` | taskbar, Start menu, title bars, desktop icons, Settings |
 | `~/.config/omarchy/plugins/overtake.{workspaces,bluetooth,audio}` | copies of Omarchy's own widgets, made from your installed Omarchy, with small changes (no gaps in the workspace list; right-click opens the Bluetooth and sound panels instead of turning Bluetooth off or muting) |
 | `~/.config/omarchy/plugins/overtake.notifications` | a copy of Omarchy's notifications with a close button on each card, critical toasts leaving after 15 s instead of never, and a 50-entry history for the notification center. Used only while the mode is on; switching restarts the shell, since Omarchy keeps its notification service loaded until then |
+| `~/.config/omarchy/plugins/overtake.battery` | a copy of Omarchy's battery service without its fixed 10% warning (Overtake's battery alerts replace it); used only while the mode is on, switched together with the notifications copy |
 | `~/.config/omarchy/plugins/overtake.notification-center` | the bell and its panel; it reads Omarchy's notification history folder (`~/.local/state/omarchy/notifications/history`). `omarchy-shell overtake.notification-center toggle` opens it |
 | `~/.config/omarchy/extensions/omarchy-menu.jsonc` | the Overtake Mode menu entry, between markers |
 | `~/.config/overtake/`, `~/Pictures/overtake/` | your settings and the wallpapers |

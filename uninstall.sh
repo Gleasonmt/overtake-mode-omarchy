@@ -30,10 +30,12 @@ remove_block "$MENU" "  //"
 
 # Hand notifications back to Omarchy's own before removing the patched copy.
 omarchy plugin disable overtake.notifications >/dev/null 2>&1 || true
+omarchy plugin disable overtake.battery >/dev/null 2>&1 || true
 rm -f "$HOME/.local/bin/overtake" "$HYPR/overtake.lua"
 rm -rf "${PLUGINS:?}/overtake.taskbar" "${PLUGINS:?}/overtake.workspaces" \
        "${PLUGINS:?}/overtake.bluetooth" "${PLUGINS:?}/overtake.audio" \
        "${PLUGINS:?}/overtake.notifications" "${PLUGINS:?}/overtake.notification-center" \
+       "${PLUGINS:?}/overtake.battery" \
        "$HOME/.local/state/overtake"
 
 if [[ ${1:-} == --purge ]]; then

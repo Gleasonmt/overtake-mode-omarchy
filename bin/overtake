@@ -200,21 +200,25 @@ slideshow_loop() {
   done
 }
 
-# Notifications with a close button: overtake.notifications, the installer's
-# patched copy of Omarchy's own. Omarchy keeps its notification service loaded
-# until the shell restarts, so switching restarts the shell (only when the
-# choice changes) and waits for it to come back.
-switch_notifications() {  # switch_notifications on|off
-  [[ -d $HOME/.config/omarchy/plugins/overtake.notifications ]] || return 0
-  local enabled
-  enabled=$(omarchy-shell shell listPlugins 2>/dev/null | jq -r '.[] | select(.id == "overtake.notifications") | .enabled' || true)
-  if [[ $1 == on && $enabled != true ]]; then
-    omarchy plugin enable overtake.notifications >/dev/null 2>&1 || return 0
-  elif [[ $1 == off && $enabled == true ]]; then
-    omarchy plugin disable overtake.notifications >/dev/null 2>&1 || return 0
-  else
-    return 0
-  fi
+# Overtake's patched copies of two Omarchy services, used while the mode is on:
+# overtake.notifications (close buttons, the notification center's timings and
+# per-app settings) and overtake.battery (no fixed 10% warning; BatteryAlerts
+# sends per-device ones). Omarchy keeps a service loaded until the shell
+# restarts, so switching restarts the shell (only when something changed)
+# and waits for it to come back.
+switch_services() {  # switch_services on|off
+  local listed id enabled changed=0
+  listed=$(omarchy-shell shell listPlugins 2>/dev/null || true)
+  for id in overtake.notifications overtake.battery; do
+    [[ -d $HOME/.config/omarchy/plugins/$id ]] || continue
+    enabled=$(jq -r --arg id "$id" '.[] | select(.id == $id) | .enabled' <<<"$listed" 2>/dev/null || true)
+    if [[ $1 == on && $enabled != true ]]; then
+      omarchy plugin enable "$id" >/dev/null 2>&1 && changed=1
+    elif [[ $1 == off && $enabled == true ]]; then
+      omarchy plugin disable "$id" >/dev/null 2>&1 && changed=1
+    fi
+  done
+  (( changed )) || return 0
   omarchy-restart-shell >/dev/null 2>&1 || true
   local i
   for i in $(seq 20); do
@@ -254,7 +258,7 @@ turn_on() {
   gsettings get org.gnome.desktop.wm.preferences button-layout >"$SAVED_GTK_BUTTONS" 2>/dev/null || true
   gsettings set org.gnome.desktop.wm.preferences button-layout 'appmenu:' 2>/dev/null || true
   hyprctl reload >/dev/null
-  switch_notifications on
+  switch_services on
   notify $'\uf0ec' "Overtake Mode on (Super+Ctrl+Shift+W to switch back)"
 }
 
@@ -274,7 +278,7 @@ turn_off() {
   stop_slideshow
   [[ -s $SAVED_BG && -f $(<"$SAVED_BG") ]] && omarchy-theme-bg-set "$(<"$SAVED_BG")" >/dev/null 2>&1 || true
   hyprctl reload >/dev/null
-  switch_notifications off
+  switch_services off
   notify $'\uf0ec' "Overtake Mode off"
 }
 
