@@ -1,4 +1,4 @@
-# Overtake Mode for Omarchy
+# Overtake Mode (Omarchy)
 
 A classic desktop you can switch on and off inside [Omarchy](https://omarchy.org):
 a bottom taskbar with a Start menu, title bars with minimize / maximize / close,

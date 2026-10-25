@@ -27,7 +27,7 @@ for tool in jq python3 hyprctl; do
 done
 [[ -d $OMARCHY_PLUGINS ]] || die "Omarchy's shell plugins weren't found in $OMARCHY_PLUGINS (Omarchy 4 is required)."
 
-echo "Installing Overtake Mode (Omarchy $(omarchy-version))"
+echo "Installing Overtake Mode (Omarchy) on Omarchy $(omarchy-version)"
 
 # Replace the block between the markers in a file, or append it.
 #   set_block <file> <comment prefix> <block text>
