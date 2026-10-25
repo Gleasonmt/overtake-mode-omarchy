@@ -789,6 +789,7 @@ show_desktop() {
 # or all of them. Same picker and output as omarchy-theme-switcher.
 theme_picker() {
   local which=${1:-all}
+  [[ $which == omarchy || $which == custom || $which == all ]] || { echo "theme-picker takes omarchy, custom or all" >&2; return 1; }
   shopt -s nullglob
   [[ $which == all ]] && exec omarchy-theme-switcher
   local builtin="${OMARCHY_PATH:-/usr/share/omarchy}/themes" user="$HOME/.config/omarchy/themes"
