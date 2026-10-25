@@ -7,6 +7,8 @@ on-ramp for people coming from other desktops: ease in with what you know, and
 switch to Omarchy's own keyboard-first tiling whenever you're ready. One
 shortcut switches either way, and Omarchy itself isn't changed.
 
+![Overtake Mode: the desktop, taskbar and Start menu](media/desktop-start.webp)
+
 > Status: early, private preview for friends to try. Tested on Omarchy 4.0.6
 > (Hyprland, the Quickshell-based Omarchy shell). Feedback welcome in Issues.
 
@@ -24,6 +26,31 @@ Start, switches back to Omarchy.
 
 Running `./install.sh` again updates it. Your own settings in `~/.config/overtake`
 are never overwritten.
+
+## See it in action
+
+**One shortcut between Omarchy and Overtake Mode.** Your windows come back
+exactly where they were.
+
+![Switching between Omarchy and Overtake Mode](media/switch-modes.webp)
+
+**Snap windows** to halves, quarters or full screen, and back.
+
+![Snapping windows](media/snap.webp)
+
+**Snap layouts:** hover the maximize button, or press Super + Z.
+
+![Snap layouts](media/snap-layouts.webp)
+
+**Settings** for display, power and battery alerts for every device, screensaver,
+themes and more (Super + I).
+
+![Settings](media/settings.webp)
+
+**Notification center:** notifications slide off the screen into the bell,
+grouped by app, with per-app Show / Quiet / Off and Do Not Disturb.
+
+![Notification center](media/notification-center.webp)
 
 ## What you get
 
