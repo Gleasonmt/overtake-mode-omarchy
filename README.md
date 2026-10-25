@@ -43,6 +43,8 @@ are never overwritten.
   and switching back and forth with Omarchy mode.
 - **Settings** — Super + I opens a Settings window for display, sound,
   Bluetooth, Wi-Fi, power, themes, fonts, default apps, time and updates.
+- **Notifications you can close** — each one has an × button (shown on hover,
+  and always on critical alerts, which never time out on their own).
 - **Desktop icons**, a **wallpaper slideshow** (rotate every 15 minutes, or
   follow sunrise and sunset), and an **Overtake Mode** entry in the Omarchy menu.
 
