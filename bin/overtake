@@ -15,6 +15,7 @@
 #   overtake float-all        # float any tiled window (floating ones always cover tiled ones)
 #   overtake remember | relayout  # record window places; restore them after a screen change
 #   overtake rescue           # move floating windows no screen shows back into view
+#   overtake make-room <address>  # move a window down so its title bar fits above it
 #   overtake snap <left|right|top-left|top-right|bottom-left|bottom-right|full> [address]
 #   overtake unsnap <address> # back to the size it had before snapping
 #   overtake start [quick]    # Super+S / Super+X: open the Start menu or its quick-link menu
@@ -324,6 +325,26 @@ restore_window() {
 # A floating window keeps its position when a screen goes away (closing the
 # lid, undocking), so it can end up where no screen shows it. Move such a
 # window to the middle of its monitor, shrunk to fit if it's too big.
+# Room for the title bar: a floating window whose top is too close to the top
+# of its screen (one that opens full height, like Tensaku) moves down so the
+# title bar sits above it instead of over its own toolbar, and is shortened
+# if it would then run past the bottom.
+make_room() {
+  local addr=$1 info x y w h top bottom want newh
+  info=$(hyprctl clients -j | jq -c --arg a "$addr" '.[] | select(.address == $a)')
+  [[ -n $info && $(jq -r '.floating and .fullscreen == 0' <<<"$info") == true ]] || return 0
+  read -r top bottom < <(hyprctl monitors -j | jq -r --argjson id "$(jq .monitor <<<"$info")" \
+    '.[] | select(.id == $id) | "\(.y + .reserved[1]) \(.y + (.height / .scale | floor) - .reserved[3])"')
+  read -r x y w h < <(jq -r '.at + .size | map(floor) | join(" ")' <<<"$info")
+  want=$((top + SNAP_TITLE_BAR))
+  (( y < want )) || return 0
+  newh=$h
+  (( want + h > bottom )) && newh=$((bottom - want))
+  mark_arranging
+  (( newh != h )) && hyprctl dispatch "hl.dsp.window.resize({ x = $w, y = $newh, relative = false, window = \"address:$addr\" })" >/dev/null
+  hyprctl dispatch "hl.dsp.window.move({ x = $x, y = $want, relative = false, window = \"address:$addr\" })" >/dev/null
+}
+
 bring_into_view() {
   local addr=$1 info monitors
   info=$(hyprctl clients -j | jq -c --arg a "$addr" '.[] | select(.address == $a)')
@@ -664,6 +685,7 @@ case "${1:-help}" in
   hide-minimized) hide_minimized ;;
   show) [[ -n ${2:-} ]] && show_window "$2" || true ;;
   rescue) rescue_all ;;
+  make-room) [[ -n ${2:-} ]] && make_room "$2" || true ;;
   remember) [[ -f $FLAG ]] && remember_layout || true ;;
   relayout) [[ -f $FLAG ]] && relayout "${2:-}" || true ;;
   float-all) [[ -f $FLAG ]] && float_all || true ;;

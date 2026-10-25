@@ -110,6 +110,17 @@ Item {
   // ---------- Dragging ----------
   property bool pressed: false
   property bool dragging: false
+
+  // A floating window too close to the top for the bar to fit above it gets
+  // moved down (`overtake make-room`), so the bar never covers its toolbar.
+  readonly property bool needsRoom: eligible && !barAbove && !dragging && !ownButtons
+    && !!info && info.floating === true && info.fullscreen === 0
+  onNeedsRoomChanged: if (needsRoom) roomTimer.restart()
+  Timer {
+    id: roomTimer
+    interval: 400
+    onTriggered: if (root.needsRoom) root.run(["make-room", root.address])
+  }
   property real pressX: 0
   property real pressY: 0
   property real startWinX: 0
