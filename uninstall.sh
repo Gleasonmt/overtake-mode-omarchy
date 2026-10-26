@@ -68,6 +68,8 @@ fi
 for t in image/png image/jpeg image/jpg image/gif image/bmp image/webp image/tiff image/avif image/heif image/jxl image/svg+xml; do
   [[ $(xdg-mime query default "$t" 2>/dev/null) == overtake-image-viewer.desktop ]] && xdg-mime default imv.desktop "$t"
 done
+# Links back to Omarchy's own handler
+sed -i 's|^Exec=.*/overtake open-url |Exec=omarchy-launch-browser |' "$HOME/.local/share/applications/omarchy-browser.desktop" 2>/dev/null || true
 rm -f "$HOME/.local/share/applications/overtake-image-viewer.desktop"
 rm -f "$HOME/.local/share/applications/overtake-trash.desktop"
 rm -f "$HOME/.local/bin/overtake" "$HYPR/overtake.lua"

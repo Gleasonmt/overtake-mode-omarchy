@@ -28,6 +28,7 @@
 #   overtake taskbar-position <left|center>  # right-click Start: where the taskbar sits on the bar
 #   overtake copy-url <address>  # title bar menu: copy a browser window's page address
 #   overtake rename <address>    # taskbar menu: bring a window up with its title bar tab ready to rename
+#   overtake open-url <url>      # links from other apps: open on this workspace, not the browser's last window
 #   overtake resume           # at login: restart the slideshow if the mode is on
 
 set -euo pipefail
@@ -565,6 +566,35 @@ focus_app() {
   fi
 }
 
+# A link clicked in another app (Omarchy's link handler, omarchy-browser.desktop,
+# runs this once Overtake is installed). The browser would put it in the window
+# used last, which may be on another workspace or minimized, and focusing that
+# window pulls you away from where you clicked. Use the browser's window on this
+# workspace instead, or open a new window here.
+open_url() {
+  [[ -f $FLAG && $# -gt 0 && " $* " != *" --private "* ]] || exec omarchy-launch-browser "$@"
+  local entry browser ws addr args
+  entry=$(omarchy-cmd-default-browser 2>/dev/null || true)
+  browser=$(sed -n 's/^Exec=\([^ ]*\).*/\1/p' {~/.local,~/.nix-profile,/usr}/share/applications/"$entry" 2>/dev/null | head -1)
+  [[ -n $entry && -n $browser ]] || exec omarchy-launch-browser "$@"
+  ws=$(hyprctl activeworkspace -j | jq -r .name)
+  addr=$(hyprctl clients -j | jq -r --arg p "^$(basename "$browser" -stable)" --arg ws "$ws" '
+    sort_by(.focusHistoryID)
+    | first(.[] | select(.workspace.name == $ws and ((.class // "") | test($p; "i")))).address // empty')
+  if [[ -n $addr ]]; then
+    # focused first, so the browser counts it as its last used window
+    focus_raise "$addr"
+    sleep 0.15
+    args=("$@")
+  else
+    args=(--new-window "$@")
+  fi
+  omarchy-cmd-browser-handoff "$browser" "${args[@]}" 2>/dev/null ||
+    systemd-run --user --quiet --collect --unit="overtake-browser-$(date +%s%N)" \
+      --property=StandardOutput=null --property=StandardError=null \
+      uwsm-app -- "$browser" "${args[@]}"
+}
+
 # A notification clicked in the notification center that carries no action of
 # its own: open a file the message names (quoted paths first, as they may
 # hold spaces, then unquoted ones up to a space); else go to the app's window
@@ -936,6 +966,7 @@ case "${1:-help}" in
   snap-layouts) mkdir -p "$STATE_DIR"; date +%s%N >"$STATE_DIR/snap-request" ;;
   taskbar-position) taskbar_position "${2:-}" ;;
   copy-url) [[ -n ${2:-} ]] && copy_url "$2" || true ;;
+  open-url) shift; open_url "$@" ;;
   rename) [[ -n ${2:-} ]] && { show_window "$2"; mkdir -p "$STATE_DIR"; echo "$2 $(date +%s%N)" >"$STATE_DIR/rename-request"; } || true ;;
   start) mkdir -p "$STATE_DIR"; echo "${2:-start} $(date +%s%N)" >"$STATE_DIR/start-request" ;;
   settings) mkdir -p "$STATE_DIR"; echo "${2:-open} $(date +%s%N)" >"$STATE_DIR/settings-request" ;;

@@ -165,6 +165,16 @@ Terminal=false
 Categories=System;FileTools;
 DESKTOP
 
+# Links clicked in other apps go through Omarchy's link handler, which hands
+# them to the browser window used last, wherever it is. Route them through
+# Overtake, which opens them on the workspace you're on (and, while the mode
+# is off, passes them straight back to Omarchy's handler).
+BROWSER_ENTRY="$APPS/omarchy-browser.desktop"
+if [[ -f $BROWSER_ENTRY ]] && grep -q '^Exec=omarchy-launch-browser ' "$BROWSER_ENTRY"; then
+  sed -i "s|^Exec=omarchy-launch-browser |Exec=$HOME/.local/bin/overtake open-url |" "$BROWSER_ENTRY"
+  say "links: open on the workspace you're on"
+fi
+
 # Images open with their whole folder, so the arrow keys step through the
 # others (imv-dir, which ships with imv). Only while images still open with
 # Omarchy's imv; your own choice of viewer is left alone.
