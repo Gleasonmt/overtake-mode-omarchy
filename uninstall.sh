@@ -69,6 +69,7 @@ for t in image/png image/jpeg image/jpg image/gif image/bmp image/webp image/tif
   [[ $(xdg-mime query default "$t" 2>/dev/null) == overtake-image-viewer.desktop ]] && xdg-mime default imv.desktop "$t"
 done
 rm -f "$HOME/.local/share/applications/overtake-image-viewer.desktop"
+rm -f "$HOME/.local/share/applications/overtake-trash.desktop"
 rm -f "$HOME/.local/bin/overtake" "$HYPR/overtake.lua"
 rm -rf "${PLUGINS:?}/overtake.taskbar" "${PLUGINS:?}/overtake.workspaces" \
        "${PLUGINS:?}/overtake.bluetooth" "${PLUGINS:?}/overtake.audio" \

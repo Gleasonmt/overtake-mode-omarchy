@@ -149,10 +149,25 @@ mkdir -p "$PICTURES/slideshow"
 cp "$REPO"/wallpapers/*.png "$PICTURES/slideshow/"
 say "settings: ~/.config/overtake (existing files kept); wallpapers: ~/Pictures/overtake/slideshow"
 
+# Trash as an app, so it can be found in Start, pinned to Start or the
+# taskbar, and added back to the desktop after being removed from it.
+APPS="$HOME/.local/share/applications"
+mkdir -p "$APPS"
+cat >"$APPS/overtake-trash.desktop" <<'DESKTOP'
+[Desktop Entry]
+Name=Trash
+Comment=Files you've deleted
+Keywords=recycle;bin;deleted;
+Exec=nautilus --new-window trash:///
+Icon=user-trash
+Type=Application
+Terminal=false
+Categories=System;FileTools;
+DESKTOP
+
 # Images open with their whole folder, so the arrow keys step through the
 # others (imv-dir, which ships with imv). Only while images still open with
 # Omarchy's imv; your own choice of viewer is left alone.
-APPS="$HOME/.local/share/applications"
 IMAGE_TYPES="image/png image/jpeg image/jpg image/gif image/bmp image/webp image/tiff image/avif image/heif image/jxl image/svg+xml"
 if command -v imv-dir >/dev/null; then
   mkdir -p "$APPS"

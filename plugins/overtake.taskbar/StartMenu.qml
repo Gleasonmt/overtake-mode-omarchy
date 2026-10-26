@@ -135,11 +135,14 @@ Item {
     onFileChanged: reload()
     onLoaded: root.desktopIconsText = text()
   }
+  // The desktop's own Trash icon (with Empty Trash) stands for the Trash app.
+  function desktopId(app) { return app && app.id === "overtake-trash" ? "trash" : (app ? app.id : "") }
   function toggleDesktop(app) {
     if (!app) return
-    var next = DesktopList.has(desktopIconsText, app.id)
-      ? DesktopList.remove(desktopIconsText, app.id)
-      : DesktopList.add(desktopIconsText, app.id, app.name)
+    var id = desktopId(app)
+    var next = DesktopList.has(desktopIconsText, id)
+      ? DesktopList.remove(desktopIconsText, id)
+      : DesktopList.add(desktopIconsText, id, id === "trash" ? "" : app.name)
     desktopIconsText = next
     desktopIconsFile.setText(next)
   }
@@ -522,7 +525,7 @@ Item {
           MenuRow {
             width: contextColumn.width
             glyph: "\uf108"
-            label: root.contextApp && DesktopList.has(root.desktopIconsText, root.contextApp.id) ? "Remove from desktop" : "Add to desktop"
+            label: root.contextApp && DesktopList.has(root.desktopIconsText, root.desktopId(root.contextApp)) ? "Remove from desktop" : "Add to desktop"
             onClicked: { root.toggleDesktop(root.contextApp); root.contextApp = null }
           }
         }

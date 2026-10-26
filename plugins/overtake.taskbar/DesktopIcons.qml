@@ -162,22 +162,33 @@ Item {
 
   function iconMenu(icon) {
     var isApp = !root.builtIn[icon.id]
+    // What Start and the taskbar pin: the app itself, or for Trash its
+    // launcher (installed by Overtake).
+    var pinId = isApp ? icon.id : (icon.id === "trash" && DesktopEntries.byId("overtake-trash") ? "overtake-trash" : "")
     var at = -1
     for (var i = 0; i < icons.length; i++) if (icons[i].id === icon.id) at = i
     var rows = [{ glyph: "", label: "Open", run: function() { root.open(icon) } }]
     if (icon.id === "trash") rows.push({ glyph: "", label: "Empty Trash…", run: function() {
       root.confirm = { text: "Permanently delete everything in the Trash?", button: "Empty Trash", run: function() { root.run("gio trash --empty") } }
     }, keepOpen: true })
-    if (isApp) rows.push({ glyph: "", label: startPins.indexOf(icon.id) !== -1 ? "Unpin from Start" : "Pin to Start",
-                           run: function() { root.toggleStartPin(icon.id) } })
-    if (isApp) rows.push({ glyph: "", label: taskbarPins.indexOf(icon.id) !== -1 ? "Unpin from taskbar" : "Pin to taskbar",
-                           run: function() { root.setTaskbarPin(icon.id, taskbarPins.indexOf(icon.id) === -1) } })
+    if (pinId) rows.push({ glyph: "", label: startPins.indexOf(pinId) !== -1 ? "Unpin from Start" : "Pin to Start",
+                           run: function() { root.toggleStartPin(pinId) } })
+    if (pinId) rows.push({ glyph: "", label: taskbarPins.indexOf(pinId) !== -1 ? "Unpin from taskbar" : "Pin to taskbar",
+                           run: function() { root.setTaskbarPin(pinId, taskbarPins.indexOf(pinId) === -1) } })
     rows.push({ separator: true })
     rows.push({ glyph: "", label: "Remove desktop icon", run: function() { root.writeIcons(DesktopList.remove(root.iconsText, icon.id)) } })
     rows.push({ glyph: "", label: "Rename", run: function() { root.renaming = icon.id } })
     if (at > 0) rows.push({ glyph: "", label: "Move up", run: function() { root.writeIcons(DesktopList.move(root.iconsText, icon.id, -1)) } })
     if (at >= 0 && at < icons.length - 1) rows.push({ glyph: "", label: "Move down", run: function() { root.writeIcons(DesktopList.move(root.iconsText, icon.id, 1)) } })
     return rows
+  }
+
+  // Trash on the desktop or not (View > Show Trash). It comes back at the top.
+  function toggleTrashIcon() {
+    if (DesktopList.has(root.iconsText, "trash")) { root.writeIcons(DesktopList.remove(root.iconsText, "trash")); return }
+    var next = DesktopList.add(root.iconsText, "trash", "")
+    if (root.icons.length > 0) next = DesktopList.place(next, "trash", root.icons[0].id, false)
+    root.writeIcons(next)
   }
 
   function desktopMenu() {
@@ -188,6 +199,7 @@ Item {
       { glyph: "", label: "Medium icons", checked: size === "medium", run: function() { root.setView("iconSize", "medium") } },
       { glyph: "", label: "Small icons", checked: size === "small", run: function() { root.setView("iconSize", "small") } },
       { glyph: "", label: "Show desktop icons", checked: view.showIcons !== false, run: function() { root.setView("showIcons", view.showIcons === false) } },
+      { glyph: "", label: "Show Trash", checked: DesktopList.has(root.iconsText, "trash"), run: function() { root.toggleTrashIcon() } },
       { glyph: "", label: "Sort by name", run: function() {
         root.writeIcons(DesktopList.sortBy(root.iconsText, function(id, label) { return root.labelFor({ id: id, label: label }) }))
       } },
