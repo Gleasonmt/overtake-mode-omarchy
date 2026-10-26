@@ -868,13 +868,17 @@ snap_window() {
 # already on the workspace), workspaces with a full-screen snap or nothing
 # free, and everything once Settings turns it off.
 fill_gap() {
-  local addr=$1 info ws zones zone
-  [[ -f $FLAG && ! -f $NO_FILL ]] || return 0
+  local addr=$1 info ws zones zone f
+  [[ -f $FLAG ]] || return 0
   sleep 0.2   # let the window map and take its first size
   exec 9>"$STATE_DIR/fill.lock"
   flock 9
-  [[ -s $ZONES ]] || return 0
-  [[ $(jq -r --arg a "$addr" 'has($a)' "$ZONES") == false ]] || return 0
+  # Hyprland reuses a closed window's address: whatever is recorded under it
+  # (a zone, a place) belonged to that window, so forget it.
+  for f in "$ZONES" "$LAYOUT"; do
+    [[ -s $f ]] && json_set "$f" 'del(.[$a])' --arg a "$addr"
+  done
+  [[ ! -f $NO_FILL && -s $ZONES ]] || return 0
   local clients
   clients=$(hyprctl clients -j)
   info=$(jq -c --arg a "$addr" '.[] | select(.address == $a)' <<<"$clients")
