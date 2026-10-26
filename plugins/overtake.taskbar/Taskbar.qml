@@ -6,11 +6,12 @@ import qs.Commons
 import qs.Commons as Commons
 import qs.Ui
 
-// Taskbar, one per workspace (like virtual desktops):
-// a Start button, pinned apps, and the apps open (or minimized from) the
-// workspace this bar's monitor is showing, grouped by app. Left-click launches
-// an app that isn't running and toggles focus/minimize for a single window; an
-// app with several windows (on any workspace) opens a picker to choose one.
+// Taskbar: a Start button, pinned apps, and every open (or minimized) app,
+// grouped by app. Apps with a window on the workspace this bar's monitor is
+// showing are lit; ones open only on other workspaces get a faint mark, and
+// clicking them jumps there. Left-click launches an app that isn't running and
+// toggles focus/minimize for a single window; an app with several windows (on
+// any workspace) opens a picker to choose one.
 // Middle-click opens a new window; right-click opens a window menu.
 Panel {
   id: root
@@ -20,7 +21,28 @@ Panel {
   readonly property int barSize: bar ? bar.barSize : Style.bar.sizeHorizontal
 
   readonly property var defaultPinned: ["chromium", "org.gnome.Nautilus", "foot"]
+  // The pins, as saved in shell.json. Read from the file: the settings the
+  // shell hands this panel can be stale after a restart, and a pin change
+  // saved from a stale list loses the pins it's missing.
+  property var savedPinned: null
+  FileView {
+    path: Quickshell.env("HOME") + "/.config/omarchy/shell.json"
+    watchChanges: true
+    printErrors: false
+    onFileChanged: reload()
+    onLoaded: {
+      var pins = null
+      function find(node) {
+        if (pins || !node || typeof node !== "object") return
+        if (node.id === root.moduleName && Array.isArray(node.pinned)) { pins = node.pinned; return }
+        for (var k in node) find(node[k])
+      }
+      try { find(JSON.parse(text())) } catch (e) {}
+      root.savedPinned = pins ? pins.map(String) : null
+    }
+  }
   readonly property var pinned: {
+    if (Array.isArray(savedPinned)) return savedPinned
     var value = setting("pinned", null)
     return Array.isArray(value) ? value : defaultPinned
   }
@@ -93,12 +115,12 @@ Panel {
     return source || Quickshell.iconPath("application-x-executable", true)
   }
 
-  // What this workspace's taskbar shows: pinned apps, plus apps with a window
-  // open on (or minimized from) this workspace. Each group still carries all of
-  // its app's windows so the picker can reach the other workspaces.
+  // What the taskbar shows: pinned apps and every app with a window open (on
+  // any workspace, or minimized). `here` is the windows on (or minimized from)
+  // the workspace this bar's monitor is showing; the picker reaches the rest.
   readonly property var shownGroups: root.allGroups.map(function(g) {
     return Object.assign({}, g, { here: g.windows.filter(onThisWorkspace) })
-  }).filter(function(g) { return g.pinned || g.here.length > 0 })
+  }).filter(function(g) { return g.pinned || g.windows.length > 0 })
 
   // Pinned apps first (in pin order), then any other running app in workspace
   // order, across every workspace.
@@ -269,13 +291,44 @@ Panel {
   }
 
   function togglePinId(id) {
-    if (!id) return
+    if (id) setPinId(id, root.pinned.indexOf(id) === -1)
+  }
+
+  function setPinId(id, pin) {
     var next = root.pinned.slice()
     var index = next.indexOf(id)
-    if (index === -1) next.push(id)
+    if (pin === (index !== -1)) return
+    if (pin) next.push(id)
     else next.splice(index, 1)
+    root.savedPinned = next
     root.settings = Object.assign({}, root.settings, { pinned: next })
     if (root.bar && root.bar.shell) root.bar.shell.updateEntryInline(root.moduleName, root.settings)
+  }
+
+  // The desktop's icon menu pins and unpins apps here: it writes
+  // "pin|unpin <id> <time>" to this file. Only the bar on the focused monitor
+  // applies it (a bar that never loaded the settings, such as one for a
+  // switched-off screen, would save its defaults over them); the first value
+  // seen is just startup.
+  property string lastPinRequest: ""
+  property bool pinRequestSeen: false
+  FileView {
+    path: Quickshell.env("HOME") + "/.local/state/overtake/taskbar-pin-request"
+    watchChanges: true
+    printErrors: false
+    onFileChanged: reload()
+    onLoaded: {
+      var value = text().trim()
+      if (!value) { root.pinRequestSeen = true; return }
+      if (value === root.lastPinRequest) return
+      var parts = value.split(" ")
+      var onFocusedMonitor = root.barWindow && root.barWindow.screen && Hyprland.focusedMonitor
+        && Hyprland.focusedMonitor.name === root.barWindow.screen.name
+      if (root.pinRequestSeen && onFocusedMonitor && parts.length >= 2) root.setPinId(parts[1], parts[0] === "pin")
+      root.lastPinRequest = value
+      root.pinRequestSeen = true
+    }
+    onLoadFailed: root.pinRequestSeen = true
   }
 
   function tooltipFor(group) {

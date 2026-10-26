@@ -10,12 +10,12 @@ import "DesktopList.js" as DesktopList
 // The desktop in Overtake Mode: a full-screen surface on the layer just above
 // the wallpaper, so windows cover it and it shows on empty workspaces and with
 // Super+D. Icons sit in a column on the left of each screen: click selects,
-// double-click opens, right-click gives Open, Pin to Start, Rename, Move up /
-// down and Remove from desktop (and Empty Trash on the Trash). Right-click on
-// the desktop itself gives the view options (icon size, sort, show icons),
-// Add a shortcut, background and theme, screensaver, Personalize, Display
-// settings and a terminal. A plain click on the desktop minimizes the windows
-// on that screen's workspace.
+// double-click opens, right-click gives Open, Pin to Start, Pin to taskbar,
+// Remove desktop icon, Rename and Move up / down (and Empty Trash on the
+// Trash). Right-click on the desktop itself gives the view options (icon size,
+// sort, show icons), Add a shortcut, background and theme, screensaver,
+// Personalize, Display settings and a terminal. A plain click on the desktop
+// minimizes the windows on that screen's workspace.
 //
 // The icons live in ~/.config/overtake/desktop-icons.txt ("<id> | <label>").
 // Besides desktop entry ids it understands "trash", "browser" (your default
@@ -124,6 +124,31 @@ Item {
     pinsFile.setText("# Start menu pins, one desktop entry id per line (managed by the Start menu).\n" + next.join("\n") + "\n")
   }
 
+  // ---------- Taskbar pins (for the icon menu) ----------
+  // The taskbar keeps its pins in the shell's settings; it applies the
+  // changes asked for in ~/.local/state/overtake/taskbar-pin-request.
+  property var taskbarPins: []
+  FileView {
+    path: Quickshell.env("HOME") + "/.config/omarchy/shell.json"
+    watchChanges: true
+    printErrors: false
+    onFileChanged: reload()
+    onLoaded: {
+      var pins = null
+      function find(node) {
+        if (pins || !node || typeof node !== "object") return
+        if (node.id === "overtake.taskbar" && Array.isArray(node.pinned)) { pins = node.pinned; return }
+        for (var k in node) find(node[k])
+      }
+      try { find(JSON.parse(text())) } catch (e) {}
+      root.taskbarPins = (pins || ["chromium", "org.gnome.Nautilus", "foot"]).map(String)
+    }
+  }
+  FileView { id: pinRequestFile; path: Quickshell.env("HOME") + "/.local/state/overtake/taskbar-pin-request"; printErrors: false }
+  function setTaskbarPin(id, pin) {
+    pinRequestFile.setText((pin ? "pin " : "unpin ") + id + " " + Date.now() + "\n")
+  }
+
   // ---------- Right-click menus ----------
   function closeMenu() { menuRows = []; confirm = null }
 
@@ -144,12 +169,13 @@ Item {
     }, keepOpen: true })
     if (isApp) rows.push({ glyph: "", label: startPins.indexOf(icon.id) !== -1 ? "Unpin from Start" : "Pin to Start",
                            run: function() { root.toggleStartPin(icon.id) } })
+    if (isApp) rows.push({ glyph: "", label: taskbarPins.indexOf(icon.id) !== -1 ? "Unpin from taskbar" : "Pin to taskbar",
+                           run: function() { root.setTaskbarPin(icon.id, taskbarPins.indexOf(icon.id) === -1) } })
     rows.push({ separator: true })
+    rows.push({ glyph: "", label: "Remove desktop icon", run: function() { root.writeIcons(DesktopList.remove(root.iconsText, icon.id)) } })
     rows.push({ glyph: "", label: "Rename", run: function() { root.renaming = icon.id } })
     if (at > 0) rows.push({ glyph: "", label: "Move up", run: function() { root.writeIcons(DesktopList.move(root.iconsText, icon.id, -1)) } })
     if (at >= 0 && at < icons.length - 1) rows.push({ glyph: "", label: "Move down", run: function() { root.writeIcons(DesktopList.move(root.iconsText, icon.id, 1)) } })
-    rows.push({ separator: true })
-    rows.push({ glyph: "", label: "Remove from desktop", run: function() { root.writeIcons(DesktopList.remove(root.iconsText, icon.id)) } })
     return rows
   }
 
