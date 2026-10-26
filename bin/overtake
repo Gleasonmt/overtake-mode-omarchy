@@ -25,6 +25,7 @@
 #   overtake start [quick]    # Super+S / Super+X: open the Start menu or its quick-link menu
 #   overtake settings [page]  # Super+I: the Settings window (system, bluetooth, network, ...)
 #   overtake snap-layouts     # SUPER+Z: show the snap layouts for the focused window
+#   overtake taskbar-position <left|center>  # right-click Start: where the taskbar sits on the bar
 #   overtake resume           # at login: restart the slideshow if the mode is on
 
 set -euo pipefail
@@ -673,6 +674,20 @@ close_window() {
 # Several overtake processes can write the same state file at once (quick
 # clicks, the taskbar's periodic `remember`), so writes take a lock and their
 # own temp file, and an empty result never replaces the file.
+# The taskbar to the start of a bar section, the way Omarchy's own bar
+# commands edit the layout: shell.json, then a config reload.
+taskbar_position() {
+  local config="$HOME/.config/omarchy/shell.json"
+  [[ $1 == left || $1 == center ]] || { echo "overtake: taskbar-position takes left or center" >&2; return 1; }
+  [[ -s $config ]] || return 0
+  json_set "$config" '
+    ([.bar.layout // {} | to_entries[] | .value | arrays | .[] | select(.id? == "overtake.taskbar")][0] // {id: "overtake.taskbar"}) as $entry
+    | .bar.layout |= ((. // {}) | with_entries(if (.value | type) == "array" then .value |= map(select(.id? != "overtake.taskbar")) else . end))
+    | .bar.layout[$to] = [$entry] + (.bar.layout[$to] // [])
+  ' --arg to "$1"
+  omarchy-shell shell reloadConfig >/dev/null 2>&1 || true
+}
+
 json_set() {  # json_set <file> <jq filter> [jq args...]
   local file=$1 filter=$2
   shift 2
@@ -875,6 +890,7 @@ case "${1:-help}" in
   snap) [[ -n ${2:-} ]] && snap_window "$2" "${3:-}" || true ;;
   unsnap) [[ -n ${2:-} ]] && unsnap_window "$2" || true ;;
   snap-layouts) mkdir -p "$STATE_DIR"; date +%s%N >"$STATE_DIR/snap-request" ;;
+  taskbar-position) taskbar_position "${2:-}" ;;
   start) mkdir -p "$STATE_DIR"; echo "${2:-start} $(date +%s%N)" >"$STATE_DIR/start-request" ;;
   settings) mkdir -p "$STATE_DIR"; echo "${2:-open} $(date +%s%N)" >"$STATE_DIR/settings-request" ;;
   slideshow-loop) slideshow_loop ;;   # internal: the slideshow's background loop

@@ -49,22 +49,13 @@ Panel {
   property string section: ""   // the bar section the taskbar sits in: left, center or right
 
   // Move the taskbar to the start of a bar section ("left" or "center").
+  // A panel's shell API can't edit the bar layout, so this goes through
+  // `overtake taskbar-position`, which edits shell.json like Omarchy's own
+  // bar commands do.
   function moveTaskbar(to) {
-    if (!root.bar || !root.bar.shell || typeof root.bar.shell.mutateShellConfig !== "function") return
-    root.bar.shell.mutateShellConfig(function(config) {
-      var layout = config.bar && config.bar.layout
-      if (!layout) return
-      var entry = null
-      for (var name in layout) {
-        if (!Array.isArray(layout[name])) continue
-        var i = layout[name].findIndex(function(e) { return e && e.id === root.moduleName })
-        if (i !== -1) entry = layout[name].splice(i, 1)[0]
-      }
-      if (!entry) return
-      if (!Array.isArray(layout[to])) layout[to] = []
-      layout[to].unshift(entry)
-    })
+    if (root.bar) root.bar.run("overtake taskbar-position " + (to === "center" ? "center" : "left"))
   }
+
   readonly property var pinned: {
     if (Array.isArray(savedPinned)) return savedPinned
     var value = setting("pinned", null)
