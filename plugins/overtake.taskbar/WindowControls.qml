@@ -24,7 +24,12 @@ Item {
   property bool modeOn: false
   readonly property int barHeight: 32  // matches SNAP_TITLE_BAR in overtake
 
-  readonly property var toplevel: Hyprland.activeToplevel
+  // The focused window. Quickshell only learns it from focus changes, so right
+  // after the shell (re)starts it's unknown until one: fall back to the
+  // window Hyprland lists as focused most recently.
+  readonly property var toplevel: Hyprland.activeToplevel || (Hyprland.toplevels.values || []).find(function(t) {
+    return t.lastIpcObject && t.lastIpcObject.focusHistoryID === 0
+  }) || null
   readonly property var info: toplevel ? toplevel.lastIpcObject : null
   readonly property string address: addressOf(toplevel)
   readonly property bool maximized: info ? info.fullscreen === 1 : false
@@ -51,6 +56,56 @@ Item {
         .map(function(line) { try { return new RegExp(line) } catch (e) { return null } })
         .filter(function(re) { return re !== null })
     }
+  }
+
+  // Windows given a name of their own (title bar right-click > Rename tab):
+  // address -> name. The taskbar's window list shows them too.
+  property var names: ({})
+  FileView {
+    id: namesFile
+    path: Quickshell.env("HOME") + "/.local/state/overtake/names.json"
+    watchChanges: true
+    printErrors: false
+    onFileChanged: reload()
+    onLoaded: {
+      try { root.names = JSON.parse(text() || "{}") } catch (e) { root.names = {} }
+    }
+    onLoadFailed: root.names = {}
+  }
+  function titleOf(t) {
+    return t ? (root.names[addressOf(t)] || t.title || "") : ""
+  }
+  function setName(address, name) {
+    var live = (Hyprland.toplevels.values || []).map(addressOf)
+    var next = {}
+    for (var k in root.names) if (live.indexOf(k) !== -1) next[k] = root.names[k]   // drop closed windows
+    name = String(name || "").trim()
+    if (name) next[address] = name
+    else delete next[address]
+    root.names = next
+    namesFile.setText(JSON.stringify(next, null, 2) + "\n")
+  }
+
+  // ---------- Title bar menu (right-click) ----------
+  property string menuFor: ""        // the window it acts on
+  property point menuAt: Qt.point(0, 0)
+  property string renaming: ""       // the window whose tab is being renamed
+  // (given up when another window takes focus: the title bar holds the
+  // keyboard while renaming)
+  onToplevelChanged: if (renaming && addressOf(toplevel) !== renaming) renaming = ""
+  function isBrowser(t) {
+    var cls = t && t.lastIpcObject ? String(t.lastIpcObject.class || "") : ""
+    return /^(chromium|chrome-|google-chrome|brave)/.test(cls)
+  }
+  function openMenu(t, x, y) {
+    root.renaming = ""
+    root.menuFor = addressOf(t)
+    root.menuAt = Qt.point(x, y)
+  }
+  function toplevelFor(address) {
+    var list = Hyprland.toplevels.values || []
+    for (var i = 0; i < list.length; i++) if (addressOf(list[i]) === address) return list[i]
+    return null
   }
 
   property var zones: ({})
@@ -471,7 +526,8 @@ Item {
     WlrLayershell.namespace: "overtake-titlebar"
     // Top, not Overlay: above windows but under notifications and popups.
     WlrLayershell.layer: WlrLayer.Top
-    WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
+    // Keyboard only while a tab is being renamed.
+    WlrLayershell.keyboardFocus: root.renaming !== "" ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
 
     anchors { top: true; left: true }
     implicitWidth: Math.max(200, root.winW)
@@ -504,8 +560,15 @@ Item {
       // Drag area under everything else; tabs and buttons sit on top of it.
       MouseArea {
         anchors.fill: parent
-        acceptedButtons: Qt.LeftButton
-        onPressed: function(mouse) { root.beginDrag(mouse.x, mouse.y) }
+        acceptedButtons: Qt.LeftButton | Qt.RightButton
+        onPressed: function(mouse) {
+          if (mouse.button === Qt.RightButton) {
+            var p = mapToItem(null, mouse.x, mouse.y)
+            root.openMenu(root.toplevel, bar.margins.left + p.x, bar.margins.top + p.y)
+            return
+          }
+          root.beginDrag(mouse.x, mouse.y)
+        }
         onPositionChanged: function(mouse) { root.updateDrag(mouse.x, mouse.y) }
         onReleased: root.endDrag()
         onCanceled: root.endDrag()
@@ -540,13 +603,36 @@ Item {
                                 : Qt.rgba(Commons.Color.foreground.r, Commons.Color.foreground.g, Commons.Color.foreground.b, tabArea.containsMouse ? 0.12 : 0.05)
             }
 
+            readonly property bool editing: root.renaming !== "" && root.renaming === root.addressOf(tab.modelData)
+
+            TextInput {
+              id: nameEdit
+              anchors.fill: parent
+              anchors.leftMargin: Style.space(8)
+              anchors.rightMargin: Style.space(8)
+              visible: tab.editing
+              verticalAlignment: Text.AlignVCenter
+              color: Commons.Color.foreground
+              selectionColor: Commons.Color.accent
+              selectByMouse: true
+              clip: true
+              font.family: Style.font.family
+              font.pixelSize: Style.font.bodySmall
+              onVisibleChanged: if (visible) { text = root.titleOf(tab.modelData); selectAll(); forceActiveFocus() }
+              Keys.onReturnPressed: { root.setName(root.renaming, text); root.renaming = "" }
+              Keys.onEnterPressed: { root.setName(root.renaming, text); root.renaming = "" }
+              Keys.onEscapePressed: root.renaming = ""
+              onActiveFocusChanged: if (!activeFocus && tab.editing) root.renaming = ""
+            }
+
             Text {
               anchors.fill: parent
               anchors.leftMargin: Style.space(8)
               anchors.rightMargin: Style.space(8)
+              visible: !tab.editing
               verticalAlignment: Text.AlignVCenter
               textFormat: Text.PlainText
-              text: tab.modelData ? (tab.modelData.title || "") : ""
+              text: root.titleOf(tab.modelData)
               elide: Text.ElideRight
               color: Commons.Color.foreground
               opacity: tab.active ? 1 : 0.7
@@ -557,10 +643,16 @@ Item {
             MouseArea {
               id: tabArea
               anchors.fill: parent
-              enabled: tab.isTab && !tab.active
+              enabled: tab.isTab && !tab.active && !tab.editing
               hoverEnabled: true
               cursorShape: Qt.PointingHandCursor
-              onClicked: root.run(["show", root.addressOf(tab.modelData)])  // focus and raise
+              acceptedButtons: Qt.LeftButton | Qt.RightButton
+              onClicked: function(mouse) {
+                if (mouse.button === Qt.RightButton) {
+                  var p = mapToItem(null, mouse.x, mouse.y)
+                  root.openMenu(tab.modelData, bar.margins.left + p.x, bar.margins.top + p.y)
+                } else root.run(["show", root.addressOf(tab.modelData)])  // focus and raise
+              }
             }
           }
         }
@@ -580,6 +672,103 @@ Item {
           onHoverHeld: root.pickerOpen = true
         }
         ControlButton { glyph: ""; danger: true; onClicked: root.run(["close", root.address]) }
+      }
+    }
+  }
+
+  // ---------- Title bar menu ----------
+  // Right-click on the title bar or a tab: Copy URL (browser windows), Rename
+  // tab and, once renamed, Reset name. A click anywhere else closes it.
+  PanelWindow {
+    id: titleMenu
+    readonly property var target: root.menuFor ? root.toplevelFor(root.menuFor) : null
+    readonly property var rows: {
+      var t = target, list = []
+      if (!t) return list
+      var a = root.menuFor
+      if (root.isBrowser(t)) list.push({ glyph: "\uf0c5", label: "Copy URL", run: function() { root.run(["copy-url", a]) } })
+      list.push({ glyph: "\uf044", label: "Rename tab…", run: function() { root.run(["show", a]); root.renaming = a } })
+      if (root.names[a]) list.push({ glyph: "\uf0e2", label: "Reset name", run: function() { root.setName(a, "") } })
+      return list
+    }
+    visible: root.menuFor !== "" && target !== null && bar.screen !== null
+    screen: bar.screen
+    color: "transparent"
+    exclusionMode: ExclusionMode.Ignore
+    WlrLayershell.namespace: "overtake-titlebar-menu"
+    WlrLayershell.layer: WlrLayer.Overlay
+    WlrLayershell.keyboardFocus: WlrKeyboardFocus.OnDemand
+    anchors { top: true; bottom: true; left: true; right: true }
+
+    MouseArea {
+      anchors.fill: parent
+      acceptedButtons: Qt.LeftButton | Qt.RightButton
+      onPressed: root.menuFor = ""
+    }
+
+    Rectangle {
+      id: menuBox
+      readonly property real sx: titleMenu.screen ? titleMenu.screen.x : 0
+      readonly property real sy: titleMenu.screen ? titleMenu.screen.y : 0
+      x: Math.min(root.menuAt.x - sx, titleMenu.width - width - Style.space(8))
+      y: Math.min(root.menuAt.y - sy + Style.space(4), titleMenu.height - height - Style.space(8))
+      width: Style.space(200)
+      height: menuColumn.implicitHeight + Style.space(12)
+      radius: Style.space(8)
+      color: Commons.Color.background
+      border.width: 1
+      border.color: Qt.rgba(Commons.Color.foreground.r, Commons.Color.foreground.g, Commons.Color.foreground.b, 0.15)
+      focus: titleMenu.visible
+      Keys.onEscapePressed: root.menuFor = ""
+
+      Column {
+        id: menuColumn
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.verticalCenter: parent.verticalCenter
+        anchors.margins: Style.space(6)
+
+        Repeater {
+          model: titleMenu.rows
+          Rectangle {
+            required property var modelData
+            width: menuColumn.width
+            height: Style.space(30)
+            radius: Style.space(4)
+            color: Qt.rgba(Commons.Color.foreground.r, Commons.Color.foreground.g, Commons.Color.foreground.b, rowArea.containsMouse ? 0.1 : 0)
+
+            Text {
+              id: rowGlyph
+              anchors.left: parent.left
+              anchors.leftMargin: Style.space(10)
+              anchors.verticalCenter: parent.verticalCenter
+              width: Style.space(18)
+              textFormat: Text.PlainText
+              text: modelData.glyph
+              color: Commons.Color.foreground
+              opacity: 0.8
+              font.family: Style.font.family
+              font.pixelSize: Style.font.bodySmall
+            }
+            Text {
+              anchors.left: rowGlyph.right
+              anchors.leftMargin: Style.space(8)
+              anchors.verticalCenter: parent.verticalCenter
+              textFormat: Text.PlainText
+              text: modelData.label
+              color: Commons.Color.foreground
+              font.family: Style.font.family
+              font.pixelSize: Style.font.bodySmall
+            }
+            MouseArea {
+              id: rowArea
+              anchors.fill: parent
+              hoverEnabled: true
+              cursorShape: Qt.PointingHandCursor
+              onClicked: { var run = modelData.run; root.menuFor = ""; run() }
+            }
+          }
+        }
       }
     }
   }

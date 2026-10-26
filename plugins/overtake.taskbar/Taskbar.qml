@@ -73,6 +73,22 @@ Panel {
   }
   readonly property string currentWorkspaceName: currentWorkspace ? String(currentWorkspace.name) : ""
 
+  // Names given to windows from their title bar (Rename tab): address -> name.
+  property var windowNames: ({})
+  FileView {
+    path: Quickshell.env("HOME") + "/.local/state/overtake/names.json"
+    watchChanges: true
+    printErrors: false
+    onFileChanged: reload()
+    onLoaded: {
+      try { root.windowNames = JSON.parse(text() || "{}") } catch (e) { root.windowNames = {} }
+    }
+    onLoadFailed: root.windowNames = {}
+  }
+  function titleOf(toplevel) {
+    return root.windowNames[addressOf(toplevel)] || toplevel.title || ""
+  }
+
   // Where each minimized window came from (written by `overtake minimize`).
   property var minimizedFrom: ({})
   FileView {
@@ -266,7 +282,7 @@ Panel {
     })
     var items = windows.map(function(t) {
       return { glyph: isMinimized(t) ? "–" : (t === Hyprland.activeToplevel ? "●" : "○"),
-               label: t.title || (group.entry ? group.entry.name : group.appId),
+               label: titleOf(t) || (group.entry ? group.entry.name : group.appId),
                detail: workspaceLabel(t),
                run: function() { showWindow(t) } }
     })
@@ -467,7 +483,7 @@ Panel {
 
   function tooltipFor(group) {
     var name = group.entry ? group.entry.name : group.appId
-    if (group.windows.length === 1) return group.windows[0].title || name
+    if (group.windows.length === 1) return titleOf(group.windows[0]) || name
     if (group.windows.length > 1) return name + " · " + group.windows.length + " windows (click to choose)"
     return name
   }

@@ -26,6 +26,7 @@
 #   overtake settings [page]  # Super+I: the Settings window (system, bluetooth, network, ...)
 #   overtake snap-layouts     # SUPER+Z: show the snap layouts for the focused window
 #   overtake taskbar-position <left|center>  # right-click Start: where the taskbar sits on the bar
+#   overtake copy-url <address>  # title bar menu: copy a browser window's page address
 #   overtake resume           # at login: restart the slideshow if the mode is on
 
 set -euo pipefail
@@ -674,6 +675,48 @@ close_window() {
 # Several overtake processes can write the same state file at once (quick
 # clicks, the taskbar's periodic `remember`), so writes take a lock and their
 # own temp file, and an empty result never replaces the file.
+# A browser window's page address, to the clipboard. Nothing outside the
+# browser can ask it for the page it shows, but it keeps every page it visits
+# (address and title) in its History database, and the window's title is the
+# page's title: so the newest visit with that title. Chromium-family browsers
+# (Omarchy's web apps run in one).
+copy_url() {
+  local addr=$1 class title dir url
+  read -r class < <(hyprctl clients -j | jq -r --arg a "$addr" '.[] | select(.address == $a) | .class')
+  title=$(hyprctl clients -j | jq -r --arg a "$addr" '.[] | select(.address == $a) | .title')
+  case $class in
+    chromium | chrome-*) dir="$HOME/.config/chromium" ;;
+    google-chrome*) dir="$HOME/.config/google-chrome" ;;
+    brave*) dir="$HOME/.config/BraveSoftware/Brave-Browser" ;;
+    *) notify $'\uf0c5' "Copy URL works with Chromium, Chrome, Brave and Omarchy's web apps"; return 0 ;;
+  esac
+  url=$(python3 -I - "$dir" "$title" <<'PY'
+import glob, os, shutil, sqlite3, sys, tempfile
+root, title = sys.argv[1], sys.argv[2]
+for suffix in (" - Chromium", " - Google Chrome", " - Brave"):
+    if title.endswith(suffix): title = title[: -len(suffix)]
+best = None
+with tempfile.TemporaryDirectory() as tmp:
+    for i, db in enumerate(glob.glob(os.path.join(root, "*", "History"))):
+        copy = os.path.join(tmp, str(i))
+        shutil.copy(db, copy)   # the browser keeps the database locked
+        try:
+            row = sqlite3.connect(copy).execute(
+                "select url, last_visit_time from urls where title = ? order by last_visit_time desc limit 1", (title,)).fetchone()
+        except sqlite3.Error:
+            continue
+        if row and (best is None or row[1] > best[1]): best = row
+print(best[0] if best else "")
+PY
+)
+  if [[ -n $url ]]; then
+    printf '%s' "$url" | wl-copy
+    notify $'\uf0c5' "Copied $url"
+  else
+    notify $'\uf0c5' "Couldn't find this page's address yet (try again in a few seconds)"
+  fi
+}
+
 # The taskbar to the start of a bar section, the way Omarchy's own bar
 # commands edit the layout: shell.json, then a config reload.
 taskbar_position() {
@@ -891,6 +934,7 @@ case "${1:-help}" in
   unsnap) [[ -n ${2:-} ]] && unsnap_window "$2" || true ;;
   snap-layouts) mkdir -p "$STATE_DIR"; date +%s%N >"$STATE_DIR/snap-request" ;;
   taskbar-position) taskbar_position "${2:-}" ;;
+  copy-url) [[ -n ${2:-} ]] && copy_url "$2" || true ;;
   start) mkdir -p "$STATE_DIR"; echo "${2:-start} $(date +%s%N)" >"$STATE_DIR/start-request" ;;
   settings) mkdir -p "$STATE_DIR"; echo "${2:-open} $(date +%s%N)" >"$STATE_DIR/settings-request" ;;
   slideshow-loop) slideshow_loop ;;   # internal: the slideshow's background loop
