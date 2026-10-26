@@ -93,6 +93,39 @@ Item {
   // (given up when another window takes focus: the title bar holds the
   // keyboard while renaming)
   onToplevelChanged: if (renaming && addressOf(toplevel) !== renaming) renaming = ""
+
+  // `overtake rename <address>` (the taskbar's Rename window) writes
+  // "<address> <time>" here after bringing the window up; the first value
+  // seen is just startup.
+  property string lastRenameRequest: ""
+  property bool renameRequestSeen: false
+  FileView {
+    path: Quickshell.env("HOME") + "/.local/state/overtake/rename-request"
+    watchChanges: true
+    printErrors: false
+    onFileChanged: reload()
+    onLoaded: {
+      var value = text().trim()
+      if (!value) { root.renameRequestSeen = true; return }
+      if (value === root.lastRenameRequest) return
+      if (root.renameRequestSeen) renameStart.address = value.split(" ")[0], renameStart.restart()
+      root.lastRenameRequest = value
+      root.renameRequestSeen = true
+    }
+    onLoadFailed: root.renameRequestSeen = true
+  }
+  // Wait for the window to be the focused one, so its title bar is showing.
+  Timer {
+    id: renameStart
+    property string address: ""
+    property int tries: 0
+    interval: 100
+    onTriggered: {
+      if (root.addressOf(root.toplevel) === address) { root.menuFor = ""; root.renaming = address; tries = 0 }
+      else if (++tries < 20) restart()
+      else tries = 0
+    }
+  }
   function isBrowser(t) {
     var cls = t && t.lastIpcObject ? String(t.lastIpcObject.class || "") : ""
     return /^(chromium|chrome-|google-chrome|brave)/.test(cls)

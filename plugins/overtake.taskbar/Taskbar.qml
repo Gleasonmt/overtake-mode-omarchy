@@ -274,7 +274,20 @@ Panel {
     return name === root.currentWorkspaceName ? "This workspace" : "Workspace " + name
   }
 
+  // Right-click on a window in the picker: what to do with that one window.
+  function windowMenu(t) {
+    var items = [
+      { glyph: "\uf2d2", label: "Switch to", run: function() { showWindow(t) } },
+      { glyph: "\uf044", label: "Rename window…", run: function() { windowCommand("rename", t) } }
+    ]
+    if (isMinimized(t)) items.push({ glyph: "\uf2d2", label: "Restore", run: function() { windowCommand("restore", t) } })
+    else items.push({ glyph: "\uf2d1", label: "Minimize", run: function() { windowCommand("minimize", t) } })
+    items.push({ glyph: "\uf00d", label: "Close window", danger: true, run: function() { windowCommand("close", t) } })
+    return items
+  }
+
   // One row per window, this workspace's first, then a "New window" row.
+  // Right-click a window's row for its own menu (rename, close, ...).
   function pickerItems(group) {
     if (!group) return []
     var windows = group.windows.slice().sort(function(a, b) {
@@ -284,7 +297,8 @@ Panel {
       return { glyph: isMinimized(t) ? "–" : (t === Hyprland.activeToplevel ? "●" : "○"),
                label: titleOf(t) || (group.entry ? group.entry.name : group.appId),
                detail: workspaceLabel(t),
-               run: function() { showWindow(t) } }
+               run: function() { showWindow(t) },
+               menu: function() { return windowMenu(t) } }
     })
     if (group.entry) items.push({ glyph: "", label: "New window", run: function() { launch(group) } })
     return items
@@ -302,6 +316,7 @@ Panel {
       if (isMinimized(target)) items.push({ glyph: "", label: "Restore", run: function() { windowCommand("restore", target) } })
       else items.push({ glyph: "", label: "Minimize", run: function() { windowCommand("minimize", target) } })
       items.push({ glyph: "", label: "Maximize", run: function() { windowCommand("maximize", target) } })
+      items.push({ glyph: "", label: "Rename window…", run: function() { windowCommand("rename", target) } })
     }
     if (group.entry) items.push({ glyph: "", label: "New window", run: function() { launch(group) } })
     if (group.entry) {
@@ -664,7 +679,12 @@ Panel {
               anchors.fill: parent
               hoverEnabled: true
               cursorShape: Qt.PointingHandCursor
-              onClicked: {
+              acceptedButtons: Qt.LeftButton | Qt.RightButton
+              onClicked: function(mouse) {
+                if (mouse.button === Qt.RightButton) {
+                  if (modelData.menu) root.popupRows = modelData.menu()   // that window's own menu, in place
+                  return
+                }
                 modelData.run()
                 root.close()
               }
