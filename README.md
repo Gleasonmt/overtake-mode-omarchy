@@ -66,6 +66,9 @@ grouped by app, with per-app Show / Quiet / Off and Do Not Disturb.
 - **Snap layouts** — drag a window and the layouts appear right next to the
   pointer; hover the maximize button, or press Super + Z. A preview shows
   where the window will land.
+- **Move to a workspace by dragging** — while you drag a window, workspaces
+  1–9 show as boxes along the top of the screen (a dot marks ones with
+  windows). Drop it on one to send it there; you stay where you are.
 - **New windows fill the gaps** — open an app or click a link next to a
   snapped window and it lands in the half or quarter left free (Settings >
   Overtake Mode turns this off). Links open on the workspace you're on,

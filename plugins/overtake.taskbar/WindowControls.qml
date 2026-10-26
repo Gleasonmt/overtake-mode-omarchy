@@ -13,6 +13,8 @@ import qs.Commons as Commons
 //  - Drag the bar to move the window. Dragging near the top of the screen
 //    shows the snap bar; drop on a zone to snap there (via `overtake snap`).
 //  - Up to 3 windows can share a zone; the bar then shows a tab per window.
+//  - While dragging, workspaces 1-9 show as boxes along the top of the
+//    screen; drop on one to send the window there (via `overtake send`).
 //  - Double-click maximizes. Super+Z, or hovering maximize, opens the snap bar
 //    for clicking.
 //
@@ -237,7 +239,7 @@ Item {
 
   function anchorSnapBar(x, y) {
     anchorX = Math.max(monX + 8, Math.min(x - snapW / 2, monX + monW - snapW - 8))
-    anchorY = y - snapH - 28 >= monTop + 8 ? y - snapH - 28 : y + 40
+    anchorY = y - snapH - 28 >= wsY + wsH + 8 ? y - snapH - 28 : Math.max(y + 40, wsY + wsH + 8)
     anchorSet = true
   }
 
@@ -278,7 +280,21 @@ Item {
     pendingX = Math.round(startWinX + dx)
     pendingY = Math.round(startWinY + dy)
     if (!moveTimer.running) moveTimer.start()
-    hoverZone = snapBarShown ? zoneAt(cursorX, cursorY) : ""
+    hoverAt(cursorX, cursorY)
+  }
+
+  // What the pointer is over while dragging: a workspace box, else a zone.
+  function hoverAt(x, y) {
+    hoverWorkspace = snapBarShown ? workspaceAt(x, y) : 0
+    hoverZone = snapBarShown && !hoverWorkspace ? zoneAt(x, y) : ""
+  }
+
+  // Dropped: onto a workspace box (back where it was picked up, on that
+  // workspace), a zone, or out of its zone.
+  function drop(addr, fromX, fromY) {
+    if (hoverWorkspace) run(["send", String(hoverWorkspace), addr, String(Math.round(fromX)), String(Math.round(fromY))])
+    else if (hoverZone) run(["snap", hoverZone, addr])
+    else if (root.zones[addr]) run(["unsnap", addr])
   }
 
   function endDrag() {
@@ -286,13 +302,13 @@ Item {
       moveTimer.stop()
       Hyprland.dispatch("hl.dsp.window.move({ x = " + pendingX + ", y = " + pendingY + ", relative = false, window = \"address:" + dragAddress + "\" })")
       setMoveAnimation(true)
-      if (hoverZone) run(["snap", hoverZone, dragAddress])
-      else if (root.zones[dragAddress]) run(["unsnap", dragAddress])
+      drop(dragAddress, startWinX, startWinY)
     }
     pressed = false
     dragging = false
     anchorSet = false
     hoverZone = ""
+    hoverWorkspace = 0
     Hyprland.refreshToplevels()
   }
 
@@ -313,6 +329,32 @@ Item {
   readonly property int snapH: cardH + snapPad * 2
   readonly property real snapX: anchorSet ? anchorX : monX + (monW - snapW) / 2
   readonly property real snapY: anchorSet ? anchorY : monTop + 12
+
+  // ---------- Workspace strip geometry ----------
+  // Workspaces 1-9 as boxes centered along the top of the window's screen.
+  property int hoverWorkspace: 0
+  readonly property int wsBoxW: 56
+  readonly property int wsBoxH: 36
+  readonly property int wsGap: 8
+  readonly property int wsPad: 10
+  readonly property int wsW: wsBoxW * 9 + wsGap * 8 + wsPad * 2
+  readonly property int wsH: wsBoxH + wsPad * 2
+  readonly property real wsX: monX + (monW - wsW) / 2
+  readonly property real wsY: monTop + 8
+  readonly property int currentWorkspace: toplevel && toplevel.workspace ? toplevel.workspace.id : 0
+
+  // The workspace box under a point (0 for none, or the window's own).
+  function workspaceAt(x, y) {
+    var rx = x - wsX - wsPad, ry = y - wsY - wsPad
+    if (ry < 0 || ry > wsBoxH || rx < 0) return 0
+    var n = Math.floor(rx / (wsBoxW + wsGap))
+    if (n > 8 || rx - n * (wsBoxW + wsGap) > wsBoxW) return 0
+    return n + 1 === currentWorkspace ? 0 : n + 1
+  }
+
+  function windowsOn(n) {
+    return (Hyprland.toplevels.values || []).filter(function(t) { return t && t.workspace && t.workspace.id === n }).length
+  }
 
   // Where a zone puts the window (mirrors snap_window in overtake), for
   // the preview outline.
@@ -468,6 +510,8 @@ Item {
   property int movedTicks: 0
   property int stillTicks: 0
   property bool selfMoving: false
+  property real selfStartX: 0       // where an app's own drag picked the window up
+  property real selfStartY: 0
 
   // `overtake` stamps this file whenever it arranges windows (snap, relayout,
   // float-all, rescue); movement for the next two seconds is ours, not a drag.
@@ -494,7 +538,7 @@ Item {
     lastGeometry = null
     movedTicks = 0
     stillTicks = 0
-    if (selfMoving) hoverZone = ""
+    if (selfMoving) { hoverZone = ""; hoverWorkspace = 0 }
     selfMoving = false
     anchorSet = false
   }
@@ -513,6 +557,7 @@ Item {
     var sameSize = g[2] === last[2] && g[3] === last[3]
     if (moved && sameSize) {
       stillTicks = 0
+      if (movedTicks === 0 && !selfMoving) { selfStartX = last[0]; selfStartY = last[1] }
       movedTicks += 1
       if (movedTicks >= 2) {
         selfMoving = true
@@ -524,11 +569,11 @@ Item {
     if (!selfMoving) return
     stillTicks += 1
     if (stillTicks < 6) return
-    if (hoverZone) run(["snap", hoverZone, address])
-    else if (root.zones[address]) run(["unsnap", address])
+    drop(address, selfStartX, selfStartY)
     selfMoving = false
     anchorSet = false
     hoverZone = ""
+    hoverWorkspace = 0
   }
 
   Process {
@@ -542,7 +587,7 @@ Item {
           root.cursorX = pos.x
           root.cursorY = pos.y
           if (root.selfMoving && !root.anchorSet) root.anchorSnapBar(pos.x, pos.y)
-          root.hoverZone = root.snapBarShown ? root.zoneAt(pos.x, pos.y) : ""
+          root.hoverAt(pos.x, pos.y)
         } catch (e) {}
       }
     }
@@ -802,6 +847,92 @@ Item {
               cursorShape: Qt.PointingHandCursor
               onClicked: { var run = modelData.run; root.menuFor = ""; run() }
             }
+          }
+        }
+      }
+    }
+  }
+
+  // ---------- Workspace strip ----------
+  // Shown only while dragging; the drag owns the pointer, so it takes no
+  // input and the highlight comes from hit-testing (root.hoverWorkspace).
+  PanelWindow {
+    id: wsStrip
+
+    visible: root.modeOn && root.snapBarShown && root.screenForWindow !== null
+    screen: root.screenForWindow
+    color: "transparent"
+    exclusionMode: ExclusionMode.Ignore
+    WlrLayershell.namespace: "overtake-workspaces"
+    WlrLayershell.layer: WlrLayer.Overlay
+    WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
+    mask: Region {}
+
+    anchors { top: true; left: true }
+    implicitWidth: root.wsW
+    implicitHeight: root.wsH
+    margins {
+      left: Math.round(root.wsX - (wsStrip.screen ? wsStrip.screen.x : 0))
+      top: Math.round(root.wsY - (wsStrip.screen ? wsStrip.screen.y : 0))
+    }
+
+    Rectangle {
+      anchors.fill: parent
+      radius: Style.space(10)
+      color: Commons.Color.background
+      opacity: 0.95
+      border.width: 1
+      border.color: Qt.rgba(Commons.Color.foreground.r, Commons.Color.foreground.g, Commons.Color.foreground.b, 0.15)
+    }
+
+    Row {
+      x: root.wsPad
+      y: root.wsPad
+      spacing: root.wsGap
+
+      Repeater {
+        model: 9
+
+        Rectangle {
+          id: wsBox
+          required property int index
+          readonly property int number: index + 1
+          readonly property bool current: number === root.currentWorkspace
+          readonly property bool lit: root.hoverWorkspace === number
+          readonly property bool used: wsStrip.visible && root.windowsOn(number) > 0
+          width: root.wsBoxW
+          height: root.wsBoxH
+          radius: Style.space(4)
+          color: lit ? Commons.Color.accent : Qt.rgba(Commons.Color.foreground.r, Commons.Color.foreground.g, Commons.Color.foreground.b, current ? 0.05 : 0.14)
+          border.width: current ? 2 : 1
+          border.color: current ? Qt.rgba(Commons.Color.accent.r, Commons.Color.accent.g, Commons.Color.accent.b, 0.7)
+                                : Qt.rgba(Commons.Color.foreground.r, Commons.Color.foreground.g, Commons.Color.foreground.b, lit ? 0.6 : 0.2)
+
+          Behavior on color { ColorAnimation { duration: 90 } }
+
+          Text {
+            anchors.centerIn: parent
+            anchors.verticalCenterOffset: wsBox.used ? -3 : 0
+            textFormat: Text.PlainText
+            text: String(wsBox.number)
+            color: wsBox.lit ? Commons.Color.background : Commons.Color.foreground
+            opacity: wsBox.current ? 0.5 : 1
+            font.family: Style.font.family
+            font.pixelSize: Style.font.bodySmall
+            font.bold: true
+          }
+
+          // A dot when the workspace already has windows.
+          Rectangle {
+            visible: wsBox.used
+            anchors.horizontalCenter: parent.horizontalCenter
+            anchors.bottom: parent.bottom
+            anchors.bottomMargin: 5
+            width: 4
+            height: 4
+            radius: 2
+            color: wsBox.lit ? Commons.Color.background : Commons.Color.foreground
+            opacity: 0.6
           }
         }
       }

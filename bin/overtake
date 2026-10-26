@@ -22,6 +22,7 @@
 #   overtake make-room <address>  # move a window down so its title bar fits above it
 #   overtake snap <left|right|top-left|top-right|bottom-left|bottom-right|full> [address]
 #   overtake unsnap <address> # back to the size it had before snapping
+#   overtake send <1-9> <address> [x y]  # drop on a workspace box: move the window there
 #   overtake start [quick]    # Super+S / Super+X: open the Start menu or its quick-link menu
 #   overtake settings [page]  # Super+I: the Settings window (system, bluetooth, network, ...)
 #   overtake snap-layouts     # SUPER+Z: show the snap layouts for the focused window
@@ -902,6 +903,20 @@ fill_gap() {
   [[ -n $zone ]] && snap_window "$zone" "$addr"
 }
 
+# Dropped on a workspace box at the top of the screen: send the window to
+# that workspace without following it, back where it was picked up (not
+# under the boxes). A snapped window keeps its zone there.
+send_window() {
+  local ws=$1 addr=$2 x=${3:-} y=${4:-}
+  [[ $ws =~ ^[1-9]$ && $addr =~ ^0x[0-9a-f]+$ ]] || return 0
+  mark_arranging
+  [[ $x =~ ^-?[0-9]+$ && $y =~ ^-?[0-9]+$ ]] &&
+    hyprctl dispatch "hl.dsp.window.move({ x = $x, y = $y, relative = false, window = \"address:$addr\" })" >/dev/null
+  hyprctl dispatch "hl.dsp.window.move({ workspace = \"$ws\", follow = false, window = \"address:$addr\" })" >/dev/null
+  [[ -s $ZONES ]] && json_set "$ZONES" 'if has($a) then .[$a].ws = $ws else . end' --arg a "$addr" --arg ws "$ws"
+  return 0
+}
+
 # Dragged out of its zone: back to the pre-snap size (at most 70% of the
 # screen), keeping its top-left where it was dropped.
 unsnap_window() {
@@ -1006,6 +1021,7 @@ case "${1:-help}" in
   close) close_window "${2:-}" ;;
   snap) [[ -n ${2:-} ]] && snap_window "$2" "${3:-}" || true ;;
   unsnap) [[ -n ${2:-} ]] && unsnap_window "$2" || true ;;
+  send) [[ -n ${3:-} ]] && send_window "$2" "$3" "${4:-}" "${5:-}" || true ;;
   snap-layouts) mkdir -p "$STATE_DIR"; date +%s%N >"$STATE_DIR/snap-request" ;;
   taskbar-position) taskbar_position "${2:-}" ;;
   copy-url) [[ -n ${2:-} ]] && copy_url "$2" || true ;;
