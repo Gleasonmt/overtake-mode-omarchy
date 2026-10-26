@@ -489,7 +489,23 @@ relayout() {
   ' "$LAYOUT" | paste -sd ';')
   [[ -z $cmds ]] || hyprctl --batch "$cmds" >/dev/null
   rescue_all
+  unstick_workspaces
   remember_layout
+}
+
+# A screen leaving mid-animation (lid closing as the dock comes up) can freeze a
+# workspace's slide part-way: its windows are drawn a whole screen-width off to
+# one side while their title bars stay put. Hyprland lists that as "workspace
+# offset" long after any real animation has ended; leaving the workspace and
+# coming back redraws it in place.
+unstick_workspaces() {
+  local ws
+  for ws in $(hyprctl monitors | awk '
+      /^Monitor /                      { ws = "" }
+      /^\tactive workspace: /          { ws = $3 }
+      /^\tsolitaryBlockedBy: .*workspace offset/ && ws != "" { print ws }'); do
+    hyprctl --batch "eval hl.config({ cursor = { no_warps = true } }) ; dispatch hl.dsp.focus({ workspace = \"empty\" }) ; dispatch hl.dsp.focus({ workspace = \"$ws\" }) ; eval hl.config({ cursor = { no_warps = false } })" >/dev/null
+  done
 }
 
 rescue_all() {
