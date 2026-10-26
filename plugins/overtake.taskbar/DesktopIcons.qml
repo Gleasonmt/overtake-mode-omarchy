@@ -10,12 +10,13 @@ import "DesktopList.js" as DesktopList
 // The desktop in Overtake Mode: a full-screen surface on the layer just above
 // the wallpaper, so windows cover it and it shows on empty workspaces and with
 // Super+D. Icons sit in a column on the left of each screen: click selects,
-// double-click opens, right-click gives Open, Pin to Start, Pin to taskbar,
-// Remove desktop icon, Rename and Move up / down (and Empty Trash on the
-// Trash). Right-click on the desktop itself gives the view options (icon size,
-// sort, show icons), Add a shortcut, background and theme, screensaver,
-// Personalize, Display settings and a terminal. A plain click on the desktop
-// minimizes the windows on that screen's workspace.
+// double-click opens, dragging moves an icon up or down the column, and
+// right-click gives Open, Pin to Start, Pin to taskbar, Remove desktop icon,
+// Rename and Move up / down (and Empty Trash on the Trash). Right-click on the
+// desktop itself gives the view options (icon size, sort, show icons), Add a
+// shortcut, background and theme, screensaver, Personalize, Display settings
+// and a terminal. A plain click on the desktop minimizes the windows on that
+// screen's workspace.
 //
 // The icons live in ~/.config/overtake/desktop-icons.txt ("<id> | <label>").
 // Besides desktop entry ids it understands "trash", "browser" (your default
@@ -267,11 +268,16 @@ Item {
           Item {
             id: tile
             required property var modelData
+            required property int index
             readonly property bool isSelected: root.selected === modelData.id
             readonly property bool isRenaming: root.renaming === modelData.id
+            readonly property bool beingDragged: area.dragging
 
             width: Style.space(92) * root.iconScale
             height: Style.space(88) * root.iconScale
+            z: beingDragged ? 10 : 0
+            opacity: beingDragged ? 0.8 : 1
+            transform: Translate { y: area.dragging ? area.dragDY : 0 }
 
             Rectangle {
               anchors.fill: parent
@@ -300,9 +306,34 @@ Item {
               id: area
               anchors.fill: parent
               hoverEnabled: true
-              cursorShape: Qt.PointingHandCursor
+              cursorShape: dragging ? Qt.ClosedHandCursor : Qt.PointingHandCursor
               acceptedButtons: Qt.LeftButton | Qt.RightButton
+
+              // Drag an icon up or down the column to move it there.
+              property bool dragging: false
+              property real pressY: 0
+              property real dragDY: 0
+              readonly property real step: tile.height + iconColumn.spacing
+              onPressed: function(mouse) { pressY = mouse.y; dragging = false; dragDY = 0 }
+              onPositionChanged: function(mouse) {
+                if (!(mouse.buttons & Qt.LeftButton) || tile.isRenaming) return
+                if (!dragging && Math.abs(mouse.y - pressY) < Style.space(8)) return
+                dragging = true
+                root.selected = tile.modelData.id
+                dragDY = mouse.y - pressY
+              }
+              onReleased: function(mouse) {
+                if (!dragging) return
+                var moved = Math.round(dragDY / step)
+                var to = Math.max(0, Math.min(root.icons.length - 1, tile.index + moved))
+                dragging = false
+                dragDY = 0
+                if (to !== tile.index)
+                  root.writeIcons(DesktopList.place(root.iconsText, tile.modelData.id, root.icons[to].id, to > tile.index))
+              }
+              onCanceled: { dragging = false; dragDY = 0 }
               onClicked: function(mouse) {
+                if (mouse.button === Qt.LeftButton && Math.abs(mouse.y - pressY) >= Style.space(8)) return   // the end of a drag
                 root.renaming = ""
                 root.selected = tile.modelData.id
                 if (mouse.button === Qt.RightButton) {

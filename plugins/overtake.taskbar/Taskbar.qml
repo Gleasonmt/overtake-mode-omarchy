@@ -37,9 +37,33 @@ Panel {
         if (node.id === root.moduleName && Array.isArray(node.pinned)) { pins = node.pinned; return }
         for (var k in node) find(node[k])
       }
-      try { find(JSON.parse(text())) } catch (e) {}
+      var config = null
+      try { config = JSON.parse(text()); find(config) } catch (e) {}
       root.savedPinned = pins ? pins.map(String) : null
+      var layout = config && config.bar && config.bar.layout ? config.bar.layout : {}
+      root.section = ""
+      for (var name in layout)
+        if (Array.isArray(layout[name]) && layout[name].some(function(e) { return e && e.id === root.moduleName })) root.section = name
     }
+  }
+  property string section: ""   // the bar section the taskbar sits in: left, center or right
+
+  // Move the taskbar to the start of a bar section ("left" or "center").
+  function moveTaskbar(to) {
+    if (!root.bar || !root.bar.shell || typeof root.bar.shell.mutateShellConfig !== "function") return
+    root.bar.shell.mutateShellConfig(function(config) {
+      var layout = config.bar && config.bar.layout
+      if (!layout) return
+      var entry = null
+      for (var name in layout) {
+        if (!Array.isArray(layout[name])) continue
+        var i = layout[name].findIndex(function(e) { return e && e.id === root.moduleName })
+        if (i !== -1) entry = layout[name].splice(i, 1)[0]
+      }
+      if (!entry) return
+      if (!Array.isArray(layout[to])) layout[to] = []
+      layout[to].unshift(entry)
+    })
   }
   readonly property var pinned: {
     if (Array.isArray(savedPinned)) return savedPinned
@@ -300,9 +324,128 @@ Panel {
     if (pin === (index !== -1)) return
     if (pin) next.push(id)
     else next.splice(index, 1)
+    savePins(next)
+  }
+
+  function savePins(next) {
     root.savedPinned = next
     root.settings = Object.assign({}, root.settings, { pinned: next })
     if (root.bar && root.bar.shell) root.bar.shell.updateEntryInline(root.moduleName, root.settings)
+  }
+
+  // ---------- Dragging icons ----------
+  // A left-button drag on the taskbar would move the whole taskbar around the
+  // bar (the bar handles left presses on its entries before they reach them).
+  // So this layer sits above that, on the bar's slot for this taskbar, and
+  // takes the left button itself: a click is the icon's click, a drag moves
+  // that app along the taskbar. Right and middle clicks pass through to the
+  // icons. The Start button's right-click menu moves the taskbar instead.
+  readonly property Item barSlot: {
+    var p = root.parent
+    while (p && !(p.activeItem !== undefined && p.moduleName === root.moduleName)) p = p.parent
+    return p
+  }
+  property string dragKey: ""      // the app being dragged
+  property real dragDX: 0
+  property int dropIndex: -1       // where it would land, in shownGroups
+  property real dropX: 0
+
+  function buttonAt(point) {
+    var item = row.childAt(point.x, point.y)
+    return item && item.visible ? item : null
+  }
+
+  function appButtons() {
+    var list = []
+    for (var i = 0; i < row.children.length; i++) {
+      var c = row.children[i]
+      if (c.visible && c.groupKey) list.push(c)
+    }
+    return list
+  }
+
+  function updateDrop(x) {
+    var buttons = appButtons()
+    var index = buttons.length
+    for (var i = 0; i < buttons.length; i++) {
+      if (x < buttons[i].x + buttons[i].width / 2) { index = i; break }
+    }
+    root.dropIndex = index
+    root.dropX = row.x + (index < buttons.length ? buttons[index].x : buttons[buttons.length - 1].x + buttons[buttons.length - 1].width)
+  }
+
+  // Drop: reorder. A pinned app stays pinned in its new place; an unpinned
+  // one dropped among (or right after) the pinned ones is pinned there.
+  function finishDrag() {
+    var keys = root.shownGroups.map(function(g) { return String(g.key) })
+    var from = keys.indexOf(root.dragKey)
+    var group = root.shownGroups[from]
+    if (from === -1 || root.dropIndex < 0 || !group || !group.entry) return
+    var to = root.dropIndex > from ? root.dropIndex - 1 : root.dropIndex
+    keys.splice(from, 1)
+    keys.splice(to, 0, root.dragKey)
+    var pins = {}
+    root.pinned.forEach(function(id) { pins[String(id)] = true })
+    var pinnedCount = Object.keys(pins).length
+    if (!pins[root.dragKey] && to > pinnedCount) return   // an unpinned app among the unpinned: nothing to keep
+    pins[root.dragKey] = true
+    root.savePins(keys.filter(function(k) { return pins[k] }))
+  }
+
+  MouseArea {
+    id: iconDrag
+    parent: root.barSlot || root
+    anchors.fill: parent
+    z: 1000
+    acceptedButtons: Qt.LeftButton
+    cursorShape: dragging ? Qt.ClosedHandCursor : Qt.PointingHandCursor
+    enabled: root.visible && root.barSlot !== null
+
+    property Item pressedButton: null
+    property real pressX: 0
+    property bool dragging: false
+
+    function rowPoint(x, y) { return iconDrag.mapToItem(row, x, y) }
+
+    onPressed: function(mouse) {
+      pressX = mouse.x
+      dragging = false
+      pressedButton = root.buttonAt(rowPoint(mouse.x, mouse.y))
+      if (root.bar && pressedButton) root.bar.hideTooltip(pressedButton)
+    }
+    onPositionChanged: function(mouse) {
+      if (!pressedButton || !pressedButton.groupKey) return
+      if (!dragging && Math.abs(mouse.x - pressX) < Style.space(6)) return
+      dragging = true
+      root.dragKey = pressedButton.groupKey
+      root.dragDX = mouse.x - pressX
+      root.updateDrop(rowPoint(mouse.x, mouse.y).x)
+    }
+    onReleased: function(mouse) {
+      if (dragging) root.finishDrag()
+      else if (pressedButton && root.buttonAt(rowPoint(mouse.x, mouse.y)) === pressedButton) pressedButton.leftClicked()
+      reset()
+    }
+    onCanceled: reset()
+    function reset() {
+      dragging = false
+      pressedButton = null
+      root.dragKey = ""
+      root.dragDX = 0
+      root.dropIndex = -1
+    }
+  }
+
+  // Where a dragged icon would land.
+  Rectangle {
+    visible: root.dragKey !== "" && root.dropIndex >= 0
+    x: root.dropX - width / 2
+    anchors.verticalCenter: row.verticalCenter
+    width: Style.space(2)
+    height: root.barSize * 0.6
+    radius: width / 2
+    color: Commons.Color.accent
+    z: 10
   }
 
   // The desktop's icon menu pins and unpins apps here: it writes
@@ -379,6 +522,7 @@ Panel {
         dimmed: running && root.visibleWindows({ windows: modelData.here }).length === 0
         focusedApp: modelData.here.indexOf(Hyprland.activeToplevel) !== -1
         tip: root.tooltipFor(modelData)
+        groupKey: String(modelData.key)
         onLeftClicked: root.activate(modelData, taskButton)
         onMiddleClicked: root.launch(modelData)
         onRightClicked: root.openMenu(modelData, taskButton)
@@ -392,7 +536,9 @@ Panel {
     osAnchorItem: osButton
     bar: root.bar
     taskbarPinned: root.pinned
+    taskbarSection: root.section
     onToggleTaskbarPin: function(id) { root.togglePinId(id) }
+    onMoveTaskbar: function(to) { root.moveTaskbar(to) }
   }
 
   // `overtake start [quick]` (Super+S / Super+X) writes "<mode> <time>" here;
@@ -534,6 +680,12 @@ Panel {
     property bool dimmed: false
     property bool focusedApp: false
     property string tip: ""
+    property string groupKey: ""     // the app this button stands for (empty: Start, Overtake Mode)
+    readonly property bool beingDragged: groupKey !== "" && groupKey === root.dragKey
+
+    z: beingDragged ? 5 : 0
+    opacity: beingDragged ? 0.75 : 1
+    transform: Translate { x: button.beingDragged ? root.dragDX : 0 }
 
     signal leftClicked()
     signal middleClicked()

@@ -47,6 +47,24 @@ function move(text, id, delta) {
   return join(all)
 }
 
+// Move icon `id` next to icon `targetId` (before it, or after it when
+// `after`), shifting the ones between; icons keep the slots they use.
+function place(text, id, targetId, after) {
+  var all = lines(text)
+  var slots = [], icons = []
+  all.forEach(function(l, i) { if (isIcon(l)) { slots.push(i); icons.push(l) } })
+  var from = -1
+  for (var i = 0; i < icons.length; i++) if (idOf(icons[i]) === id) from = i
+  if (from < 0 || id === targetId) return join(all)
+  var moving = icons.splice(from, 1)[0]
+  var to = -1
+  for (var j = 0; j < icons.length; j++) if (idOf(icons[j]) === targetId) to = j
+  if (to < 0) return join(all)
+  icons.splice(after ? to + 1 : to, 0, moving)
+  slots.forEach(function(slot, k) { all[slot] = icons[k] })
+  return join(all)
+}
+
 // Put the icons in order of nameOf(id, label), in the slots they already use.
 function sortBy(text, nameOf) {
   var all = lines(text)

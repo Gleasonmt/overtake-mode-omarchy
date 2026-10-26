@@ -24,6 +24,8 @@ Item {
   property QtObject bar: null
   property var taskbarPinned: []
   signal toggleTaskbarPin(string id)
+  signal moveTaskbar(string to)
+  property string taskbarSection: ""   // the bar section the taskbar is in
 
   property bool open: false
   property string mode: "start"  // "start", "quick" or "os"
@@ -314,6 +316,8 @@ Item {
     { glyph: "", label: "Restart", command: "omarchy-system-reboot" },
     { glyph: "", label: "Shut down", command: "omarchy-system-shutdown" },
     { separator: true },
+    { glyph: "", label: root.taskbarSection === "center" ? "Move taskbar to the left" : "Center the taskbar",
+      taskbar: root.taskbarSection === "center" ? "left" : "center" },
     { glyph: "", label: "Desktop", command: "overtake show-desktop" }
   ]
 
@@ -1165,6 +1169,7 @@ Item {
               label: modelData.label || ""
               onClicked: {
                 if (modelData.start) root.show("start")
+                else if (modelData.taskbar) { root.moveTaskbar(modelData.taskbar); root.close() }
                 else root.run(modelData.command)
               }
             }
