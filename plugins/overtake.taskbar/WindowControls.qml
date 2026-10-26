@@ -97,13 +97,16 @@ Item {
   readonly property real barX: winX
   readonly property real barY: barAbove ? winY - barHeight : winY
 
-  // App windows stacked in the same snap zone on this workspace (tabs).
+  // App windows stacked in the same snap zone on this workspace (tabs). A
+  // minimized one keeps its zone (to go back into it) but lives on
+  // special:minimized meanwhile, so it gets no tab; the taskbar restores it.
   readonly property var zoneEntry: zones[address] || null
   readonly property var stack: {
     if (!zoneEntry) return []
     return (Hyprland.toplevels.values || []).filter(function(t) {
       var e = root.zones[root.addressOf(t)]
       return e && e.ws === root.zoneEntry.ws && e.zone === root.zoneEntry.zone
+        && !!t.workspace && t.workspace.name === e.ws
     })
   }
 
