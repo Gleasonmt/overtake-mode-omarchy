@@ -28,6 +28,7 @@
 #   overtake taskbar-position <left|center>  # right-click Start: where the taskbar sits on the bar
 #   overtake copy-url <address>  # title bar menu: copy a browser window's page address
 #   overtake rename <address>    # taskbar menu: bring a window up with its title bar tab ready to rename
+#   overtake fill-gap <address>  # a window opened: snap it into a spot snapped windows leave free
 #   overtake open-url <url>      # links from other apps: open on this workspace, not the browser's last window
 #   overtake resume           # at login: restart the slideshow if the mode is on
 
@@ -52,6 +53,7 @@ ZONES="$STATE_DIR/zones.json"       # snapped windows: address -> {ws, zone, res
 KEEP_FLOATING="$STATE_DIR/kept-floating.json"  # windows already floating before `on`; `off` tiles all the others
 TASKBAR_SETTINGS="$STATE_DIR/taskbar-settings.json"  # taskbar pins etc., kept while the mode is off
 SAVED_GTK_BUTTONS="$STATE_DIR/gtk-button-layout"  # GTK apps' own title-bar buttons, restored on off
+NO_FILL="$STATE_DIR/no-fill"        # Settings: new windows don't fill free snap spots
 SNAP_GAP=12
 SNAP_TITLE_BAR=32                   # room left above a snapped window for its title bar
 SNAP_STACK_MAX=3
@@ -859,6 +861,43 @@ snap_window() {
     --arg a "$addr" --arg ws "$ws" --arg z "$zone" --argjson size "$(jq -c .size <<<"$info")"
 }
 
+# A window just opened on a workspace with snapped windows: snap it into a
+# spot they leave free (the other half, else a free quarter), so a link
+# clicked in an app snapped right opens on the left. Left alone: dialogs and
+# utilities (Omarchy's floating-window tag, or another window of the same app
+# already on the workspace), workspaces with a full-screen snap or nothing
+# free, and everything once Settings turns it off.
+fill_gap() {
+  local addr=$1 info ws zones zone
+  [[ -f $FLAG && ! -f $NO_FILL ]] || return 0
+  sleep 0.2   # let the window map and take its first size
+  exec 9>"$STATE_DIR/fill.lock"
+  flock 9
+  [[ -s $ZONES ]] || return 0
+  [[ $(jq -r --arg a "$addr" 'has($a)' "$ZONES") == false ]] || return 0
+  local clients
+  clients=$(hyprctl clients -j)
+  info=$(jq -c --arg a "$addr" '.[] | select(.address == $a)' <<<"$clients")
+  [[ -n $info ]] || return 0
+  ws=$(jq -r .workspace.name <<<"$info")
+  [[ $ws != special:* && $(jq -r '.fullscreen == 0 and (.tags | index("floating-window") | not)' <<<"$info") == true ]] || return 0
+  jq -e --arg a "$addr" --argjson pid "$(jq .pid <<<"$info")" --arg ws "$ws" \
+    'any(.[]; .address != $a and .pid == $pid and .workspace.name == $ws)' <<<"$clients" >/dev/null && return 0
+  # the zones taken on this workspace, by windows still there
+  zones=$(jq -c --arg ws "$ws" --argjson live "$(jq --arg ws "$ws" '[.[] | select(.workspace.name == $ws) | .address]' <<<"$clients")" \
+    '[to_entries[] | select(.value.ws == $ws and (.key as $k | $live | index($k))) | .value.zone] | unique' "$ZONES")
+  zone=$(jq -r '
+    . as $z | def taken($s): any($z[]; . == $s);
+    if length == 0 or taken("full") then empty
+    elif ([taken("left"), taken("top-left"), taken("bottom-left")] | any | not) then "left"
+    elif ([taken("right"), taken("top-right"), taken("bottom-right")] | any | not) then "right"
+    else first(("top-left", "bottom-left", "top-right", "bottom-right")
+      | select(. as $q | taken($q) | not)
+      | select(if test("left") then (taken("left") | not) else (taken("right") | not) end)) // empty
+    end' <<<"$zones")
+  [[ -n $zone ]] && snap_window "$zone" "$addr"
+}
+
 # Dragged out of its zone: back to the pre-snap size (at most 70% of the
 # screen), keeping its top-left where it was dropped.
 unsnap_window() {
@@ -967,6 +1006,7 @@ case "${1:-help}" in
   taskbar-position) taskbar_position "${2:-}" ;;
   copy-url) [[ -n ${2:-} ]] && copy_url "$2" || true ;;
   open-url) shift; open_url "$@" ;;
+  fill-gap) [[ -n ${2:-} ]] && fill_gap "$2" || true ;;
   rename) [[ -n ${2:-} ]] && { show_window "$2"; mkdir -p "$STATE_DIR"; echo "$2 $(date +%s%N)" >"$STATE_DIR/rename-request"; } || true ;;
   start) mkdir -p "$STATE_DIR"; echo "${2:-start} $(date +%s%N)" >"$STATE_DIR/start-request" ;;
   settings) mkdir -p "$STATE_DIR"; echo "${2:-open} $(date +%s%N)" >"$STATE_DIR/settings-request" ;;

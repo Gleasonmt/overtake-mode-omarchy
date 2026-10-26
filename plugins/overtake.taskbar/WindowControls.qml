@@ -400,6 +400,8 @@ Item {
       // landing on one of them), hide it again.
       if (root.modeOn && event.name === "activespecial" && String(event.data).split(",")[0] === "special:minimized")
         root.run(["hide-minimized"])
+      // A new window next to snapped ones goes into a spot they leave free.
+      if (root.modeOn && event.name === "openwindow") root.run(["fill-gap", "0x" + String(event.data).split(",")[0]])
       if (root.modeOn && event.name === "minimized") {
         var parts = String(event.data).split(",")
         if (parts[1] === "1") root.run(["minimize", "0x" + parts[0]])

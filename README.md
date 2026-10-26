@@ -66,6 +66,10 @@ grouped by app, with per-app Show / Quiet / Off and Do Not Disturb.
 - **Snap layouts** — drag a window and the layouts appear right next to the
   pointer; hover the maximize button, or press Super + Z. A preview shows
   where the window will land.
+- **New windows fill the gaps** — open an app or click a link next to a
+  snapped window and it lands in the half or quarter left free (Settings >
+  Overtake Mode turns this off). Links open on the workspace you're on,
+  in the browser window there or a new one.
 - **Windows stay put** — sections and positions survive docking, undocking,
   and switching back and forth with Omarchy mode.
 - **Settings** — Super + I opens a Settings window for display, sound,
