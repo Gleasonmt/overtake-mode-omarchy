@@ -211,7 +211,7 @@ Item {
       { glyph: "", label: "Open in Terminal", run: function() { Quickshell.execDetached(["uwsm-app", "--", "omarchy-launch-terminal"]) } },
       { separator: true },
       { glyph: "", label: "Next desktop background", run: function() { root.run("overtake next-wallpaper") } },
-      { glyph: "", label: "Change background…", run: function() { root.run("background=$(omarchy-theme-bg-switcher); [[ -n $background ]] && omarchy-theme-bg-set \"$background\"") } },
+      { glyph: "", label: "Change background…", run: function() { root.run("background=$(overtake bg-picker); [[ -n $background ]] && omarchy-theme-bg-set \"$background\"") } },
       { glyph: "", label: "Change theme…", run: function() { root.run("omarchy-menu toggle theme") } },
       { glyph: "\uf26c", label: "Screensaver settings…", run: function() { root.run("overtake settings screensaver") } },
       { glyph: "", label: "Personalize", run: function() { root.run("overtake settings personalization") } },

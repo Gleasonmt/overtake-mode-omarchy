@@ -9,6 +9,9 @@
   "overtake.day-night": {"icon":"\uf185","label":"Wallpaper: Day & Night","description":"Day hills while the sun is up, night hills after sunset","action":"overtake wallpaper-mode day-night","checked":"[ \"$(overtake wallpaper-mode)\" = day-night ]","when":"[ \"$(overtake status)\" = on ]"},
   "overtake.next": {"icon":"\uf051","label":"Next wallpaper","description":"Skip to the next slideshow wallpaper","action":"overtake next-wallpaper","when":"[ \"$(overtake status)\" = on ]"},
 
+  // Style > Background: the theme's backgrounds plus Overtake's wallpapers (overtake bg-picker).
+  "style.background": {"icon":"","label":"Background","aliases":["background","wallpaper"],"action":"background=$(overtake bg-picker); [[ -n $background ]] && omarchy-theme-bg-set \"$background\""},
+
   // Style > Theme as folders: Omarchy's themes, yours, or all (overtake theme-picker).
   "style.theme": {"icon": "󰸌", "label": "Theme", "aliases": ["theme", "themes"]},
   "style.theme.omarchy": {"icon": "", "iconFont": "omarchy", "label": "Omarchy themes", "description": "The themes that come with Omarchy", "action": "theme=$(overtake theme-picker omarchy); [[ -n $theme ]] && omarchy-theme-set \"$theme\""},

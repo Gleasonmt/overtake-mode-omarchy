@@ -154,11 +154,13 @@ Item {
           }
         }
       }
+      // The name under the picked app, kept inside the panel.
       Text {
+        id: pickedName
         anchors.top: strip.bottom
         anchors.topMargin: 10
-        anchors.horizontalCenter: parent.horizontalCenter
-        width: parent.width - 32
+        width: Math.min(implicitWidth, parent.width - 32)
+        x: Math.max(16, Math.min(parent.width - 16 - width, strip.x + root.index * (96 + strip.spacing) + 48 - width / 2))
         horizontalAlignment: Text.AlignHCenter
         textFormat: Text.PlainText
         text: root.items[root.index] ? root.apps.nameOf(root.items[root.index]) : ""

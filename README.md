@@ -118,7 +118,9 @@ grouped by app, with per-app Show / Quiet / Off and Do Not Disturb.
 - **Desktop icons**, a **wallpaper slideshow** (rotate every 15 minutes, or
   follow sunrise and sunset), and an **Overtake Mode** entry in the Omarchy menu.
   A wallpaper you pick yourself stays put; Super+Ctrl+Alt+Space goes back to
-  the slideshow.
+  the slideshow. Style → Background (and the desktop's right-click menu)
+  lists the theme's own backgrounds first, its live wallpaper if it has one,
+  then the Classic and Studio pictures.
 - **A look per mode** — Omarchy (Overtake Mode off), Classic and Studio each
   remember their own theme and wallpaper. Pick a theme while in Studio and
   Studio keeps it; switching modes puts each one's back.

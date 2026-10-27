@@ -8,6 +8,7 @@
 #   overtake studio-get|studio-set <dockSize|dockMagnify|dockAutohide> [value]  # Studio's Dock options (Settings)
 #   overtake show-desktop     # SUPER+D: jump to an empty workspace and back
 #   overtake theme-picker [omarchy|custom|all]  # pick a theme from one folder; prints its name
+#   overtake bg-picker        # Style > Background: the theme's backgrounds plus Overtake's; prints the pick
 #   overtake next-wallpaper   # SUPER+CTRL+ALT+SPACE: next slideshow wallpaper
 #   overtake wallpaper-mode [rotate|day-night]   # pick or print the slideshow mode
 #   overtake minimize|maximize|close [address]  # active window when no address
@@ -1256,6 +1257,35 @@ theme_picker() {
   exec omarchy-menu-images --print-name --show-labels --filterable --lazy-thumbnails --selected "$selected" "$cache"
 }
 
+# Style > Background with Overtake's wallpapers next to the theme's own: the
+# theme's backgrounds first (one may be its live wallpaper), then yours for
+# this theme, then the Classic and Studio slideshow pictures. Prints the
+# picked file.
+bg_picker() {
+  shopt -s nullglob
+  local theme current cache dir file prefix selected="" n=0
+  theme=$(cat "$CURRENT_THEME_NAME" 2>/dev/null || true)
+  current=$(readlink -f "$CURRENT_BG" 2>/dev/null || true)
+  cache="${XDG_CACHE_HOME:-$HOME/.cache}/overtake/bg-picker"
+  rm -rf "${cache:?}"
+  mkdir -p "$cache"
+  for dir in "$HOME/.local/state/omarchy/current/theme/backgrounds" "$HOME/.config/omarchy/backgrounds/$theme" \
+             "$HOME/Pictures/overtake/slideshow" "$HOME/Pictures/overtake/studio"; do
+    n=$((n + 1))
+    for file in "$dir"/*.{png,jpg,jpeg,webp,PNG,JPG,JPEG,WEBP}; do
+      [[ -f $file ]] || continue
+      prefix="$n-${file##*/}"
+      ln -s "$file" "$cache/$prefix"
+      [[ $(readlink -f "$file") == "$current" ]] && selected="$cache/$prefix"
+    done
+  done
+  local picked
+  picked=$(omarchy-menu-images --selected "$selected" "$cache") || return 0
+  [[ -n $picked ]] || return 0
+  # the file itself, so a theme background keeps its place under the theme
+  readlink "$picked" 2>/dev/null || echo "$picked"
+}
+
 usage() {
   sed -n '2,/^$/p' "$0" | sed 's/^# \{0,1\}//'
 }
@@ -1273,6 +1303,7 @@ case "${1:-help}" in
   resume-wallpaper) [[ ${2:-} == refresh ]] && refresh_wallpaper; start_slideshow ;;   # internal: after a look change
   show-desktop) show_desktop ;;
   theme-picker) theme_picker "${2:-all}" ;;
+  bg-picker) bg_picker ;;
   next-wallpaper)
     if [[ ! -f $FLAG ]]; then :
     elif [[ $(wallpaper_mode) == day-night ]] && picked_wallpaper; then apply_day_night   # back from a picked wallpaper
