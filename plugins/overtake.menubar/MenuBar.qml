@@ -40,6 +40,8 @@ Panel {
   readonly property var entry: appId ? (webappEntry(appId) || DesktopEntries.heuristicLookup(appId) || DesktopEntries.byId(appId)) : null
   readonly property string appName: !toplevel ? "Desktop"
     : appId === "org.quickshell" ? "Settings"
+    // foot, Alacritty, Ghostty… all read as "Terminal", the name a Mac shows.
+    : isTerminal ? "Terminal"
     : entry ? String(entry.name) : (appId || "App")
   readonly property string address: {
     var value = toplevel ? String(toplevel.address || "") : ""
@@ -441,14 +443,32 @@ Panel {
       font.pixelSize: Style.font.bodySmall
       font.bold: title.bold
     }
+    // The bar lays its own mouse area over every widget (to drag widgets
+    // around) and hands a click only to targets registered with it, as
+    // WidgetButton does; the same list lets an open menu's overlay pass a
+    // click on another title through.
+    property var registeredBar: null
+    function triggerPress(button) {
+      if (title.isOpen) root.closeMenu()
+      else root.openMenu(title.which, title)
+    }
+    function syncClickRegistration() {
+      if (registeredBar) registeredBar.unregisterClickTarget(title)
+      registeredBar = root.bar
+      if (registeredBar) registeredBar.registerClickTarget(title)
+    }
+    Connections {
+      target: root
+      function onBarChanged() { title.syncClickRegistration() }
+    }
+    Component.onCompleted: syncClickRegistration()
+    Component.onDestruction: if (registeredBar) registeredBar.unregisterClickTarget(title)
+
     MouseArea {
       id: titleMouse
       anchors.fill: parent
       hoverEnabled: true
-      onPressed: {
-        if (title.isOpen) root.closeMenu()
-        else root.openMenu(title.which, title)
-      }
+      acceptedButtons: Qt.NoButton
       // While a menu is open, moving onto another title opens that one.
       onEntered: if (root.opened && root.current !== "" && root.current !== title.which) root.openMenu(title.which, title)
     }
