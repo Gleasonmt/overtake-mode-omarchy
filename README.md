@@ -167,8 +167,8 @@ wallpapers, dock/undock layouts) works the same in both looks.
   Stay Awake, screen recording and screenshots, display and sound sliders,
   and what's playing.
 - **Force Quit** (Super + Alt + Esc) — end an app that has stopped responding.
-- Desktop icons sit on the right, and Studio has its own wallpapers (Day &
-  Night uses the mesa pair).
+- Desktop icons sit on the right, and Studio has its own wallpaper (Day &
+  Night uses the hills pair, as in Classic).
 
 ### Studio shortcuts (Super works as Command)
 

@@ -157,8 +157,16 @@ done
 mkdir -p "$PICTURES/slideshow"
 cp "$REPO"/wallpapers/*.png "$PICTURES/slideshow/"
 mkdir -p "$PICTURES/studio"
-cp "$REPO"/wallpapers/studio/*.{png,jpg} "$PICTURES/studio/"
+for file in "$REPO"/wallpapers/studio/*; do
+  [[ -f $file ]] && cp "$file" "$PICTURES/studio/"
+done
+# Studio's first drawn set, since dropped
+for file in 1-mesa-day.png 2-mesa-night.png 3-ribbons.png 4-aurora.png 5-orbs.png 6-sunrise.png; do
+  rm -f "${PICTURES:?}/studio/$file"
+done
 say "settings: ~/.config/overtake (existing files kept); wallpapers: ~/Pictures/overtake/{slideshow,studio}"
+# previews for Style > Background, made now so its first opening doesn't wait
+setsid "$HOME/.local/bin/overtake" bg-picker cache </dev/null >/dev/null 2>&1 &
 
 # Trash as an app, so it can be found in Start, pinned to Start or the
 # taskbar, and added back to the desktop after being removed from it.

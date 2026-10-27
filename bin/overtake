@@ -8,7 +8,7 @@
 #   overtake studio-get|studio-set <dockSize|dockMagnify|dockAutohide> [value]  # Studio's Dock options (Settings)
 #   overtake show-desktop     # SUPER+D: jump to an empty workspace and back
 #   overtake theme-picker [omarchy|custom|all]  # pick a theme from one folder; prints its name
-#   overtake bg-picker        # Style > Background: the theme's backgrounds plus Overtake's; prints the pick
+#   overtake bg-picker [cache]  # Style > Background: the theme's backgrounds plus Overtake's; prints the pick
 #   overtake next-wallpaper   # SUPER+CTRL+ALT+SPACE: next slideshow wallpaper
 #   overtake wallpaper-mode [rotate|day-night]   # pick or print the slideshow mode
 #   overtake minimize|maximize|close [address]  # active window when no address
@@ -82,13 +82,9 @@ NO_FILL="$STATE_DIR/no-fill"        # Settings: new windows don't fill free snap
 SNAP_GAP=12
 SNAP_TITLE_BAR=32                   # room left above a snapped window for its title bar
 SNAP_STACK_MAX=3
-if [[ $(style) == studio ]]; then
-  DAY_IMAGE="$SLIDESHOW_DIR/1-mesa-day.png"
-  NIGHT_IMAGE="$SLIDESHOW_DIR/2-mesa-night.png"
-else
-  DAY_IMAGE="$SLIDESHOW_DIR/1-hills-day.png"
-  NIGHT_IMAGE="$SLIDESHOW_DIR/2-hills-night.png"
-fi
+# Day & Night uses the hills pair in both looks.
+DAY_IMAGE="$HOME/Pictures/overtake/slideshow/1-hills-day.png"
+NIGHT_IMAGE="$HOME/Pictures/overtake/slideshow/2-hills-night.png"
 
 WINDOWS_BAR='{
   "position": "bottom",
@@ -1260,27 +1256,37 @@ theme_picker() {
 # Style > Background with Overtake's wallpapers next to the theme's own: the
 # theme's backgrounds first (one may be its live wallpaper), then yours for
 # this theme, then the Classic and Studio slideshow pictures. Prints the
-# picked file.
+# picked file. `bg-picker cache` only makes the previews (the installer runs
+# it), so the first opening doesn't wait for them.
 bg_picker() {
   shopt -s nullglob
-  local theme current cache dir file prefix selected="" n=0
+  local theme current cache dir file link selected="" n=0 want=()
   theme=$(cat "$CURRENT_THEME_NAME" 2>/dev/null || true)
   current=$(readlink -f "$CURRENT_BG" 2>/dev/null || true)
   cache="${XDG_CACHE_HOME:-$HOME/.cache}/overtake/bg-picker"
-  rm -rf "${cache:?}"
   mkdir -p "$cache"
   for dir in "$HOME/.local/state/omarchy/current/theme/backgrounds" "$HOME/.config/omarchy/backgrounds/$theme" \
              "$HOME/Pictures/overtake/slideshow" "$HOME/Pictures/overtake/studio"; do
     n=$((n + 1))
     for file in "$dir"/*.{png,jpg,jpeg,webp,PNG,JPG,JPEG,WEBP}; do
       [[ -f $file ]] || continue
-      prefix="$n-${file##*/}"
-      ln -s "$file" "$cache/$prefix"
-      [[ $(readlink -f "$file") == "$current" ]] && selected="$cache/$prefix"
+      link="$cache/$n-${file##*/}"
+      want+=("$link")
+      # links change only when the pictures do: an unchanged folder lets
+      # Omarchy's picker reuse its list instead of rereading every picture
+      [[ $(readlink "$link" 2>/dev/null) == "$file" ]] || ln -sfn "$file" "$link"
+      [[ $(readlink -f "$file") == "$current" ]] && selected=$link
     done
   done
+  for link in "$cache"/*; do
+    [[ " ${want[*]} " == *" $link "* ]] || rm -f "$link"
+  done
+  if [[ ${1:-} == cache ]]; then
+    omarchy-menu-images --cache-only "$cache" >/dev/null 2>&1 || true
+    return 0
+  fi
   local picked
-  picked=$(omarchy-menu-images --selected "$selected" "$cache") || return 0
+  picked=$(omarchy-menu-images --lazy-thumbnails --selected "$selected" "$cache") || return 0
   [[ -n $picked ]] || return 0
   # the file itself, so a theme background keeps its place under the theme
   readlink "$picked" 2>/dev/null || echo "$picked"
@@ -1303,7 +1309,7 @@ case "${1:-help}" in
   resume-wallpaper) [[ ${2:-} == refresh ]] && refresh_wallpaper; start_slideshow ;;   # internal: after a look change
   show-desktop) show_desktop ;;
   theme-picker) theme_picker "${2:-all}" ;;
-  bg-picker) bg_picker ;;
+  bg-picker) bg_picker "${2:-}" ;;
   next-wallpaper)
     if [[ ! -f $FLAG ]]; then :
     elif [[ $(wallpaper_mode) == day-night ]] && picked_wallpaper; then apply_day_night   # back from a picked wallpaper
