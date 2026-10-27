@@ -36,7 +36,8 @@
 #   overtake ui <spotlight|apps|switcher|switcher-back|switcher-cancel|mission-control|force-quit|app-menu|control-center>
 #                             # Studio: open one of its panels (Super+Space, Super+Tab, Ctrl+Up, ...)
 #   overtake hide-app|hide-others|quit-app [address]  # Studio: Super+H, Super+Alt+H, Super+Q
-#   overtake resume           # at login: restart the slideshow if the mode is on
+#   overtake resume           # at login: restart the slideshow if the mode is on (and fix-bar)
+#   overtake fix-bar          # put Overtake's workspaces/bluetooth/audio back if the bar has Omarchy's
 
 set -euo pipefail
 
@@ -408,6 +409,34 @@ style_bar() {
   echo "$bar"
 }
 
+# Overtake's copies of three bar widgets can get swapped back to Omarchy's
+# (disabling a copy does that, so can a rewritten shell.json), which brings
+# back their quirks: no empty workspaces above 5, right-click turning
+# Bluetooth off or muting everything. While the mode is on, put the copies
+# back; one the installer couldn't build is left alone, with a notification.
+fix_bar_widgets() {
+  [[ -f $FLAG && -s $SHELL_JSON ]] || return 0
+  jq -e '[.bar | .. | .id? // empty] | (index("overtake.taskbar") or index("overtake.menubar"))' "$SHELL_JSON" >/dev/null 2>&1 || return 0
+  local bar widget fixed=() missing=()
+  bar=$(jq '.bar' "$SHELL_JSON")
+  for widget in workspaces bluetooth audio; do
+    jq -e --arg id "omarchy.$widget" '[.. | .id? // empty] | index($id)' <<<"$bar" >/dev/null || continue
+    if [[ -d $HOME/.config/omarchy/plugins/overtake.$widget ]]; then
+      bar=$(jq --arg from "omarchy.$widget" --arg to "overtake.$widget" \
+        '(.. | objects | select(.id? == $from) | .id) = $to | if .centerAnchor == $from then .centerAnchor = $to else . end' <<<"$bar")
+      fixed+=("$widget")
+    else
+      missing+=("$widget")
+    fi
+  done
+  if (( ${#fixed[@]} )); then
+    set_bar "$bar"
+    omarchy-shell shell reloadConfig >/dev/null 2>&1 || true
+    echo "$(date '+%F %T') put back Overtake's ${fixed[*]} (the bar had Omarchy's)" >>"$STATE_DIR/bar-fixes.log"
+  fi
+  (( ${#missing[@]} == 0 )) || notify $'\uf071' "Overtake's ${missing[*]} widget isn't installed, so the bar uses Omarchy's. Run ./install.sh again to fix it."
+}
+
 # The taskbar's settings (pins) out of the live bar, kept while the mode is
 # off or the look is Studio.
 save_taskbar_settings() {
@@ -476,7 +505,7 @@ set_style() {
 }
 
 turn_on() {
-  [[ -f $FLAG ]] && { echo "Overtake Mode is already on"; return; }
+  [[ -f $FLAG ]] && { echo "Overtake Mode is already on"; fix_bar_widgets; return; }
   mkdir -p "$STATE_DIR"
   if jq -e '[.bar | .. | .id? // empty] | (index("overtake.taskbar") or index("overtake.menubar"))' "$SHELL_JSON" >/dev/null 2>&1; then
     echo "the bar is already Overtake's; keeping the saved Omarchy bar" >&2
@@ -1229,6 +1258,7 @@ case "${1:-help}" in
   off) mode_lock; turn_off ;;
   toggle) mode_lock; if [[ -f $FLAG ]]; then turn_off; else turn_on; fi ;;
   status) [[ -f $FLAG ]] && echo on || echo off ;;
+  fix-bar) fix_bar_widgets ;;
   style) if [[ -n ${2:-} ]]; then mode_lock; set_style "${2,,}"; else style; fi ;;
   studio-get) studio_get "${2:-}" ;;
   studio-set) studio_set "${2:-}" "${3:-}" ;;
@@ -1241,7 +1271,7 @@ case "${1:-help}" in
     elif [[ $(wallpaper_mode) == day-night ]]; then notify $'' "Day & Night wallpaper follows the sun (switch to Rotate in the Overtake Mode menu)"
     else next_wallpaper; fi ;;
   wallpaper-mode) if [[ -n ${2:-} ]]; then set_wallpaper_mode "$2"; else wallpaper_mode; fi ;;
-  resume) if [[ -f $FLAG ]]; then [[ $(wallpaper_mode) == day-night ]] && ! picked_wallpaper && apply_day_night; start_slideshow; float_all; rescue_all; fi ;;
+  resume) if [[ -f $FLAG ]]; then fix_bar_widgets; [[ $(wallpaper_mode) == day-night ]] && ! picked_wallpaper && apply_day_night; start_slideshow; float_all; rescue_all; fi ;;
   minimize) minimize_window "${2:-}" ;;
   restore) [[ -n ${2:-} ]] && restore_window "$2" "${3:-follow}" || true ;;
   restore-all) restore_all ;;
