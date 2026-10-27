@@ -157,7 +157,7 @@ done
 mkdir -p "$PICTURES/slideshow"
 cp "$REPO"/wallpapers/*.png "$PICTURES/slideshow/"
 mkdir -p "$PICTURES/studio"
-cp "$REPO"/wallpapers/studio/*.png "$PICTURES/studio/"
+cp "$REPO"/wallpapers/studio/*.{png,jpg} "$PICTURES/studio/"
 say "settings: ~/.config/overtake (existing files kept); wallpapers: ~/Pictures/overtake/{slideshow,studio}"
 
 # Trash as an app, so it can be found in Start, pinned to Start or the

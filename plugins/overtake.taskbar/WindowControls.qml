@@ -22,9 +22,10 @@ import qs.Commons as Commons
 // release, so drags it starts are tracked exactly.
 //
 // Studio look: close/minimize/zoom as coloured dots on the left and the
-// title in the middle. Dragging a window to a side of the screen tiles it
-// there (a corner: a quarter; the menu bar: fill), and holding the pointer
-// on the green dot (or Super+Z) opens a menu of tiles instead of the snap bar.
+// title in the middle. A drag shows the snap bar too, and dragging a window
+// to a side of the screen also tiles it there (a corner: a quarter); the
+// workspace boxes cover the menu bar while dragging. Holding the pointer on
+// the green dot (or Super+Z) opens a menu of tiles instead of the snap bar.
 Item {
   id: root
 
@@ -238,9 +239,9 @@ Item {
 
   // While a window is being dragged the snap layouts pop up just above the
   // pointer (where the drag started), so a small flick up reaches them.
-  // (Studio shows no snap bar: the screen's edges are the targets.)
+  // (Studio's screen edges are targets too; its picker is a menu instead.)
   readonly property bool snapBarShown: dragging || selfMoving
-  readonly property bool snapCardsShown: !studio && (snapBarShown || pickerOpen)
+  readonly property bool snapCardsShown: snapBarShown || (!studio && pickerOpen)
   property real anchorX: 0
   property real anchorY: 0
   property bool anchorSet: false
@@ -292,15 +293,15 @@ Item {
   }
 
   // What the pointer is over while dragging: a workspace box, else a zone
-  // (Classic: a card on the snap bar; Studio: an edge of the screen).
+  // (a card on the snap bar; Studio: also an edge of the screen).
   function hoverAt(x, y) {
     hoverWorkspace = snapBarShown ? workspaceAt(x, y) : 0
-    hoverZone = snapBarShown && !hoverWorkspace ? (studio ? edgeZoneAt(x, y) : zoneAt(x, y)) : ""
+    hoverZone = snapBarShown && !hoverWorkspace ? (zoneAt(x, y) || (studio ? edgeZoneAt(x, y) : "")) : ""
   }
 
   // Studio: within 18px of the left or right edge, a half (the top or
-  // bottom 22% of that edge: a quarter); on the menu bar (above the usable
-  // area), fill.
+  // bottom 22% of that edge: a quarter). (The menu bar is the workspace
+  // boxes while dragging; fill is on the snap bar.)
   function edgeZoneAt(x, y) {
     if (!mon) return ""
     var h = mon.height / mon.scale
@@ -312,7 +313,6 @@ Item {
       if (y >= monY + h - corner) return "bottom-" + side
       return side
     }
-    if (y <= Math.max(monY + 4, monTop)) return "full"
     return ""
   }
 
@@ -358,22 +358,26 @@ Item {
   readonly property real snapY: anchorSet ? anchorY : monTop + 12
 
   // ---------- Workspace strip geometry ----------
-  // Workspaces 1-9 as boxes centered along the top of the window's screen.
+  // Workspaces 1-9 as boxes centered along the top of the window's screen
+  // (Studio: over the menu bar, sized to it).
   property int hoverWorkspace: 0
+  readonly property int menuBarH: Math.max(0, monTop - monY)
+  readonly property bool wsOnBar: studio && menuBarH >= 20
   readonly property int wsBoxW: 56
-  readonly property int wsBoxH: 36
+  readonly property int wsBoxH: wsOnBar ? menuBarH - 6 : 36
   readonly property int wsGap: 8
-  readonly property int wsPad: 10
+  readonly property int wsPad: wsOnBar ? 3 : 10
   readonly property int wsW: wsBoxW * 9 + wsGap * 8 + wsPad * 2
   readonly property int wsH: wsBoxH + wsPad * 2
   readonly property real wsX: monX + (monW - wsW) / 2
-  readonly property real wsY: monTop + 8
+  readonly property real wsY: wsOnBar ? monY : monTop + 8
   readonly property int currentWorkspace: toplevel && toplevel.workspace ? toplevel.workspace.id : 0
 
   // The workspace box under a point (0 for none, or the window's own).
   function workspaceAt(x, y) {
     var rx = x - wsX - wsPad, ry = y - wsY - wsPad
-    if (ry < 0 || ry > wsBoxH || rx < 0) return 0
+    // On the menu bar a box reaches up to the screen's edge.
+    if ((ry < 0 && !wsOnBar) || ry > wsBoxH || rx < 0) return 0
     var n = Math.floor(rx / (wsBoxW + wsGap))
     if (n > 8 || rx - n * (wsBoxW + wsGap) > wsBoxW) return 0
     return n + 1 === currentWorkspace ? 0 : n + 1
@@ -941,7 +945,7 @@ Item {
 
     Rectangle {
       anchors.fill: parent
-      radius: Style.space(10)
+      radius: Style.space(root.wsOnBar ? 6 : 10)
       color: Commons.Color.background
       opacity: 0.95
       border.width: 1
