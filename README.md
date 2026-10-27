@@ -28,8 +28,9 @@ cd overtake-mode-omarchy
 ```
 
 Then switch it on with **Super + Ctrl + Shift + W**, `overtake on`, or
-**Omarchy menu → Overtake Mode**. The same shortcut, or the ⇄ button next to
-Start, switches back to Omarchy.
+**Omarchy menu → Overtake Mode**. Each press of the shortcut goes to the next
+mode: Omarchy → Classic → Studio → back to Omarchy. The ⇄ button next to
+Start also switches back to Omarchy.
 
 Running `./install.sh` again updates it. Your own settings in `~/.config/overtake`
 are never overwritten.
@@ -221,7 +222,7 @@ Super + Shift + 3 / 4 / 5 take over moving a window to workspace 3–5
 | Super + V | Clipboard history |
 | Ctrl + Shift + Esc | Task manager |
 | Alt + F4 | Close window |
-| Super + Ctrl + Shift + W | Switch between Overtake and Omarchy |
+| Super + Ctrl + Shift + W | Next mode: Omarchy → Classic → Studio → Omarchy |
 
 These replace a few Omarchy shortcuts only while the mode is on (for example
 Super + S is normally the scratchpad); switching back restores them all.

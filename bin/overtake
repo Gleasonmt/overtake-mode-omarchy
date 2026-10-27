@@ -4,6 +4,7 @@
 # and a wallpaper slideshow.
 #
 #   overtake on|off|toggle|status
+#   overtake cycle            # SUPER+CTRL+SHIFT+W: next mode (Omarchy -> Classic -> Studio -> Omarchy)
 #   overtake style [classic|studio]  # pick or print the mode: Classic (taskbar, Start) or Studio (menu bar, Dock)
 #   overtake studio-get|studio-set <dockSize|dockMagnify|dockAutohide> [value]  # Studio's Dock options (Settings)
 #   overtake show-desktop     # SUPER+D: jump to an empty workspace and back
@@ -537,7 +538,9 @@ turn_on() {
   gsettings get org.gnome.desktop.wm.preferences button-layout >"$SAVED_GTK_BUTTONS" 2>/dev/null || true
   gsettings set org.gnome.desktop.wm.preferences button-layout 'appmenu:' 2>/dev/null || true
   hyprctl reload >/dev/null
-  notify $'\uf0ec' "Overtake Mode on (Super+Ctrl+Shift+W to switch back)"
+  local mode
+  mode=$(style)
+  notify $'\uf0ec' "Overtake ${mode^} (Super+Ctrl+Shift+W: next mode)"
 }
 
 turn_off() {
@@ -566,7 +569,27 @@ turn_off() {
     omarchy-theme-bg-set "$(<"$SAVED_BG")" >/dev/null 2>&1 || true
   fi
   hyprctl reload >/dev/null
-  notify $'\uf0ec' "Overtake Mode off"
+  notify $'\uf0ec' "Omarchy (Super+Ctrl+Shift+W: next mode)"
+}
+
+# Super+Ctrl+Shift+W: the next desktop mode, round and round:
+# Omarchy -> Overtake Classic -> Overtake Studio -> Omarchy.
+MODES=(omarchy classic studio)
+cycle_mode() {
+  local current i next=omarchy
+  current=$(current_mode)
+  for i in "${!MODES[@]}"; do
+    [[ ${MODES[$i]} == "$current" ]] && next=${MODES[$(( (i + 1) % ${#MODES[@]} ))]}
+  done
+  if [[ $next == omarchy ]]; then
+    turn_off
+  elif [[ -f $FLAG ]]; then
+    set_style "$next"
+  else
+    mkdir -p "$(dirname "$STYLE_FILE")"
+    echo "$next" >"$STYLE_FILE"
+    turn_on
+  fi
 }
 
 # Window controls. Minimized windows wait on the hidden special:minimized
@@ -1347,6 +1370,7 @@ case "${1:-help}" in
   on) mode_lock; turn_on ;;
   off) mode_lock; turn_off ;;
   toggle) mode_lock; if [[ -f $FLAG ]]; then turn_off; else turn_on; fi ;;
+  cycle) mode_lock; cycle_mode ;;
   status) [[ -f $FLAG ]] && echo on || echo off ;;
   fix-bar) mode_lock; fix_bar_widgets ;;   # also run by the shell when the bar settings change
   style) if [[ -n ${2:-} ]]; then mode_lock; set_style "${2,,}"; else style; fi ;;

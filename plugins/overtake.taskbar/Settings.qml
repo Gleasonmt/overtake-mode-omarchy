@@ -186,7 +186,7 @@ Item {
       { title: "Overtake Mode", rows: [
         { type: "choice", title: "Mode", detail: "Classic: taskbar and Start at the bottom. Studio: menu bar on top, Dock at the bottom, Super as Command",
           options: "printf 'Classic\\nStudio\\n'", current: "overtake style | sed 's/^./\\U&/'", set: "overtake style {}" },
-        { type: "link", title: "Switch to Omarchy", detail: "Go back to Omarchy's own layout (Super+Ctrl+Shift+W switches either way)", run: "overtake off" }
+        { type: "link", title: "Switch to Omarchy", detail: "Go back to Omarchy's own layout (Super+Ctrl+Shift+W goes through Omarchy, Classic and Studio)", run: "overtake off" }
       ]},
       { title: "Studio: Dock", rows: [
         { type: "choice", title: "Size", options: "printf 'Small\\nMedium\\nLarge\\n'", current: "overtake studio-get dockSize", set: "overtake studio-set dockSize {}" },

@@ -58,9 +58,9 @@ say "command: ~/.local/bin/overtake"
 install -Dm644 "$REPO/hypr/overtake.lua" "$HYPR/overtake.lua"
 install -Dm644 "$REPO/hypr/overtake-classic.lua" "$HYPR/overtake-classic.lua"
 install -Dm644 "$REPO/hypr/overtake-studio.lua" "$HYPR/overtake-studio.lua"
-set_block "$HYPR/bindings.lua" "--" '-- Overtake Mode: switch with SUPER+CTRL+SHIFT+W (or `overtake on|off|toggle`).
+set_block "$HYPR/bindings.lua" "--" '-- Overtake Mode: SUPER+CTRL+SHIFT+W goes to the next mode, Omarchy -> Classic -> Studio (or `overtake cycle|on|off`).
 -- Its shortcuts load only while the mode is on.
-o.bind("SUPER + CTRL + SHIFT + W", "Toggle Overtake Mode", "overtake toggle")
+o.bind("SUPER + CTRL + SHIFT + W", "Next desktop mode", "overtake cycle")
 local overtake_flag = io.open((os.getenv("HOME") or "") .. "/.local/state/overtake/enabled", "r")
 if overtake_flag then
   overtake_flag:close()
@@ -231,6 +231,6 @@ if [[ -z ${OVERTAKE_NO_RELOAD:-} ]] && hyprctl version >/dev/null 2>&1; then
 fi
 
 echo
-echo "Done. Turn Overtake Mode on with SUPER+CTRL+SHIFT+W, \`overtake on\`, or"
+echo "Done. Turn Overtake Mode on with SUPER+CTRL+SHIFT+W (next mode each press), \`overtake on\`, or"
 echo "Omarchy menu → Overtake Mode. Pick its look with \`overtake style classic|studio\`."
 echo "Run \`overtake\` for everything else it can do."

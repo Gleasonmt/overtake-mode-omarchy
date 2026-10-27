@@ -1121,7 +1121,7 @@ Item {
         Text {
           topPadding: Style.space(4)
           textFormat: Text.PlainText
-          text: "Shortcut: Super + Ctrl + Shift + W"
+          text: "Super + Ctrl + Shift + W: next mode"
           color: root.fg
           opacity: 0.5
           font.family: root.fontFamily
