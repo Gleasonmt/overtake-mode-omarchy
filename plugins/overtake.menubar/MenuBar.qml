@@ -22,6 +22,9 @@ Panel {
   readonly property bool vertical: bar ? bar.vertical : false
   readonly property int barSize: bar ? bar.barSize : Style.bar.sizeHorizontal
   readonly property color fg: root.bar ? root.bar.barForeground : Commons.Color.foreground
+  // The drop-down menus sit on the theme's background, not over the wallpaper, so
+  // they take the theme's text colour rather than the bar's.
+  readonly property color menuFg: Commons.Color.foreground
   readonly property string fontFamily: root.bar ? root.bar.fontFamily : Style.font.family
 
   // ---------- The focused app ----------
@@ -344,7 +347,7 @@ Panel {
               anchors.leftMargin: Style.space(6)
               anchors.rightMargin: Style.space(6)
               height: 1
-              color: Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.14)
+              color: Qt.rgba(root.menuFg.r, root.menuFg.g, root.menuFg.b, 0.14)
             }
             Rectangle {
               anchors.fill: parent
@@ -359,7 +362,7 @@ Panel {
               anchors.verticalCenter: parent.verticalCenter
               textFormat: Text.PlainText
               text: rowItem.modelData.check ? "✓" : ""
-              color: rowItem.lit ? Commons.Color.background : root.fg
+              color: rowItem.lit ? Commons.Color.background : root.menuFg
               font.family: root.fontFamily
               font.pixelSize: Style.font.bodySmall
             }
@@ -371,7 +374,7 @@ Panel {
               textFormat: Text.PlainText
               text: rowItem.modelData.label || ""
               elide: Text.ElideRight
-              color: rowItem.lit ? Commons.Color.background : root.fg
+              color: rowItem.lit ? Commons.Color.background : root.menuFg
               opacity: rowItem.modelData.disabled ? 0.4 : 1
               font.family: root.fontFamily
               font.pixelSize: Style.font.bodySmall
@@ -384,7 +387,7 @@ Panel {
               anchors.verticalCenter: parent.verticalCenter
               textFormat: Text.PlainText
               text: rowItem.modelData.shortcut || ""
-              color: rowItem.lit ? Commons.Color.background : root.fg
+              color: rowItem.lit ? Commons.Color.background : root.menuFg
               opacity: rowItem.modelData.disabled ? 0.3 : 0.55
               font.family: root.fontFamily
               font.pixelSize: Style.font.caption

@@ -31,6 +31,8 @@ Panel {
   readonly property string modesFile: home + "/.config/overtake/notifications.json"
   readonly property bool vertical: bar ? bar.vertical : false
   readonly property color fg: bar ? bar.barForeground : Commons.Color.foreground
+  // The panel sits on the theme's background, not over the wallpaper.
+  readonly property color panelFg: Commons.Color.foreground
   readonly property string fontFamily: bar ? bar.fontFamily : Style.font.family
 
   property var entries: []   // history entries, newest first; each has .file
@@ -382,7 +384,7 @@ Panel {
               id: title
               anchors.verticalCenter: parent.verticalCenter
               text: root.view === "manage" ? "Manage notifications" : "Notifications"
-              color: root.fg
+              color: root.panelFg
               font.family: root.fontFamily
               font.pixelSize: Style.font.body
               font.bold: true
@@ -416,7 +418,7 @@ Panel {
           bottomPadding: Style.space(18)
           horizontalAlignment: Text.AlignHCenter
           text: "No new notifications"
-          color: root.fg
+          color: root.panelFg
           opacity: .55
           font.family: root.fontFamily
           font.pixelSize: Style.font.bodySmall
@@ -445,7 +447,7 @@ Panel {
                 width: groupList.width
                 implicitHeight: groupColumn.implicitHeight
                 radius: Style.cornerRadius > 0 ? Style.space(6) : 0
-                color: Qt.rgba(root.fg.r, root.fg.g, root.fg.b, .05)
+                color: Qt.rgba(root.panelFg.r, root.panelFg.g, root.panelFg.b, .05)
                 border.width: modelData.critical ? 1 : 0
                 border.color: Commons.Color.urgent
 
@@ -458,7 +460,7 @@ Panel {
                     width: parent.width
                     implicitHeight: headRow.implicitHeight + Style.space(16)
                     radius: group.radius
-                    color: headMouse.containsMouse ? Qt.rgba(root.fg.r, root.fg.g, root.fg.b, .06) : "transparent"
+                    color: headMouse.containsMouse ? Qt.rgba(root.panelFg.r, root.panelFg.g, root.panelFg.b, .06) : "transparent"
 
                     MouseArea {
                       id: headMouse
@@ -491,7 +493,7 @@ Panel {
                           Text {
                             textFormat: Text.PlainText
                             text: group.modelData.app
-                            color: root.fg
+                            color: root.panelFg
                             font.family: root.fontFamily
                             font.pixelSize: Style.font.bodySmall
                             font.bold: true
@@ -501,13 +503,13 @@ Panel {
                             height: Style.space(16)
                             width: Math.max(height, countText.implicitWidth + Style.space(10))
                             radius: height / 2
-                            color: Qt.rgba(root.fg.r, root.fg.g, root.fg.b, .14)
+                            color: Qt.rgba(root.panelFg.r, root.panelFg.g, root.panelFg.b, .14)
                             Text {
                               textFormat: Text.PlainText
                               id: countText
                               anchors.centerIn: parent
                               text: String(group.modelData.entries.length)
-                              color: root.fg
+                              color: root.panelFg
                               font.family: root.fontFamily
                               font.pixelSize: Style.font.caption
                             }
@@ -517,7 +519,7 @@ Panel {
                             anchors.verticalCenter: parent.verticalCenter
                             visible: root.modeOf(group.modelData.app) === "quiet"
                             text: ""
-                            color: root.fg
+                            color: root.panelFg
                             opacity: .5
                             font.family: root.fontFamily
                             font.pixelSize: Style.font.caption
@@ -526,7 +528,7 @@ Panel {
                             textFormat: Text.PlainText
                             anchors.verticalCenter: parent.verticalCenter
                             text: root.ago(group.modelData.newest)
-                            color: root.fg
+                            color: root.panelFg
                             opacity: .5
                             font.family: root.fontFamily
                             font.pixelSize: Style.font.caption
@@ -542,7 +544,7 @@ Panel {
                           }
                           textFormat: Text.PlainText
                           elide: Text.ElideRight
-                          color: root.fg
+                          color: root.panelFg
                           opacity: .7
                           font.family: root.fontFamily
                           font.pixelSize: Style.font.caption
@@ -555,7 +557,7 @@ Panel {
                         width: Style.space(14)
                         horizontalAlignment: Text.AlignHCenter
                         text: group.open ? "" : ""
-                        color: root.fg
+                        color: root.panelFg
                         opacity: .5
                         font.family: root.fontFamily
                         font.pixelSize: Style.font.caption
@@ -587,7 +589,7 @@ Panel {
                         width: group.width - Style.space(18)
                         implicitHeight: itemRow.implicitHeight + Style.space(12)
                         radius: group.radius
-                        color: Qt.rgba(root.fg.r, root.fg.g, root.fg.b, itemMouse.containsMouse ? .09 : 0)
+                        color: Qt.rgba(root.panelFg.r, root.panelFg.g, root.panelFg.b, itemMouse.containsMouse ? .09 : 0)
 
                         MouseArea {
                           id: itemMouse
@@ -620,7 +622,7 @@ Panel {
                                 text: item.modelData.summary || ""
                                 textFormat: Text.PlainText
                                 elide: Text.ElideRight
-                                color: root.fg
+                                color: root.panelFg
                                 font.family: root.fontFamily
                                 font.pixelSize: Style.font.bodySmall
                                 font.bold: true
@@ -630,7 +632,7 @@ Panel {
                                 id: itemTime
                                 anchors.baseline: itemSummary.baseline
                                 text: root.ago(item.modelData.timestamp)
-                                color: root.fg
+                                color: root.panelFg
                                 opacity: .5
                                 font.family: root.fontFamily
                                 font.pixelSize: Style.font.caption
@@ -644,7 +646,7 @@ Panel {
                               wrapMode: Text.Wrap
                               maximumLineCount: 3
                               elide: Text.ElideRight
-                              color: root.fg
+                              color: root.panelFg
                               opacity: .8
                               font.family: root.fontFamily
                               font.pixelSize: Style.font.bodySmall
@@ -675,7 +677,7 @@ Panel {
           text: root.knownApps.length
             ? "Show: pop-ups, then kept here.  Quiet: kept here, no pop-ups.  Off: nothing from that app."
             : "Apps appear here once they've sent a notification."
-          color: root.fg
+          color: root.panelFg
           opacity: .6
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption
@@ -722,7 +724,7 @@ Panel {
                     width: appList.width - Style.space(28) - Style.space(14) - modes.width - Style.space(12)
                     text: appRow.modelData
                     elide: Text.ElideRight
-                    color: root.fg
+                    color: root.panelFg
                     opacity: appRow.mode === "off" ? .5 : 1
                     font.family: root.fontFamily
                     font.pixelSize: Style.font.bodySmall
@@ -737,7 +739,7 @@ Panel {
                   width: modeRow.implicitWidth + Style.space(4)
                   height: Style.space(26)
                   radius: Style.cornerRadius > 0 ? height / 2 : 0
-                  color: Qt.rgba(root.fg.r, root.fg.g, root.fg.b, .07)
+                  color: Qt.rgba(root.panelFg.r, root.panelFg.g, root.panelFg.b, .07)
                   Row {
                     id: modeRow
                     anchors.centerIn: parent
@@ -750,13 +752,13 @@ Panel {
                         width: modeLabel.implicitWidth + Style.space(18)
                         height: Style.space(22)
                         radius: modes.radius
-                        color: active ? Commons.Color.accent : (modeMouse.containsMouse ? Qt.rgba(root.fg.r, root.fg.g, root.fg.b, .1) : "transparent")
+                        color: active ? Commons.Color.accent : (modeMouse.containsMouse ? Qt.rgba(root.panelFg.r, root.panelFg.g, root.panelFg.b, .1) : "transparent")
                         Text {
                           textFormat: Text.PlainText
                           id: modeLabel
                           anchors.centerIn: parent
                           text: modeChip.modelData[1]
-                          color: modeChip.active ? Commons.Color.background : root.fg
+                          color: modeChip.active ? Commons.Color.background : root.panelFg
                           font.family: root.fontFamily
                           font.pixelSize: Style.font.caption
                           font.bold: modeChip.active
@@ -792,7 +794,7 @@ Panel {
         Rectangle {
           width: parent.width
           height: 1
-          color: Qt.rgba(root.fg.r, root.fg.g, root.fg.b, .12)
+          color: Qt.rgba(root.panelFg.r, root.panelFg.g, root.panelFg.b, .12)
         }
         Item {
           width: parent.width
@@ -808,7 +810,7 @@ Panel {
             Text {
               textFormat: Text.PlainText
               text: "  Do not disturb"
-              color: root.fg
+              color: root.panelFg
               font.family: root.fontFamily
               font.pixelSize: Style.font.bodySmall
             }
@@ -819,7 +821,7 @@ Panel {
               text: root.dnd
                 ? "On: pop-ups are hidden for every app; notifications still collect here"
                 : "Off: notifications pop up, then collect here"
-              color: root.fg
+              color: root.panelFg
               opacity: .55
               font.family: root.fontFamily
               font.pixelSize: Style.font.caption
@@ -849,13 +851,13 @@ Panel {
     Rectangle {
       anchors.fill: parent
       radius: width / 2
-      color: ibMouse.containsMouse ? Qt.rgba(root.fg.r, root.fg.g, root.fg.b, .16) : "transparent"
+      color: ibMouse.containsMouse ? Qt.rgba(root.panelFg.r, root.panelFg.g, root.panelFg.b, .16) : "transparent"
     }
     Text {
       textFormat: Text.PlainText
       anchors.centerIn: parent
       text: ib.glyph
-      color: root.fg
+      color: root.panelFg
       font.family: root.fontFamily
       font.pixelSize: Style.space(12)
     }
@@ -872,7 +874,7 @@ Panel {
     textFormat: Text.PlainText
     id: link
     signal clicked()
-    color: linkMouse.containsMouse ? Commons.Color.accent : root.fg
+    color: linkMouse.containsMouse ? Commons.Color.accent : root.panelFg
     opacity: linkMouse.containsMouse ? 1 : .75
     font.family: root.fontFamily
     font.pixelSize: Style.font.bodySmall
@@ -908,7 +910,7 @@ Panel {
       anchors.centerIn: parent
       visible: !aiImage.visible
       text: ai.glyph || ""
-      color: root.fg
+      color: root.panelFg
       opacity: .7
       font.family: root.fontFamily
       font.pixelSize: Style.space(16)

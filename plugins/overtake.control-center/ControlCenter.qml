@@ -22,7 +22,9 @@ Panel {
 
   readonly property bool vertical: bar ? bar.vertical : false
   readonly property int barSize: bar ? bar.barSize : Style.bar.sizeHorizontal
-  readonly property color fg: root.bar ? root.bar.barForeground : Commons.Color.foreground
+  // The panel sits on the theme's background, not over the wallpaper, so it
+  // takes the theme's text colour rather than the bar's.
+  readonly property color fg: Commons.Color.foreground
   readonly property string fontFamily: root.bar ? root.bar.fontFamily : Style.font.family
 
   function sh(command) { Quickshell.execDetached(["sh", "-c", command]) }

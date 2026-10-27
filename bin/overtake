@@ -64,6 +64,9 @@ fi
 SLIDESHOW_MINUTES=15
 CURRENT_BG="$HOME/.local/state/omarchy/current/background"
 SAVED_BG="$STATE_DIR/omarchy-background"
+SLIDE_SHOWN="$STATE_DIR/slide-shown"  # the picture the slideshow last put up
+LOOKS_DIR="$STATE_DIR/looks"        # each mode's theme and wallpaper: <omarchy|classic|studio>.{theme,bg,picked}
+CURRENT_THEME_NAME="$HOME/.local/state/omarchy/current/theme.name"
 SLIDE_INDEX="$STATE_DIR/slide-index"
 SLIDESHOW_PID="$STATE_DIR/slideshow.pid"
 WALLPAPER_MODE_FILE="$STATE_DIR/wallpaper-mode"
@@ -182,7 +185,55 @@ next_wallpaper() {
   [[ -s $SLIDE_INDEX ]] && index=$(<"$SLIDE_INDEX")
   index=$(( (index + 1) % ${#slides[@]} ))
   echo "$index" >"$SLIDE_INDEX"
-  omarchy-theme-bg-set "${slides[$index]}" >/dev/null 2>&1 || true
+  show_slide "${slides[$index]}"
+}
+
+show_slide() {
+  omarchy-theme-bg-set "$1" >/dev/null 2>&1 || true
+  readlink -f "$1" >"$SLIDE_SHOWN"
+}
+
+# A wallpaper you put up yourself (Omarchy's picker, a theme's own, an
+# animated one) rather than the slideshow: it stays until next-wallpaper.
+picked_wallpaper() {
+  local bg
+  bg=$(readlink -f "$CURRENT_BG" 2>/dev/null) || return 1
+  [[ -n $bg ]] || return 1
+  # (before slide-shown was kept, any slideshow picture counts as the slideshow's)
+  [[ -f $SLIDE_SHOWN ]] || { [[ $bg != "$HOME/Pictures/overtake/"* ]]; return; }
+  [[ $bg != "$(<"$SLIDE_SHOWN")" ]]
+}
+
+# ---------- Each mode's look ----------
+# Omarchy (Overtake Mode off), Classic and Studio each remember their theme
+# and wallpaper: saved on leaving a mode, put back on returning. A theme's
+# own wallpaper is kept by name, since switching themes replaces its folder.
+current_mode() { [[ -f $FLAG ]] && style || echo omarchy; }
+
+save_look() {  # save_look <mode>
+  local bg
+  mkdir -p "$LOOKS_DIR"
+  cp "$CURRENT_THEME_NAME" "$LOOKS_DIR/$1.theme" 2>/dev/null || true
+  bg=$(readlink -f "$CURRENT_BG" 2>/dev/null) || bg=""
+  [[ $bg == "$HOME/.local/state/omarchy/current/"* ]] && bg="theme:${bg##*/}"
+  echo "$bg" >"$LOOKS_DIR/$1.bg"
+  if [[ $1 != omarchy ]] && picked_wallpaper; then echo 1 >"$LOOKS_DIR/$1.picked"; else rm -f "$LOOKS_DIR/$1.picked"; fi
+}
+
+# Puts back a mode's theme, and its wallpaper when it has one to keep (the
+# Omarchy look's always; Classic's or Studio's only if you picked it). Fails
+# when the wallpaper is left to the slideshow.
+apply_look() {  # apply_look <mode>
+  local theme bg
+  theme=$(cat "$LOOKS_DIR/$1.theme" 2>/dev/null || true)
+  if [[ -n $theme && $theme != "$(cat "$CURRENT_THEME_NAME" 2>/dev/null)" ]]; then
+    omarchy-theme-set "$theme" >/dev/null 2>&1 || true
+  fi
+  [[ $1 == omarchy || -f $LOOKS_DIR/$1.picked ]] || return 1
+  bg=$(cat "$LOOKS_DIR/$1.bg" 2>/dev/null || true)
+  [[ $bg == theme:* ]] && bg="$HOME/.local/state/omarchy/current/theme/backgrounds/${bg#theme:}"
+  [[ -n $bg && -f $bg ]] || return 1
+  [[ $(readlink -f "$CURRENT_BG") == "$(readlink -f "$bg")" ]] || omarchy-theme-bg-set "$bg" >/dev/null 2>&1 || true
 }
 
 wallpaper_mode() {
@@ -213,7 +264,8 @@ apply_day_night() {
   read -r sunrise sunset < <(sun_times)
   now=$(date +%H%M)
   if (( 10#$now >= 10#$sunrise && 10#$now < 10#$sunset )); then image=$DAY_IMAGE; else image=$NIGHT_IMAGE; fi
-  [[ $(readlink -f "$CURRENT_BG") == "$(readlink -f "$image")" ]] || omarchy-theme-bg-set "$image" >/dev/null 2>&1 || true
+  # (recorded even when it's already up, so it isn't taken for one you picked)
+  if [[ $(readlink -f "$CURRENT_BG") == "$(readlink -f "$image")" ]]; then readlink -f "$image" >"$SLIDE_SHOWN"; else show_slide "$image"; fi
 }
 
 refresh_wallpaper() {
@@ -266,14 +318,15 @@ live_wallpaper_showing() {
 }
 
 # Rotate changes the picture every SLIDESHOW_MINUTES; Day & Night only checks
-# every 5 minutes whether the sun has come up or gone down.
+# every 5 minutes whether the sun has come up or gone down. Neither replaces
+# a wallpaper you picked (see picked_wallpaper).
 slideshow_loop() {
   echo $$ >"$SLIDESHOW_PID"
   while [[ -f $FLAG ]]; do
     if [[ $(wallpaper_mode) == day-night ]]; then
-      sleep 300 && [[ -f $FLAG ]] && ! live_wallpaper_showing && apply_day_night
+      sleep 300 && [[ -f $FLAG ]] && ! picked_wallpaper && apply_day_night
     else
-      sleep $(( SLIDESHOW_MINUTES * 60 )) && [[ -f $FLAG ]] && ! live_wallpaper_showing && next_wallpaper
+      sleep $(( SLIDESHOW_MINUTES * 60 )) && [[ -f $FLAG ]] && ! picked_wallpaper && next_wallpaper
     fi
   done
 }
@@ -402,22 +455,22 @@ set_style() {
   before=$(style)
   mkdir -p "$(dirname "$STYLE_FILE")"
   if [[ -f $FLAG && $before == classic ]]; then save_taskbar_settings; fi
+  [[ -f $FLAG && $before != "$1" ]] && save_look "$before"
   echo "$1" >"$STYLE_FILE"
   [[ -f $FLAG ]] || { notify $'\uf0ec' "Overtake look: ${1^} (applies when Overtake Mode is on)"; return 0; }
   [[ $before == "$1" ]] && return 0
-  # (re-run, so the slideshow folder and day/night pictures are the new look's)
-  local showing_slide=0
-  [[ $(readlink -f "$CURRENT_BG") == "$HOME/Pictures/overtake/"* ]] && showing_slide=1
   set_bar "$(style_bar)"
   add_bar_size
-  hyprctl reload >/dev/null
-  # (a new process: this one still has the old look's folder)
-  if (( showing_slide )); then
-    rm -f "$SLIDE_INDEX"
-    overtake resume-wallpaper refresh >/dev/null 2>&1 || true
-  else
+  # The new look's theme, and its wallpaper if you picked one there; else its
+  # slideshow (re-run, in a new process: this one still has the old look's
+  # folder and day/night pictures).
+  if apply_look "$1"; then
     overtake resume-wallpaper >/dev/null 2>&1 || true
+  else
+    rm -f "$SLIDE_INDEX" "$SLIDE_SHOWN"
+    overtake resume-wallpaper refresh >/dev/null 2>&1 || true
   fi
+  hyprctl reload >/dev/null
   setsid sh -c 'sleep 1.5; overtake relayout all' </dev/null >/dev/null 2>&1 &
   notify $'\uf0ec' "Overtake look: ${1^}"
 }
@@ -431,12 +484,17 @@ turn_on() {
     jq '.bar' "$SHELL_JSON" >"$SAVED_BAR"
   fi
   readlink -f "$CURRENT_BG" >"$SAVED_BG" 2>/dev/null || true
+  save_look omarchy
   set_bar "$(style_bar)"
   add_bar_size
   hyprctl clients -j | jq -c '[.[] | select(.workspace.id > 0 and .floating) | .address]' >"$KEEP_FLOATING" 2>/dev/null || true
   touch "$FLAG" "$STATE_DIR/snap-request"
-  # a theme's animated wallpaper stays; otherwise the slideshow's picture
-  live_wallpaper_showing || refresh_wallpaper
+  # this look's theme and picked wallpaper; else a theme's animated
+  # wallpaper stays, or the slideshow's picture
+  if ! apply_look "$(style)"; then
+    rm -f "$SLIDE_SHOWN"
+    live_wallpaper_showing || refresh_wallpaper
+  fi
   start_slideshow
   float_all
   # Back to their sections and places from last time, once the bar has moved.
@@ -451,6 +509,7 @@ turn_on() {
 turn_off() {
   [[ -f $FLAG ]] || { echo "Overtake Mode is already off"; return; }
   [[ $(style) == classic ]] && save_taskbar_settings
+  save_look "$(style)"
   if [[ -s $SAVED_BAR ]]; then
     set_bar "$(cat "$SAVED_BAR")"
   else
@@ -467,9 +526,9 @@ turn_off() {
     rm -f "$SAVED_GTK_BUTTONS"
   fi
   stop_slideshow
-  # your wallpaper back, if the slideshow replaced it (not if you've picked
-  # another one, or a theme's animated wallpaper never left)
-  if [[ -s $SAVED_BG && -f $(<"$SAVED_BG") && $(readlink -f "$CURRENT_BG") == "$HOME/Pictures/overtake/"* ]]; then
+  # Omarchy's theme and wallpaper back (from before this version: the saved
+  # wallpaper, if the slideshow replaced it)
+  if ! apply_look omarchy && [[ -s $SAVED_BG && -f $(<"$SAVED_BG") && $(readlink -f "$CURRENT_BG") == "$HOME/Pictures/overtake/"* ]]; then
     omarchy-theme-bg-set "$(<"$SAVED_BG")" >/dev/null 2>&1 || true
   fi
   hyprctl reload >/dev/null
@@ -1178,10 +1237,11 @@ case "${1:-help}" in
   theme-picker) theme_picker "${2:-all}" ;;
   next-wallpaper)
     if [[ ! -f $FLAG ]]; then :
+    elif [[ $(wallpaper_mode) == day-night ]] && picked_wallpaper; then apply_day_night   # back from a picked wallpaper
     elif [[ $(wallpaper_mode) == day-night ]]; then notify $'' "Day & Night wallpaper follows the sun (switch to Rotate in the Overtake Mode menu)"
     else next_wallpaper; fi ;;
   wallpaper-mode) if [[ -n ${2:-} ]]; then set_wallpaper_mode "$2"; else wallpaper_mode; fi ;;
-  resume) if [[ -f $FLAG ]]; then [[ $(wallpaper_mode) == day-night ]] && ! live_wallpaper_showing && apply_day_night; start_slideshow; float_all; rescue_all; fi ;;
+  resume) if [[ -f $FLAG ]]; then [[ $(wallpaper_mode) == day-night ]] && ! picked_wallpaper && apply_day_night; start_slideshow; float_all; rescue_all; fi ;;
   minimize) minimize_window "${2:-}" ;;
   restore) [[ -n ${2:-} ]] && restore_window "$2" "${3:-follow}" || true ;;
   restore-all) restore_all ;;

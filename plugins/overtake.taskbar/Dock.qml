@@ -9,14 +9,15 @@ import qs.Commons as Commons
 
 // Studio's Dock: a glass shelf along the bottom of every screen.
 //
-//   [Apps] pinned and running apps | minimized windows | Downloads  Trash
+//   [Apps] pinned and running apps | Downloads  Trash
 //
 // A dot under an app means it's running (on any workspace). Click an app to
 // open it, or to bring up its most recent window (switching workspace when
 // it's on another one); click the focused app's icon to minimize that window.
 // Middle-click opens a new window, right-click shows its windows and options
 // (Keep in Dock, Hide, Quit, ...). Drag a pinned app sideways to reorder.
-// Minimized windows sit after the divider until clicked. Settings:
+// Minimized windows have no icons of their own: their app's icon brings them
+// back, and its window list marks them. Settings:
 // ~/.config/overtake/studio.json (size, magnification, auto-hide).
 Item {
   id: root
@@ -44,7 +45,6 @@ Item {
   readonly property var appItems: apps.groups.filter(function(g) {
     return g.pinned || g.windows.some(function(t) { return !apps.isMinimized(t) }) || g.windows.length > 0
   })
-  readonly property var minimizedItems: apps.windows.filter(function(t) { return apps.isMinimized(t) })
 
   // An app with several windows (on any workspace) opens a list of them to
   // pick from, as the taskbar does.
@@ -232,28 +232,6 @@ Item {
             onLeftClicked: root.clickApp(modelData, label, dockWindow.modelData, centerX())
             onMiddleClicked: root.apps.launch(modelData)
             onRightClicked: root.openMenu(label, root.appMenu(modelData), dockWindow.modelData, centerX())
-          }
-        }
-
-        DockDivider { visible: root.minimizedItems.length > 0 }
-
-        Repeater {
-          model: root.minimizedItems
-          DockIcon {
-            required property var modelData
-            readonly property var entry: root.apps.entryForAppId(root.apps.windowAppId(modelData))
-            iconSource: root.apps.iconFor(entry, root.apps.windowAppId(modelData))
-            label: root.apps.titleOf(modelData)
-            minimizedWindow: true
-            win: dockWindow
-            onLeftClicked: root.run(["restore", root.apps.addressOf(modelData)])
-            onRightClicked: {
-              var t = modelData
-              root.openMenu(label, [
-                { label: "Restore", run: function() { root.run(["restore", root.apps.addressOf(t)]) } },
-                { label: "Close", run: function() { root.run(["close", root.apps.addressOf(t)]) } }
-              ], dockWindow.modelData, centerX())
-            }
           }
         }
 
@@ -563,7 +541,6 @@ Item {
     property string glyph: ""
     property string label: ""
     property bool running: false
-    property bool minimizedWindow: false
     property var win: null
     signal leftClicked()
     signal middleClicked()
@@ -635,20 +612,6 @@ Item {
         smooth: true
         mipmap: true
         asynchronous: true
-      }
-
-      // A minimized window: its app icon with a small window badge.
-      Rectangle {
-        visible: icon.minimizedWindow
-        anchors.right: parent.right
-        anchors.bottom: parent.bottom
-        width: parent.width * 0.38
-        height: width * 0.78
-        radius: 3
-        color: Qt.rgba(root.bg.r, root.bg.g, root.bg.b, 0.9)
-        border.width: 1
-        border.color: Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.5)
-        Rectangle { anchors.top: parent.top; anchors.left: parent.left; anchors.right: parent.right; height: 3; radius: 2; color: Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.5) }
       }
     }
 

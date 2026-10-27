@@ -117,6 +117,11 @@ grouped by app, with per-app Show / Quiet / Off and Do Not Disturb.
   settings.
 - **Desktop icons**, a **wallpaper slideshow** (rotate every 15 minutes, or
   follow sunrise and sunset), and an **Overtake Mode** entry in the Omarchy menu.
+  A wallpaper you pick yourself stays put; Super+Ctrl+Alt+Space goes back to
+  the slideshow.
+- **A look per mode** — Omarchy (Overtake Mode off), Classic and Studio each
+  remember their own theme and wallpaper. Pick a theme while in Studio and
+  Studio keeps it; switching modes puts each one's back.
 
 ## Studio
 
@@ -133,10 +138,11 @@ wallpapers, dock/undock layouts) works the same in both looks.
   windows. Workspace numbers sit in the middle (click one to go there);
   status icons, Spotlight and Control Center on the right; the
   clock opens the notification center.
-- **Dock** — pinned and running apps (a dot means running), minimized windows
-  after the divider, then Downloads (click for the newest files) and Trash.
-  Click to open or switch to an app (clicking the focused app minimizes it),
-  middle-click for a new window, right-click for its windows, Keep in Dock,
+- **Dock** — pinned and running apps (a dot means running), then Downloads
+  (click for the newest files) and Trash. Click to open or switch to an app
+  (clicking the focused app minimizes it, clicking it again brings it back; an
+  app with several windows lists them, with their workspaces), middle-click
+  for a new window, right-click for its windows, Keep in Dock,
   Hide and Quit; drag pinned apps to reorder. Size, magnification and
   auto-hide are in Settings → Overtake Mode.
 - **Title bars** — close / minimize / zoom as coloured dots on the left, the
@@ -280,6 +286,8 @@ The default **Rotate** mode makes no network requests.
 
 Original art made for this project; see `wallpapers/src` for the scripts that
 draw some of them.
+The Studio snow leopard (`wallpapers/studio/7-snow-leopard.jpg`) was made with
+an AI image model.
 
 ## License
 
