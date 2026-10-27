@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "id": "overtake.control-center",
+  "name": "Overtake Control Center",
+  "version": "1.0.0",
+  "author": "Gleasonmt",
+  "description": "Overtake Mode's Studio look: Spotlight and Control Center buttons for the menu bar",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "ControlCenter.qml"
+  },
+  "barWidget": {
+    "displayName": "Overtake Control Center",
+    "description": "Spotlight, and quick settings: Wi-Fi, Bluetooth, Focus, Night Light, brightness, sound, now playing",
+    "category": "System",
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}

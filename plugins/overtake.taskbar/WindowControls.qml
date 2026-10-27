@@ -20,10 +20,16 @@ import qs.Commons as Commons
 //
 // Hyprland reports no drag events, but this bar receives its own press and
 // release, so drags it starts are tracked exactly.
+//
+// Studio look: close/minimize/zoom as coloured dots on the left and the
+// title in the middle. Dragging a window to a side of the screen tiles it
+// there (a corner: a quarter; the menu bar: fill), and holding the pointer
+// on the green dot (or Super+Z) opens a menu of tiles instead of the snap bar.
 Item {
   id: root
 
   property bool modeOn: false
+  property bool studio: false
   readonly property int barHeight: 32  // matches SNAP_TITLE_BAR in overtake
 
   // The focused window. Quickshell only learns it from focus changes, so right
@@ -232,7 +238,9 @@ Item {
 
   // While a window is being dragged the snap layouts pop up just above the
   // pointer (where the drag started), so a small flick up reaches them.
+  // (Studio shows no snap bar: the screen's edges are the targets.)
   readonly property bool snapBarShown: dragging || selfMoving
+  readonly property bool snapCardsShown: !studio && (snapBarShown || pickerOpen)
   property real anchorX: 0
   property real anchorY: 0
   property bool anchorSet: false
@@ -283,10 +291,29 @@ Item {
     hoverAt(cursorX, cursorY)
   }
 
-  // What the pointer is over while dragging: a workspace box, else a zone.
+  // What the pointer is over while dragging: a workspace box, else a zone
+  // (Classic: a card on the snap bar; Studio: an edge of the screen).
   function hoverAt(x, y) {
     hoverWorkspace = snapBarShown ? workspaceAt(x, y) : 0
-    hoverZone = snapBarShown && !hoverWorkspace ? zoneAt(x, y) : ""
+    hoverZone = snapBarShown && !hoverWorkspace ? (studio ? edgeZoneAt(x, y) : zoneAt(x, y)) : ""
+  }
+
+  // Studio: within 18px of the left or right edge, a half (the top or
+  // bottom 22% of that edge: a quarter); on the menu bar (above the usable
+  // area), fill.
+  function edgeZoneAt(x, y) {
+    if (!mon) return ""
+    var h = mon.height / mon.scale
+    var edge = 18
+    var corner = h * 0.22
+    var side = x <= monX + edge ? "left" : (x >= monX + monW - edge ? "right" : "")
+    if (side) {
+      if (y <= monY + corner) return "top-" + side
+      if (y >= monY + h - corner) return "bottom-" + side
+      return side
+    }
+    if (y <= Math.max(monY + 4, monTop)) return "full"
+    return ""
   }
 
   // Dropped: onto a workspace box (back where it was picked up, on that
@@ -625,15 +652,24 @@ Item {
       Rectangle {
         anchors.fill: parent
         color: Commons.Color.background
-        opacity: 0.94
-        radius: root.barAbove ? Style.space(6) : 0
+        opacity: root.studio ? 0.9 : 0.94
+        radius: root.barAbove ? (root.studio ? 10 : Style.space(6)) : 0
+        // Studio: square bottom corners, so the bar sits flush on the window.
+        Rectangle {
+          visible: root.studio && root.barAbove
+          anchors.left: parent.left
+          anchors.right: parent.right
+          anchors.bottom: parent.bottom
+          height: 10
+          color: parent.color
+        }
         Rectangle {
           anchors.left: parent.left
           anchors.right: parent.right
           anchors.bottom: parent.bottom
           height: 1
-          color: Commons.Color.accent
-          opacity: 0.6
+          color: root.studio ? Commons.Color.foreground : Commons.Color.accent
+          opacity: root.studio ? 0.12 : 0.6
         }
       }
 
@@ -658,11 +694,14 @@ Item {
       Row {
         id: tabs
         anchors.left: parent.left
-        anchors.leftMargin: Style.space(8)
+        anchors.leftMargin: root.studio ? (lights.visible ? lights.width + 16 : 12) : Style.space(8)
         anchors.verticalCenter: parent.verticalCenter
         spacing: Style.space(4)
         readonly property var items: root.stack.length > 1 ? root.stack : (root.toplevel ? [root.toplevel] : [])
-        readonly property real tabWidth: Math.min(Style.space(240), (bar.width - (buttons.visible ? buttons.width : 0) - Style.space(24)) / Math.max(1, items.length))
+        // Studio: one window's title is centred across the whole bar.
+        readonly property bool centred: root.studio && items.length === 1
+        readonly property real tabWidth: centred ? bar.width - 2 * (lights.width + 16)
+          : Math.min(Style.space(240), (bar.width - (buttons.visible ? buttons.width : 0) - (lights.visible ? lights.width + 16 : 0) - Style.space(24)) / Math.max(1, items.length))
 
         Repeater {
           model: tabs.items
@@ -711,6 +750,8 @@ Item {
               anchors.rightMargin: Style.space(8)
               visible: !tab.editing
               verticalAlignment: Text.AlignVCenter
+              horizontalAlignment: tabs.centred || (root.studio && tab.isTab) ? Text.AlignHCenter : Text.AlignLeft
+              font.bold: root.studio && tab.active
               textFormat: Text.PlainText
               text: root.titleOf(tab.modelData)
               elide: Text.ElideRight
@@ -738,9 +779,31 @@ Item {
         }
       }
 
+      // Studio: close, minimize, zoom. Hovering the group shows their marks;
+      // holding the pointer on zoom opens the tile menu.
+      Row {
+        id: lights
+        visible: root.studio && !root.tabsOnly
+        anchors.left: parent.left
+        anchors.leftMargin: 12
+        anchors.verticalCenter: parent.verticalCenter
+        spacing: 8
+        property bool hovered: closeLight.hovered || minLight.hovered || zoomLight.hovered
+
+        TrafficLight { id: closeLight; tint: "#ff5f57"; mark: "\u2715"; onClicked: root.run(["close", root.address]) }
+        TrafficLight { id: minLight; tint: "#febc2e"; mark: "\u2212"; onClicked: root.run(["minimize", root.address]) }
+        TrafficLight {
+          id: zoomLight
+          tint: "#28c840"
+          mark: root.maximized ? "\u2199" : "+"
+          onClicked: root.run(["maximize", root.address])
+          onHoverHeld: root.pickerOpen = true
+        }
+      }
+
       Row {
         id: buttons
-        visible: !root.tabsOnly  // the app has its own buttons
+        visible: !root.tabsOnly && !root.studio  // the app has its own buttons
         anchors.right: parent.right
         anchors.verticalCenter: parent.verticalCenter
 
@@ -943,7 +1006,7 @@ Item {
   PanelWindow {
     id: snapBar
 
-    visible: root.modeOn && (root.snapBarShown || root.pickerOpen) && root.screenForWindow !== null
+    visible: root.modeOn && root.snapCardsShown && root.screenForWindow !== null
     screen: root.screenForWindow
     color: "transparent"
     exclusionMode: ExclusionMode.Ignore
@@ -990,6 +1053,126 @@ Item {
         SnapZone { zone: "full"; x: 0; y: 0; width: parent.width; height: parent.height }
       }
     }
+  }
+
+  // ---------- Studio: tile menu (hold on the green dot, or Super+Z) ----------
+  PanelWindow {
+    id: tileMenu
+    visible: root.modeOn && root.studio && root.pickerOpen && root.eligible && root.screenForWindow !== null
+    screen: root.screenForWindow
+    color: "transparent"
+    exclusionMode: ExclusionMode.Ignore
+    WlrLayershell.namespace: "overtake-snap"
+    WlrLayershell.layer: WlrLayer.Overlay
+    WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
+
+    anchors { top: true; left: true }
+    implicitWidth: 236
+    implicitHeight: tileColumn.implicitHeight + 20
+    margins {
+      left: Math.round(Math.max(root.monX + 8, root.barX + 30) - (tileMenu.screen ? tileMenu.screen.x : 0))
+      top: Math.round(root.barY + root.barHeight + 2 - (tileMenu.screen ? tileMenu.screen.y : 0))
+    }
+
+    function pick(zone) {
+      root.pickerOpen = false
+      if (zone === "unsnap") root.run(["unsnap", root.address])
+      else if (zone === "fullscreen") Hyprland.dispatch("hl.dsp.window.fullscreen({ mode = \"fullscreen\", window = \"address:" + root.address + "\" })")
+      else root.run(["snap", zone, root.address])
+    }
+
+    Rectangle {
+      anchors.fill: parent
+      radius: 12
+      color: Commons.Color.background
+      opacity: 0.96
+      border.width: 1
+      border.color: Qt.rgba(Commons.Color.foreground.r, Commons.Color.foreground.g, Commons.Color.foreground.b, 0.16)
+    }
+
+    Column {
+      id: tileColumn
+      x: 10
+      y: 10
+      width: parent.width - 20
+      spacing: 6
+
+      TileHeading { text: "Move & Resize" }
+      Row {
+        spacing: 6
+        TileChoice { zone: "left"; onPicked: tileMenu.pick(zone) }
+        TileChoice { zone: "right"; onPicked: tileMenu.pick(zone) }
+        TileChoice { zone: "top-left"; onPicked: tileMenu.pick(zone) }
+        TileChoice { zone: "top-right"; onPicked: tileMenu.pick(zone) }
+        TileChoice { zone: "bottom-left"; onPicked: tileMenu.pick(zone) }
+        TileChoice { zone: "bottom-right"; onPicked: tileMenu.pick(zone) }
+      }
+      TileHeading { text: "Fill & Arrange" }
+      Row {
+        spacing: 6
+        TileChoice { zone: "full"; onPicked: tileMenu.pick(zone) }
+        TileChoice { zone: "center"; onPicked: tileMenu.pick(zone) }
+      }
+      Rectangle { width: parent.width; height: 1; color: Qt.rgba(Commons.Color.foreground.r, Commons.Color.foreground.g, Commons.Color.foreground.b, 0.12) }
+      TileRow { label: "Enter Full Screen"; onPicked: tileMenu.pick("fullscreen") }
+      TileRow { visible: !!root.zoneEntry; label: "Return to Previous Size"; onPicked: tileMenu.pick("unsnap") }
+    }
+  }
+
+  component TileHeading: Text {
+    textFormat: Text.PlainText
+    color: Commons.Color.foreground
+    opacity: 0.55
+    font.family: Style.font.family
+    font.pixelSize: Style.font.caption
+    font.bold: true
+  }
+
+  // A small picture of the screen with the zone filled in.
+  component TileChoice: Rectangle {
+    id: choice
+    property string zone: ""
+    signal picked()
+    width: 30
+    height: 22
+    radius: 4
+    color: choiceArea.containsMouse ? Qt.rgba(Commons.Color.accent.r, Commons.Color.accent.g, Commons.Color.accent.b, 0.25) : "transparent"
+    border.width: 1
+    border.color: Qt.rgba(Commons.Color.foreground.r, Commons.Color.foreground.g, Commons.Color.foreground.b, 0.45)
+    readonly property var part: ({
+      "left": [0, 0, 0.5, 1], "right": [0.5, 0, 0.5, 1], "top-left": [0, 0, 0.5, 0.5], "top-right": [0.5, 0, 0.5, 0.5],
+      "bottom-left": [0, 0.5, 0.5, 0.5], "bottom-right": [0.5, 0.5, 0.5, 0.5], "full": [0, 0, 1, 1], "center": [0.22, 0.2, 0.56, 0.6]
+    })[zone] || [0, 0, 1, 1]
+    Rectangle {
+      x: 3 + (choice.width - 6) * choice.part[0]
+      y: 3 + (choice.height - 6) * choice.part[1]
+      width: (choice.width - 6) * choice.part[2] - (choice.part[2] < 1 ? 1 : 0)
+      height: (choice.height - 6) * choice.part[3] - (choice.part[3] < 1 ? 1 : 0)
+      radius: 2
+      color: choiceArea.containsMouse ? Commons.Color.accent : Qt.rgba(Commons.Color.foreground.r, Commons.Color.foreground.g, Commons.Color.foreground.b, 0.55)
+    }
+    MouseArea { id: choiceArea; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: choice.picked() }
+  }
+
+  component TileRow: Rectangle {
+    id: tileRow
+    property string label: ""
+    signal picked()
+    width: parent ? parent.width : 200
+    height: 26
+    radius: 6
+    color: tileRowArea.containsMouse ? Commons.Color.accent : "transparent"
+    Text {
+      anchors.left: parent.left
+      anchors.leftMargin: 8
+      anchors.verticalCenter: parent.verticalCenter
+      textFormat: Text.PlainText
+      text: tileRow.label
+      color: tileRowArea.containsMouse ? Commons.Color.background : Commons.Color.foreground
+      font.family: Style.font.family
+      font.pixelSize: Style.font.bodySmall
+    }
+    MouseArea { id: tileRowArea; anchors.fill: parent; hoverEnabled: true; onClicked: tileRow.picked() }
   }
 
   // Outline of where the window will land, under the snap bar.
@@ -1049,6 +1232,47 @@ Item {
         root.run(["snap", zoneRect.zone, root.address])
         root.pickerOpen = false
       }
+    }
+  }
+
+  // Studio's coloured dots; their marks show while the pointer is over the group.
+  component TrafficLight: Item {
+    id: light
+    property color tint: "#888888"
+    property string mark: ""
+    readonly property bool hovered: lightArea.containsMouse
+    signal clicked()
+    signal hoverHeld()
+    width: 13
+    height: 13
+    Rectangle {
+      anchors.fill: parent
+      radius: width / 2
+      color: lightArea.pressed ? Qt.darker(light.tint, 1.25) : light.tint
+      border.width: 1
+      border.color: Qt.darker(light.tint, 1.35)
+    }
+    Text {
+      anchors.centerIn: parent
+      visible: lights.hovered
+      textFormat: Text.PlainText
+      text: light.mark
+      color: Qt.rgba(0, 0, 0, 0.6)
+      font.pixelSize: 9
+      font.bold: true
+    }
+    MouseArea {
+      id: lightArea
+      anchors.fill: parent
+      anchors.margins: -3
+      hoverEnabled: true
+      cursorShape: Qt.PointingHandCursor
+      onClicked: light.clicked()
+    }
+    Timer {
+      running: lightArea.containsMouse
+      interval: 700
+      onTriggered: light.hoverHeld()
     }
   }
 

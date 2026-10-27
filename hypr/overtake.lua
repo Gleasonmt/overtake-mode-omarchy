@@ -1,56 +1,18 @@
--- Familiar desktop shortcuts, loaded from bindings.lua only while Overtake Mode is
--- on (`overtake on`). Turning the mode off removes them on the next reload,
--- which brings Omarchy's own SUPER+L and SUPER+V back.
+-- Overtake Mode's Hyprland settings, loaded from bindings.lua only while the
+-- mode is on (`overtake on`). Turning the mode off removes them on the next
+-- reload, which brings Omarchy's own bindings back. The rules here are shared
+-- by both looks; each look's shortcuts are in overtake-classic.lua (taskbar,
+-- Start) or overtake-studio.lua (menu bar, Dock, Super as Command).
 
-o.bind("ALT + F4", "Close window", hl.dsp.window.close())
-o.bind("SUPER + E", "File Explorer", { omarchy = "nautilus" })
-o.bind("SUPER + R", "Run", "omarchy-menu toggle apps")
-o.bind("SUPER + I", "Settings", "overtake settings")
-o.bind("SUPER + D", "Show desktop", "overtake show-desktop")
-o.bind("SUPER + PERIOD", "Emojis", "omarchy-shell shell toggle omarchy.emojis")
-o.bind("CTRL + SHIFT + ESCAPE", "Task Manager", { tui = "btop" })
 o.bind("SUPER + CTRL + ALT + SPACE", "Next Overtake wallpaper", "overtake next-wallpaper")
 
 -- New windows open floating (centered); the title bar's snap layouts and
--- Super+arrows place them. `overtake off` tiles them again.
+-- the snap shortcuts place them. `overtake off` tiles them again.
 o.window(".*", { float = true, center = true })
-
--- Snap Layouts (Super+Z), and Super+Left/Right snap to a half.
--- Was: focus the window left/right.
-o.bind("SUPER + Z", "Snap layouts", "overtake snap-layouts")
-hl.unbind("SUPER + LEFT")
-o.bind("SUPER + LEFT", "Snap window left", "overtake snap left")
-hl.unbind("SUPER + RIGHT")
-o.bind("SUPER + RIGHT", "Snap window right", "overtake snap right")
-
--- Was: focus the window below/above. Here they minimize/maximize.
-hl.unbind("SUPER + DOWN")
-o.bind("SUPER + DOWN", "Minimize window", "overtake minimize")
-hl.unbind("SUPER + UP")
-o.bind("SUPER + UP", "Maximize window", "overtake maximize")
-
--- Was: toggle workspace layout (no shortcut while Overtake Mode is on; use
--- `omarchy hyprland workspace layout toggle`).
-hl.unbind("SUPER + L")
-o.bind("SUPER + L", "Lock", "omarchy-system-lock")
-
--- Was: universal paste. SUPER+V opens clipboard history instead.
-hl.unbind("SUPER + V")
-o.bind("SUPER + V", "Clipboard history", "omarchy-shell shell toggle omarchy.clipboard")
 
 -- Omarchy suppresses every app's own maximize request. Overtake Mode honours them,
 -- so replace that suppression with a harmless one (later rules win).
 o.window(".*", { suppress_event = "fullscreenoutput" })
-
--- Start menu search (Super+S) and the quick-link menu (Super+X).
--- Were: toggle the scratchpad, and universal cut (Ctrl+X still cuts).
-hl.unbind("SUPER + S")
-o.bind("SUPER + S", "Start menu search", "overtake start")
-hl.unbind("SUPER + X")
-o.bind("SUPER + X", "Quick link menu", "overtake start quick")
-
--- Tapping the Super key on its own opens Start.
-o.bind("SUPER + SUPER_L", "Start menu", "overtake start", { release = true })
 
 -- Resize windows by dragging their edges and corners.
 hl.config({ general = { resize_on_border = true } })
@@ -59,3 +21,15 @@ hl.config({ general = { resize_on_border = true } })
 -- uses a two-finger click, which makes the whole bottom edge a left click).
 -- Two-finger click and tap still work.
 hl.config({ input = { touchpad = { clickfinger_behavior = false } } })
+
+-- Studio's glass: blur what's behind the Dock, menus and panels.
+hl.layer_rule({ match = { namespace = "^overtake-(dock|spotlight|switcher|mission|forcequit)$" }, blur = true, ignore_alpha = 0.3 })
+
+local home = os.getenv("HOME") or ""
+local style = "classic"
+local style_file = io.open(home .. "/.config/overtake/style", "r")
+if style_file then
+  if (style_file:read("*l") or ""):match("^%s*studio%s*$") then style = "studio" end
+  style_file:close()
+end
+dofile(home .. "/.config/hypr/overtake-" .. style .. ".lua")

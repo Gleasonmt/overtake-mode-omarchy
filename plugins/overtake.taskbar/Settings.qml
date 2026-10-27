@@ -184,7 +184,15 @@ Item {
     ]},
     { id: "overtake", name: "Overtake Mode", glyph: "\uf0ec", sections: [
       { title: "Overtake Mode", rows: [
+        { type: "choice", title: "Look", detail: "Classic: taskbar and Start at the bottom. Studio: menu bar on top, Dock at the bottom, Super as Command",
+          options: "printf 'Classic\\nStudio\\n'", current: "overtake style | sed 's/^./\\U&/'", set: "overtake style {}" },
         { type: "link", title: "Switch to Omarchy", detail: "Go back to Omarchy's own layout (Super+Ctrl+Shift+W switches either way)", run: "overtake off" }
+      ]},
+      { title: "Studio: Dock", rows: [
+        { type: "choice", title: "Size", options: "printf 'Small\\nMedium\\nLarge\\n'", current: "overtake studio-get dockSize", set: "overtake studio-set dockSize {}" },
+        { type: "toggle", title: "Magnification", detail: "Icons grow as the pointer passes over them", state: "overtake studio-get dockMagnify", on: "overtake studio-set dockMagnify on", off: "overtake studio-set dockMagnify off" },
+        { type: "toggle", title: "Hide the Dock automatically", detail: "It comes up when the pointer reaches the bottom of the screen", state: "overtake studio-get dockAutohide", on: "overtake studio-set dockAutohide on", off: "overtake studio-set dockAutohide off" },
+        { type: "link", title: "Dock pins", detail: "Or right-click an app in the Dock: Keep in Dock", run: "omarchy-launch-editor ~/.config/overtake/dock-pinned.txt" }
       ]},
       { title: "Start & taskbar", rows: [
         { type: "link", title: "Start menu pins", detail: "Or right-click any app in Start", run: "omarchy-launch-editor ~/.config/overtake/start-pinned.txt" },
@@ -200,6 +208,14 @@ Item {
         { type: "info", title: "Snap windows", value: "echo 'Super+Z, Super+Left/Right, Super+Up/Down'" },
         { type: "info", title: "Show desktop · Lock · Clipboard", value: "echo 'Super+D · Super+L · Super+V'" },
         { type: "info", title: "Task Manager · Close window", value: "echo 'Ctrl+Shift+Esc · Alt+F4'" }
+      ]},
+      { title: "Studio shortcuts (Super works as Command)", rows: [
+        { type: "info", title: "Spotlight · Switch apps", value: "echo 'Super+Space · Super+Tab'" },
+        { type: "info", title: "Quit · Hide · Minimize", value: "echo 'Super+Q · Super+H · Super+M'" },
+        { type: "info", title: "App keys", value: "echo 'Super+S/Z/F/T/N/A… reach the app as Ctrl+key'" },
+        { type: "info", title: "Tile · Fill · Center", value: "echo 'Ctrl+Super+Left/Right · Ctrl+Super+Up · Ctrl+Super+C'" },
+        { type: "info", title: "Mission Control · Workspaces", value: "echo 'Ctrl+Up · Ctrl+Left/Right'" },
+        { type: "info", title: "Screenshots · Force Quit", value: "echo 'Super+Shift+3/4/5 · Super+Alt+Esc'" }
       ]}
     ]},
     { id: "update", name: "Update", glyph: "", sections: [

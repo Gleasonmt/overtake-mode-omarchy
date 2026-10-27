@@ -16,6 +16,9 @@ import qs.Ui
 // is set to Show, Quiet (no pop-ups, still collected) or Off; Overtake's
 // notifications read those from ~/.config/overtake/notifications.json. Do Not
 // Disturb sits at the bottom.
+//
+// With "clock": true in its bar entry (Overtake's Studio look) the bell is
+// the date and time instead, as in a menu bar, with a dot for new ones.
 Panel {
   id: root
   moduleName: "overtake.notification-center"
@@ -69,8 +72,12 @@ Panel {
     return null
   }
 
-  implicitWidth: button.implicitWidth
-  implicitHeight: button.implicitHeight
+  readonly property bool clockMode: setting("clock", false) === true
+  property date now: new Date()
+  Timer { interval: 1000; repeat: true; running: root.clockMode; onTriggered: root.now = new Date() }
+
+  implicitWidth: clockMode ? clockText.implicitWidth + Style.space(18) + (root.unread > 0 || root.dnd ? Style.space(12) : 0) : button.implicitWidth
+  implicitHeight: clockMode ? (bar ? bar.barSize : Style.bar.sizeHorizontal) : button.implicitHeight
 
   // ---------- History ----------
   // The folder model notices files coming and going; every change re-reads
@@ -245,8 +252,61 @@ Panel {
   }
 
   // ---------- The bell ----------
+  // ---------- Studio: the clock ----------
+  Item {
+    id: clockButton
+    visible: root.clockMode
+    anchors.fill: parent
+    Rectangle {
+      anchors.fill: parent
+      anchors.topMargin: Style.space(3)
+      anchors.bottomMargin: Style.space(3)
+      radius: Style.space(5)
+      color: Qt.rgba(root.fg.r, root.fg.g, root.fg.b, root.opened ? 0.2 : (clockMouse.containsMouse ? 0.1 : 0))
+    }
+    Text {
+      id: clockText
+      anchors.verticalCenter: parent.verticalCenter
+      x: Style.space(9)
+      textFormat: Text.PlainText
+      text: Qt.formatDateTime(root.now, "ddd MMM d  h:mm AP")
+      color: root.fg
+      font.family: root.fontFamily
+      font.pixelSize: Style.font.bodySmall
+    }
+    // New notifications (a dot), or Do Not Disturb (a moon).
+    Text {
+      visible: root.dnd
+      anchors.left: clockText.right
+      anchors.leftMargin: Style.space(5)
+      anchors.verticalCenter: parent.verticalCenter
+      textFormat: Text.PlainText
+      text: "\uf186"
+      color: root.fg
+      font.family: root.fontFamily
+      font.pixelSize: Style.font.caption
+    }
+    Rectangle {
+      visible: !root.dnd && root.unread > 0
+      anchors.left: clockText.right
+      anchors.leftMargin: Style.space(6)
+      anchors.verticalCenter: parent.verticalCenter
+      width: Style.space(7); height: width; radius: width / 2
+      color: Commons.Color.accent
+    }
+    MouseArea {
+      id: clockMouse
+      anchors.fill: parent
+      hoverEnabled: true
+      onClicked: root.toggle()
+      onEntered: if (root.bar) root.bar.showTooltip(clockButton, root.dnd ? "Do not disturb is on" : (root.unread > 0 ? root.unread + " new notification" + (root.unread === 1 ? "" : "s") : Qt.formatDateTime(root.now, "dddd, MMMM d, yyyy")))
+      onExited: if (root.bar) root.bar.hideTooltip(clockButton)
+    }
+  }
+
   BarIconButton {
     id: button
+    visible: !root.clockMode
     anchors.fill: parent
     bar: root.bar
     text: root.dnd ? "" : (root.unread > 0 ? "" : "")
@@ -255,7 +315,7 @@ Panel {
   }
 
   Rectangle {
-    visible: root.unread > 0
+    visible: root.unread > 0 && !root.clockMode
     anchors.right: button.right
     anchors.top: button.top
     anchors.rightMargin: Style.space(1)
@@ -279,7 +339,7 @@ Panel {
   // ---------- The panel ----------
   KeyboardPanel {
     id: panel
-    anchorItem: button
+    anchorItem: root.clockMode ? clockButton : button
     owner: root
     bar: root.bar
     open: root.opened

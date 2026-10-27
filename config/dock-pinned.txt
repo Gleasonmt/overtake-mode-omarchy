@@ -1,0 +1,6 @@
+# Dock pins, one desktop entry id per line (managed by the Dock: right-click an app).
+# "browser" and "terminal" stand for your default browser and terminal.
+overtake-apps
+org.gnome.Nautilus
+browser
+terminal

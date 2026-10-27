@@ -9,7 +9,8 @@ import "DesktopList.js" as DesktopList
 
 // The desktop in Overtake Mode: a full-screen surface on the layer just above
 // the wallpaper, so windows cover it and it shows on empty workspaces and with
-// Super+D. Icons sit in a column on the left of each screen: click selects,
+// Super+D. Icons sit in a column on the left of each screen (the right in
+// the Studio look): click selects,
 // double-click opens, dragging moves an icon up or down the column, and
 // right-click gives Open, Pin to Start, Pin to taskbar, Remove desktop icon,
 // Rename and Move up / down (and Empty Trash on the Trash). Right-click on the
@@ -26,6 +27,7 @@ Item {
   id: root
 
   property bool modeOn: false
+  property bool studio: false   // Studio look: the column sits on the right
   property var icons: []
   property string iconsText: ""
   property string selected: ""
@@ -269,7 +271,7 @@ Item {
 
       Column {
         id: iconColumn
-        x: Style.space(16)
+        x: root.studio ? parent.width - width - Style.space(16) : Style.space(16)
         y: Style.space(16)
         spacing: Style.space(6) * root.iconScale
         visible: root.view.showIcons !== false

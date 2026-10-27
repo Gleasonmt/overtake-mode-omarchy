@@ -1018,8 +1018,10 @@ Item {
 
   // ---------- Overtake Mode (the button next to Start) ----------
   readonly property var osModes: [
-    { name: "Overtake", current: true, glyph: "\ue900", glyphFont: "omarchy",
+    { name: "Overtake Classic", current: true, glyph: "\ue900", glyphFont: "omarchy",
       detail: "Taskbar, Start menu, window buttons and familiar shortcuts" },
+    { name: "Overtake Studio", current: false, glyph: "\uf2d0", command: "overtake style studio",
+      detail: "Menu bar on top, a Dock, Spotlight, and Super working as Command" },
     { name: "Omarchy", current: false, glyph: "\uf00a", command: "overtake off",
       detail: "Omarchy's own desktop: tiling windows, top bar, keyboard first" }
   ]

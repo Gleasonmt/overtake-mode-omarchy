@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "id": "overtake.menubar",
+  "name": "Overtake Menu Bar",
+  "version": "1.0.0",
+  "author": "Gleasonmt",
+  "description": "Overtake Mode's Studio look: the system menu and the focused app's menus",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "MenuBar.qml"
+  },
+  "barWidget": {
+    "displayName": "Overtake Menu Bar",
+    "description": "System menu, the focused app's name and its File, Edit, View, Window and Help menus",
+    "category": "Compositor",
+    "allowMultiple": false,
+    "defaultSection": "left"
+  }
+}

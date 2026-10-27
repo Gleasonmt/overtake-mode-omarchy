@@ -4,12 +4,14 @@
 # and a wallpaper slideshow.
 #
 #   overtake on|off|toggle|status
+#   overtake style [classic|studio]  # pick or print the look: Classic (taskbar, Start) or Studio (menu bar, Dock)
+#   overtake studio-get|studio-set <dockSize|dockMagnify|dockAutohide> [value]  # Studio's Dock options (Settings)
 #   overtake show-desktop     # SUPER+D: jump to an empty workspace and back
 #   overtake theme-picker [omarchy|custom|all]  # pick a theme from one folder; prints its name
 #   overtake next-wallpaper   # SUPER+CTRL+ALT+SPACE: next slideshow wallpaper
 #   overtake wallpaper-mode [rotate|day-night]   # pick or print the slideshow mode
 #   overtake minimize|maximize|close [address]  # active window when no address
-#   overtake restore <address> | restore-all
+#   overtake restore <address> [stay] | restore-all
 #   overtake focus-app <name>      # go to an app's window on its own workspace (restoring it if minimized)
 #   overtake notification-open <app> <app icon> <message>  # notification center click without its own action
 #   overtake minimize-all [monitor]   # clicking the desktop: minimize this workspace's windows
@@ -20,8 +22,8 @@
 #   overtake remember | relayout  # record window places; restore them after a screen change
 #   overtake rescue           # move floating windows no screen shows back into view
 #   overtake make-room <address>  # move a window down so its title bar fits above it
-#   overtake snap <left|right|top-left|top-right|bottom-left|bottom-right|full> [address]
-#   overtake unsnap <address> # back to the size it had before snapping
+#   overtake snap <left|right|top-left|top-right|bottom-left|bottom-right|full|center> [address]
+#   overtake unsnap <address> # back to the size it had before snapping (unsnap-active: the focused window)
 #   overtake send <1-9> <address> [x y]  # drop on a workspace box: move the window there
 #   overtake start [quick]    # Super+S / Super+X: open the Start menu or its quick-link menu
 #   overtake settings [page]  # Super+I: the Settings window (system, bluetooth, network, ...)
@@ -31,6 +33,9 @@
 #   overtake rename <address>    # taskbar menu: bring a window up with its title bar tab ready to rename
 #   overtake fill-gap <address>  # a window opened: snap it into a spot snapped windows leave free
 #   overtake open-url <url>      # links from other apps: open on this workspace, not the browser's last window
+#   overtake ui <spotlight|apps|switcher|switcher-back|switcher-cancel|mission-control|force-quit|app-menu|control-center>
+#                             # Studio: open one of its panels (Super+Space, Super+Tab, Ctrl+Up, ...)
+#   overtake hide-app|hide-others|quit-app [address]  # Studio: Super+H, Super+Alt+H, Super+Q
 #   overtake resume           # at login: restart the slideshow if the mode is on
 
 set -euo pipefail
@@ -41,7 +46,21 @@ FLAG="$STATE_DIR/enabled"
 SAVED_BAR="$STATE_DIR/omarchy-bar.json"
 DESKTOP_RETURN="$STATE_DIR/desktop-return"
 
-SLIDESHOW_DIR="$HOME/Pictures/overtake/slideshow"
+# The look: Classic (bottom taskbar, Start) or Studio (top menu bar, Dock).
+# Kept in your settings, so it survives turning the mode off and on.
+STYLE_FILE="$HOME/.config/overtake/style"
+style() {
+  local value=classic
+  [[ -s $STYLE_FILE ]] && value=$(<"$STYLE_FILE")
+  [[ $value == studio ]] && echo studio || echo classic
+}
+
+# Each look has its own wallpapers (Day & Night uses the first two).
+if [[ $(style) == studio ]]; then
+  SLIDESHOW_DIR="$HOME/Pictures/overtake/studio"
+else
+  SLIDESHOW_DIR="$HOME/Pictures/overtake/slideshow"
+fi
 SLIDESHOW_MINUTES=15
 CURRENT_BG="$HOME/.local/state/omarchy/current/background"
 SAVED_BG="$STATE_DIR/omarchy-background"
@@ -58,8 +77,13 @@ NO_FILL="$STATE_DIR/no-fill"        # Settings: new windows don't fill free snap
 SNAP_GAP=12
 SNAP_TITLE_BAR=32                   # room left above a snapped window for its title bar
 SNAP_STACK_MAX=3
-DAY_IMAGE="$SLIDESHOW_DIR/1-hills-day.png"
-NIGHT_IMAGE="$SLIDESHOW_DIR/2-hills-night.png"
+if [[ $(style) == studio ]]; then
+  DAY_IMAGE="$SLIDESHOW_DIR/1-mesa-day.png"
+  NIGHT_IMAGE="$SLIDESHOW_DIR/2-mesa-night.png"
+else
+  DAY_IMAGE="$SLIDESHOW_DIR/1-hills-day.png"
+  NIGHT_IMAGE="$SLIDESHOW_DIR/2-hills-night.png"
+fi
 
 WINDOWS_BAR='{
   "position": "bottom",
@@ -84,17 +108,49 @@ WINDOWS_BAR='{
   }
 }'
 
+# Studio: a menu bar along the top (the focused app's menus on the left, status
+# icons, Control Center and the clock on the right; the clock opens the
+# notification center). The Dock is drawn by the overtake.taskbar service,
+# which Omarchy loads only while its widget is on the bar: hence the hidden
+# taskbar entry.
+STUDIO_BAR='{
+  "position": "top",
+  "transparent": true,
+  "layout": {
+    "left": [{ "id": "overtake.menubar" }, { "id": "overtake.taskbar", "hidden": true }],
+    "center": [],
+    "right": [
+      { "id": "omarchy.system-update" },
+      { "id": "omarchy.tray" },
+      { "id": "omarchy.agents" },
+      { "id": "omarchy.indicators", "items": ["Dictation", "ScreenRecording", "Reminder", "NightLight", "StayAwake"] },
+      { "id": "omarchy.keyboard-layout" },
+      { "id": "omarchy.power" },
+      { "id": "overtake.bluetooth" },
+      { "id": "omarchy.network" },
+      { "id": "overtake.audio" },
+      { "id": "overtake.control-center" },
+      { "id": "overtake.notification-center", "clock": true }
+    ]
+  }
+}'
+
 SHELL_TOML="$HOME/.config/omarchy/shell.toml"
 TOML_BEGIN="# >>> overtake (managed by ~/.local/bin/overtake)"
 TOML_END="# <<< overtake"
 
 notify() { omarchy-notification-send -g "$1" "$2" >/dev/null 2>&1 || true; }
 
-# Taller taskbar (Omarchy default is 26), kept in a marked block
-# of the machine-level shell.toml so turning the mode off removes exactly it.
+# Taller taskbar (Omarchy default is 26) in Classic, a slim menu bar in
+# Studio, kept in a marked block of the machine-level shell.toml so turning
+# the mode off removes exactly it.
 add_bar_size() {
   remove_bar_size
-  printf '%s\n[bar]\nsize-horizontal = 40\nicon-font = 15\n%s\n' "$TOML_BEGIN" "$TOML_END" >>"$SHELL_TOML"
+  if [[ $(style) == studio ]]; then
+    printf '%s\n[bar]\nsize-horizontal = 30\nicon-font = 13\n%s\n' "$TOML_BEGIN" "$TOML_END" >>"$SHELL_TOML"
+  else
+    printf '%s\n[bar]\nsize-horizontal = 40\nicon-font = 15\n%s\n' "$TOML_BEGIN" "$TOML_END" >>"$SHELL_TOML"
+  fi
 }
 
 remove_bar_size() {
@@ -273,21 +329,15 @@ mode_lock() {
   exit 1
 }
 
-turn_on() {
-  [[ -f $FLAG ]] && { echo "Overtake Mode is already on"; return; }
-  mkdir -p "$STATE_DIR"
-  if jq -e '[.bar | .. | .id? // empty] | index("overtake.taskbar")' "$SHELL_JSON" >/dev/null 2>&1; then
-    echo "the bar is already Overtake's; keeping the saved Omarchy bar" >&2
-  else
-    jq '.bar' "$SHELL_JSON" >"$SAVED_BAR"
-  fi
-  readlink -f "$CURRENT_BG" >"$SAVED_BG" 2>/dev/null || true
-  # Keep the user's own battery widget if their Omarchy bar has a custom one
-  # (a clone of omarchy.power), and the taskbar's settings (pinned apps) from
-  # last time.
+# The bar for the current look. Keeps the user's own battery widget if their
+# Omarchy bar has a custom one (a clone of omarchy.power), and in Classic the
+# taskbar's settings (pinned apps) from last time.
+style_bar() {
   local bar power
-  power=$(jq -r '[.. | .id? // empty | select(test("\\.power$"))][0] // "omarchy.power"' "$SAVED_BAR")
-  bar=$(jq --arg p "$power" '(.layout.right[] | select(.id == "omarchy.power") | .id) = $p' <<<"$WINDOWS_BAR")
+  power=$(jq -r '[.. | .id? // empty | select(test("\\.power$"))][0] // "omarchy.power"' "$SAVED_BAR" 2>/dev/null || echo omarchy.power)
+  [[ -n $power ]] || power=omarchy.power
+  if [[ $(style) == studio ]]; then bar=$STUDIO_BAR; else bar=$WINDOWS_BAR; fi
+  bar=$(jq --arg p "$power" '(.layout.right[] | select(.id == "omarchy.power") | .id) = $p' <<<"$bar")
   # A patched widget the installer had to skip: use Omarchy's own.
   local widget
   for widget in workspaces bluetooth audio; do
@@ -295,10 +345,91 @@ turn_on() {
     bar=$(jq --arg from "overtake.$widget" --arg to "omarchy.$widget" \
       '(.. | objects | select(.id? == $from) | .id) = $to | if .centerAnchor == $from then .centerAnchor = $to else . end' <<<"$bar")
   done
-  # (pins kept by an uninstall wait in ~/.config/overtake)
-  [[ -s $TASKBAR_SETTINGS || ! -s $HOME/.config/overtake/taskbar-settings.json ]] || cp "$HOME/.config/overtake/taskbar-settings.json" "$TASKBAR_SETTINGS"
-  [[ -s $TASKBAR_SETTINGS ]] && bar=$(jq --slurpfile t "$TASKBAR_SETTINGS" '.layout.left = [$t[0]]' <<<"$bar")
-  set_bar "$bar"
+  if [[ $(style) == classic ]]; then
+    # (pins kept by an uninstall wait in ~/.config/overtake)
+    [[ -s $TASKBAR_SETTINGS || ! -s $HOME/.config/overtake/taskbar-settings.json ]] || cp "$HOME/.config/overtake/taskbar-settings.json" "$TASKBAR_SETTINGS"
+    [[ -s $TASKBAR_SETTINGS ]] && bar=$(jq --slurpfile t "$TASKBAR_SETTINGS" '.layout.left = [$t[0]]' <<<"$bar")
+  fi
+  echo "$bar"
+}
+
+# The taskbar's settings (pins) out of the live bar, kept while the mode is
+# off or the look is Studio.
+save_taskbar_settings() {
+  jq '[.bar.layout[][]? | select(.id == "overtake.taskbar")][0] // empty' "$SHELL_JSON" >"$TASKBAR_SETTINGS.tmp" \
+    && [[ -s $TASKBAR_SETTINGS.tmp ]] && mv "$TASKBAR_SETTINGS.tmp" "$TASKBAR_SETTINGS" || rm -f "$TASKBAR_SETTINGS.tmp"
+}
+
+# Studio's options, in ~/.config/overtake/studio.json (the Dock reads it live).
+STUDIO_JSON="$HOME/.config/overtake/studio.json"
+studio_get() {
+  local value=""
+  [[ -s $STUDIO_JSON ]] && value=$(jq -r --arg k "$1" '.[$k] // empty' "$STUDIO_JSON" 2>/dev/null)
+  case $1 in
+    dockSize) case ${value:-48} in 40) echo Small ;; 64) echo Large ;; *) echo Medium ;; esac ;;
+    dockMagnify) [[ $value != false ]] ;;     # on unless turned off
+    dockAutohide) [[ $value == true ]] ;;
+    *) echo "overtake: studio-get takes dockSize, dockMagnify or dockAutohide" >&2; return 1 ;;
+  esac
+}
+studio_set() {
+  local key=$1 value
+  case $key:${2,,} in
+    dockSize:small) value=40 ;; dockSize:medium) value=48 ;; dockSize:large) value=64 ;;
+    dockMagnify:on | dockAutohide:on) value=true ;;
+    dockMagnify:off | dockAutohide:off) value=false ;;
+    *) echo "overtake: studio-set takes dockSize small|medium|large, dockMagnify on|off or dockAutohide on|off" >&2; return 1 ;;
+  esac
+  mkdir -p "$(dirname "$STUDIO_JSON")"
+  [[ -s $STUDIO_JSON ]] || echo '{}' >"$STUDIO_JSON"
+  local tmp
+  tmp=$(mktemp)
+  jq --arg k "$key" --argjson v "$value" '.[$k] = $v' "$STUDIO_JSON" >"$tmp" && cat "$tmp" >"$STUDIO_JSON"
+  rm -f "$tmp"
+}
+
+# Switch between Classic and Studio. While the mode is on, the bar, its
+# size, the shortcuts and (when the slideshow is showing) the wallpaper
+# change in place; windows stay where they are.
+set_style() {
+  case "$1" in
+    classic | studio) ;;
+    *) echo "Usage: overtake style [classic|studio]" >&2; exit 1 ;;
+  esac
+  local before
+  before=$(style)
+  mkdir -p "$(dirname "$STYLE_FILE")"
+  if [[ -f $FLAG && $before == classic ]]; then save_taskbar_settings; fi
+  echo "$1" >"$STYLE_FILE"
+  [[ -f $FLAG ]] || { notify $'\uf0ec' "Overtake look: ${1^} (applies when Overtake Mode is on)"; return 0; }
+  [[ $before == "$1" ]] && return 0
+  # (re-run, so the slideshow folder and day/night pictures are the new look's)
+  local showing_slide=0
+  [[ $(readlink -f "$CURRENT_BG") == "$HOME/Pictures/overtake/"* ]] && showing_slide=1
+  set_bar "$(style_bar)"
+  add_bar_size
+  hyprctl reload >/dev/null
+  # (a new process: this one still has the old look's folder)
+  if (( showing_slide )); then
+    rm -f "$SLIDE_INDEX"
+    overtake resume-wallpaper refresh >/dev/null 2>&1 || true
+  else
+    overtake resume-wallpaper >/dev/null 2>&1 || true
+  fi
+  setsid sh -c 'sleep 1.5; overtake relayout all' </dev/null >/dev/null 2>&1 &
+  notify $'\uf0ec' "Overtake look: ${1^}"
+}
+
+turn_on() {
+  [[ -f $FLAG ]] && { echo "Overtake Mode is already on"; return; }
+  mkdir -p "$STATE_DIR"
+  if jq -e '[.bar | .. | .id? // empty] | (index("overtake.taskbar") or index("overtake.menubar"))' "$SHELL_JSON" >/dev/null 2>&1; then
+    echo "the bar is already Overtake's; keeping the saved Omarchy bar" >&2
+  else
+    jq '.bar' "$SHELL_JSON" >"$SAVED_BAR"
+  fi
+  readlink -f "$CURRENT_BG" >"$SAVED_BG" 2>/dev/null || true
+  set_bar "$(style_bar)"
   add_bar_size
   hyprctl clients -j | jq -c '[.[] | select(.workspace.id > 0 and .floating) | .address]' >"$KEEP_FLOATING" 2>/dev/null || true
   touch "$FLAG" "$STATE_DIR/snap-request"
@@ -317,8 +448,7 @@ turn_on() {
 
 turn_off() {
   [[ -f $FLAG ]] || { echo "Overtake Mode is already off"; return; }
-  jq '[.bar.layout[][]? | select(.id == "overtake.taskbar")][0] // empty' "$SHELL_JSON" >"$TASKBAR_SETTINGS.tmp" \
-    && [[ -s $TASKBAR_SETTINGS.tmp ]] && mv "$TASKBAR_SETTINGS.tmp" "$TASKBAR_SETTINGS" || rm -f "$TASKBAR_SETTINGS.tmp"
+  [[ $(style) == classic ]] && save_taskbar_settings
   if [[ -s $SAVED_BAR ]]; then
     set_bar "$(cat "$SAVED_BAR")"
   else
@@ -337,7 +467,7 @@ turn_off() {
   stop_slideshow
   # your wallpaper back, if the slideshow replaced it (not if you've picked
   # another one, or a theme's animated wallpaper never left)
-  if [[ -s $SAVED_BG && -f $(<"$SAVED_BG") && $(readlink -f "$CURRENT_BG") == "$SLIDESHOW_DIR"/* ]]; then
+  if [[ -s $SAVED_BG && -f $(<"$SAVED_BG") && $(readlink -f "$CURRENT_BG") == "$HOME/Pictures/overtake/"* ]]; then
     omarchy-theme-bg-set "$(<"$SAVED_BG")" >/dev/null 2>&1 || true
   fi
   hyprctl reload >/dev/null
@@ -844,7 +974,14 @@ snap_window() {
     top-right) x=$((ux + hw + SNAP_GAP)) y=$uy w=$hw h=$hh ;;
     bottom-left) x=$ux y=$((uy + hh + SNAP_GAP)) w=$hw h=$hh ;;
     bottom-right) x=$((ux + hw + SNAP_GAP)) y=$((uy + hh + SNAP_GAP)) w=$hw h=$hh ;;
-    full) x=$ux y=$uy w=$uw h=$uh ;;
+    full | fill) zone=full x=$ux y=$uy w=$uw h=$uh ;;
+    center)
+      # Studio's Center: the size it has (no bigger than the screen), in the middle.
+      read -r w h < <(jq -r '.size | map(floor) | join(" ")' <<<"$info")
+      (( w > uw )) && w=$uw
+      (( h > uh - SNAP_TITLE_BAR )) && h=$((uh - SNAP_TITLE_BAR))
+      x=$((ux + (uw - w) / 2)) y=$((uy + (uh - SNAP_TITLE_BAR - h) / 2))
+      h=$((h + SNAP_TITLE_BAR)) ;;
     *) echo "Unknown zone: $zone" >&2; return 1 ;;
   esac
   y=$((y + SNAP_TITLE_BAR))
@@ -938,6 +1075,43 @@ unsnap_window() {
   hyprctl dispatch "hl.dsp.window.move({ x = $x, y = $y, relative = false, window = \"address:$addr\" })" >/dev/null
 }
 
+# Studio's Hide (Super+H): minimize the app's windows on this workspace;
+# Hide Others (Super+Alt+H): every other app's. Quit (Super+Q): close all of
+# the app's windows, wherever they are.
+app_windows() {  # app_windows <address> <same|others> [here]
+  local addr=$1 which=$2 where=${3:-} clients class ws
+  clients=$(hyprctl clients -j)
+  class=$(jq -r --arg a "$addr" '.[] | select(.address == $a) | .class' <<<"$clients")
+  [[ -n $class ]] || return 0
+  ws=$(jq -r --arg a "$addr" '.[] | select(.address == $a) | .workspace.name' <<<"$clients")
+  jq -r --arg c "$class" --arg ws "$ws" --arg which "$which" --arg where "$where" '.[]
+    | select(.workspace.id > 0 or .workspace.name == "special:minimized")
+    | select(if $which == "same" then .class == $c else .class != $c end)
+    | select($where != "here" or .workspace.name == $ws)
+    | .address' <<<"$clients"
+}
+
+hide_app() {
+  local addr a
+  addr=$(window_address "${1:-}")
+  [[ -n $addr ]] || return 0
+  for a in $(app_windows "$addr" same here); do minimize_window "$a"; done
+}
+
+hide_others() {
+  local addr a
+  addr=$(window_address "${1:-}")
+  [[ -n $addr ]] || return 0
+  for a in $(app_windows "$addr" others here); do minimize_window "$a"; done
+}
+
+quit_app() {
+  local addr a
+  addr=$(window_address "${1:-}")
+  [[ -n $addr ]] || return 0
+  for a in $(app_windows "$addr" same); do close_window "$a"; done
+}
+
 show_desktop() {
   local current windows
   current=$(hyprctl activeworkspace -j | jq -r '.id')
@@ -994,6 +1168,10 @@ case "${1:-help}" in
   off) mode_lock; turn_off ;;
   toggle) mode_lock; if [[ -f $FLAG ]]; then turn_off; else turn_on; fi ;;
   status) [[ -f $FLAG ]] && echo on || echo off ;;
+  style) if [[ -n ${2:-} ]]; then mode_lock; set_style "${2,,}"; else style; fi ;;
+  studio-get) studio_get "${2:-}" ;;
+  studio-set) studio_set "${2:-}" "${3:-}" ;;
+  resume-wallpaper) [[ ${2:-} == refresh ]] && refresh_wallpaper; start_slideshow ;;   # internal: after a look change
   show-desktop) show_desktop ;;
   theme-picker) theme_picker "${2:-all}" ;;
   next-wallpaper)
@@ -1003,7 +1181,7 @@ case "${1:-help}" in
   wallpaper-mode) if [[ -n ${2:-} ]]; then set_wallpaper_mode "$2"; else wallpaper_mode; fi ;;
   resume) if [[ -f $FLAG ]]; then [[ $(wallpaper_mode) == day-night ]] && ! live_wallpaper_showing && apply_day_night; start_slideshow; float_all; rescue_all; fi ;;
   minimize) minimize_window "${2:-}" ;;
-  restore) [[ -n ${2:-} ]] && restore_window "$2" || true ;;
+  restore) [[ -n ${2:-} ]] && restore_window "$2" "${3:-follow}" || true ;;
   restore-all) restore_all ;;
   minimize-all) minimize_all "${2:-}" ;;
   services) switch_services "${2:-on}" ;;   # internal: install/uninstall
@@ -1021,6 +1199,7 @@ case "${1:-help}" in
   close) close_window "${2:-}" ;;
   snap) [[ -n ${2:-} ]] && snap_window "$2" "${3:-}" || true ;;
   unsnap) [[ -n ${2:-} ]] && unsnap_window "$2" || true ;;
+  unsnap-active) addr=$(window_address ""); [[ -n $addr ]] && unsnap_window "$addr" || true ;;
   send) [[ -n ${3:-} ]] && send_window "$2" "$3" "${4:-}" "${5:-}" || true ;;
   snap-layouts) mkdir -p "$STATE_DIR"; date +%s%N >"$STATE_DIR/snap-request" ;;
   taskbar-position) taskbar_position "${2:-}" ;;
@@ -1028,7 +1207,29 @@ case "${1:-help}" in
   open-url) shift; open_url "$@" ;;
   fill-gap) [[ -n ${2:-} ]] && fill_gap "$2" || true ;;
   rename) [[ -n ${2:-} ]] && { show_window "$2"; mkdir -p "$STATE_DIR"; echo "$2 $(date +%s%N)" >"$STATE_DIR/rename-request"; } || true ;;
-  start) mkdir -p "$STATE_DIR"; echo "${2:-start} $(date +%s%N)" >"$STATE_DIR/start-request" ;;
+  start)
+    mkdir -p "$STATE_DIR"
+    # Studio has no Start menu: Spotlight (and its Apps view) stands in.
+    if [[ $(style) == studio ]]; then
+      case ${2:-start} in all) set -- ui apps ;; quick) set -- ui app-menu ;; *) set -- ui spotlight ;; esac
+      echo "$2 $(date +%s%N)" >"$STATE_DIR/ui-request"
+    else
+      echo "${2:-start} $(date +%s%N)" >"$STATE_DIR/start-request"
+    fi ;;
+  ui)
+    mkdir -p "$STATE_DIR"
+    what=${2:-spotlight}
+    # A quick Super+Tab: Super comes up right after Tab, and the shell may
+    # read the file only once both have been written. Say both in one.
+    if [[ $what == switcher-commit && -s $STATE_DIR/ui-request ]]; then
+      read -r last when <"$STATE_DIR/ui-request" || true
+      [[ $last == switcher* && $last != switcher-commit && $when =~ ^[0-9]+$ ]] &&
+        (( $(date +%s%N) - when < 500000000 )) && what=switcher-quick
+    fi
+    echo "$what $(date +%s%N)" >"$STATE_DIR/ui-request" ;;
+  hide-app) hide_app "${2:-}" ;;
+  hide-others) hide_others "${2:-}" ;;
+  quit-app) quit_app "${2:-}" ;;
   settings) mkdir -p "$STATE_DIR"; echo "${2:-open} $(date +%s%N)" >"$STATE_DIR/settings-request" ;;
   slideshow-loop) slideshow_loop ;;   # internal: the slideshow's background loop
   *) echo "overtake: unknown command '$1' (overtake help lists them)" >&2; exit 1 ;;

@@ -48,7 +48,7 @@ if [[ -f $SHELL_JSON ]]; then
     "$SHELL_JSON" >"$tmp" && mv "$tmp" "$SHELL_JSON" || rm -f "$tmp"
 fi
 
-# The taller-taskbar block Overtake adds to shell.toml
+# The bar-size block Overtake adds to shell.toml
 SHELL_TOML="$HOME/.config/omarchy/shell.toml"
 if [[ -f $SHELL_TOML ]]; then
   python3 - "$SHELL_TOML" <<'PY'
@@ -72,11 +72,11 @@ done
 sed -i 's|^Exec=.*/overtake open-url |Exec=omarchy-launch-browser |' "$HOME/.local/share/applications/omarchy-browser.desktop" 2>/dev/null || true
 rm -f "$HOME/.local/share/applications/overtake-image-viewer.desktop"
 rm -f "$HOME/.local/share/applications/overtake-trash.desktop"
-rm -f "$HOME/.local/bin/overtake" "$HYPR/overtake.lua"
+rm -f "$HOME/.local/bin/overtake" "$HYPR/overtake.lua" "$HYPR/overtake-classic.lua" "$HYPR/overtake-studio.lua"
 rm -rf "${PLUGINS:?}/overtake.taskbar" "${PLUGINS:?}/overtake.workspaces" \
        "${PLUGINS:?}/overtake.bluetooth" "${PLUGINS:?}/overtake.audio" \
        "${PLUGINS:?}/overtake.notifications" "${PLUGINS:?}/overtake.notification-center" \
-       "${PLUGINS:?}/overtake.battery" \
+       "${PLUGINS:?}/overtake.battery" "${PLUGINS:?}/overtake.menubar" "${PLUGINS:?}/overtake.control-center" \
        "$HOME/.local/state/overtake" "$HOME/.cache/overtake"
 
 if [[ ${1:-} == --purge ]]; then

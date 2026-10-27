@@ -7,6 +7,13 @@ on-ramp for people coming from other desktops: ease in with what you know, and
 switch to Omarchy's own keyboard-first tiling whenever you're ready. One
 shortcut switches either way, and Omarchy itself isn't changed.
 
+It comes in two looks, switchable any time (`overtake style classic|studio`,
+Settings → Overtake Mode, or the Omarchy menu):
+
+- **Classic** — taskbar and Start menu along the bottom.
+- **Studio** — a menu bar along the top, a Dock at the bottom, Spotlight
+  search, and the Super key working as a Command key. See [Studio](#studio).
+
 ![Overtake Mode: the desktop, taskbar and Start menu](media/desktop-start.webp)
 
 > Status: early. Tested on Omarchy 4.0.6 (Hyprland, the Quickshell-based
@@ -111,7 +118,81 @@ grouped by app, with per-app Show / Quiet / Off and Do Not Disturb.
 - **Desktop icons**, a **wallpaper slideshow** (rotate every 15 minutes, or
   follow sunrise and sunset), and an **Overtake Mode** entry in the Omarchy menu.
 
-## Shortcuts (while Overtake Mode is on)
+## Studio
+
+The second look, for people used to a menu bar and a Dock. Everything else
+above (title bars, snapping, notifications, Settings, battery alerts,
+wallpapers, dock/undock layouts) works the same in both looks.
+
+- **Menu bar** — the Omarchy logo opens the system menu (About, System
+  Settings, Force Quit, Sleep / Restart / Shut Down, Lock, Log Out, and the
+  look switch). Next to it, the focused app's name in bold, then File, Edit,
+  View, Window and Help. Linux apps don't hand their own menus to the
+  desktop, so these hold what works in every app: new window and tab, the
+  edit keys (sent to the app), full screen, zoom, tiling, and the app's
+  windows. Status icons, Spotlight and Control Center sit on the right; the
+  clock opens the notification center.
+- **Dock** — pinned and running apps (a dot means running), minimized windows
+  after the divider, then Downloads (click for the newest files) and Trash.
+  Click to open or switch to an app (clicking the focused app minimizes it),
+  middle-click for a new window, right-click for its windows, Keep in Dock,
+  Hide and Quit; drag pinned apps to reorder. Size, magnification and
+  auto-hide are in Settings → Overtake Mode.
+- **Title bars** — close / minimize / zoom as coloured dots on the left, the
+  title in the middle. Hold the pointer on the green dot (or Super + Z) for
+  the tile menu: halves, quarters, Fill, Center, full screen.
+- **Tiling by dragging** — drag a window to the left or right edge of the
+  screen for a half, a corner for a quarter, the menu bar to fill the screen.
+  The workspace boxes still appear along the top while you drag.
+- **Spotlight** (Super + Space) — apps, actions (lock, sleep, theme, Wi-Fi,
+  screenshot…), files in your home folder, and quick sums (`12*4`; Enter
+  copies the answer). Tab switches to **Apps**, every app in a grid (also the
+  first icon in the Dock); right-click an app there to keep it in the Dock.
+- **App Switcher** (hold Super, tap Tab) — apps by most recent use; let go to
+  switch, Q quits the picked app, Esc cancels. Super + \` steps through the
+  focused app's windows.
+- **Mission Control** (Ctrl + ↑) — live previews of this workspace's windows
+  and the workspaces above them; click to go, drag a window onto a workspace
+  to move it.
+- **Control Center** — Wi-Fi, Bluetooth, Focus (do not disturb), Night Light,
+  Stay Awake, screen recording and screenshots, display and sound sliders,
+  and what's playing.
+- **Force Quit** (Super + Alt + Esc) — end an app that has stopped responding.
+- Desktop icons sit on the right, and Studio has its own wallpapers (Day &
+  Night uses the mesa pair).
+
+### Studio shortcuts (Super works as Command)
+
+| Keys | Does |
+| --- | --- |
+| Super + Space | Spotlight |
+| Super + Tab | App Switcher |
+| Super + Q / H / M | Quit the app / hide it / minimize the window |
+| Super + Alt + H | Hide the other apps |
+| Super + W | Close the tab (browsers) or the window |
+| Super + C / V / X | Copy / paste / cut (Omarchy's universal keys) |
+| Super + A / Z / Shift + Z / S / F / T / N / O / P / R / L | Reach the app as Ctrl + the same key (select all, undo, redo, save, find, new tab…); terminals get Ctrl + Shift where it makes sense |
+| Super + ← / → / ↑ / ↓ | Start / end of the line, top / bottom of the document |
+| Alt + ← / → / Backspace | Word left / right / delete a word |
+| Super + [ / ] | Back / forward |
+| Super + = / − | Zoom in / out |
+| Ctrl + Super + ← / → / ↑ / ↓ / C | Tile left / right, fill, previous size, center |
+| Ctrl + Super + F | Full screen |
+| Ctrl + ↑ | Mission Control |
+| Ctrl + ← / → | Previous / next workspace (Super + 1–9 still go straight to one) |
+| Super + Shift + 3 / 4 / 5 | Screenshot of the screen / a region / the capture menu |
+| Super + , | Settings |
+| Super + Alt + Esc | Force Quit |
+| Ctrl + Super + Q | Lock |
+| Ctrl + Super + Space | Emoji |
+| Super + Alt + Space | Omarchy menu |
+| Super + F3 | Show desktop |
+
+Like Classic's, these replace Omarchy shortcuts only while the mode is on.
+Super + Shift + 3 / 4 / 5 take over moving a window to workspace 3–5
+(dragging it onto a workspace box still does that).
+
+## Shortcuts (Classic, while Overtake Mode is on)
 
 | Keys | Does |
 | --- | --- |
@@ -136,7 +217,10 @@ Super + S is normally the scratchpad); switching back restores them all.
 
 All in `~/.config/overtake/`:
 
+- `style` — `classic` or `studio` (`overtake style` sets it)
 - `start-pinned.txt` — Start menu pins (or right-click apps in Start)
+- `dock-pinned.txt` — Studio's Dock pins (or right-click apps in the Dock)
+- `studio.json` — Studio's Dock size, magnification and auto-hide (Settings sets them)
 - `desktop-icons.txt` — desktop icons (`trash`, `browser`, `terminal`, or any app)
 - `no-controls.txt` — apps that keep their own window buttons instead of
   Overtake's title bar
@@ -148,9 +232,10 @@ All in `~/.config/overtake/`:
 | Where | What |
 | --- | --- |
 | `~/.local/bin/overtake` | the command |
-| `~/.config/hypr/overtake.lua` | the shortcuts, loaded only while the mode is on |
+| `~/.config/hypr/overtake.lua`, `overtake-classic.lua`, `overtake-studio.lua` | the window rules and each look's shortcuts, loaded only while the mode is on |
 | `~/.config/hypr/bindings.lua`, `autostart.lua` | a few lines between `>>> overtake` / `<<< overtake` markers |
-| `~/.config/omarchy/plugins/overtake.taskbar` | taskbar, Start menu, title bars, desktop icons, Settings |
+| `~/.config/omarchy/plugins/overtake.taskbar` | taskbar, Start menu, title bars, desktop icons, Settings; Studio's Dock, Spotlight, App Switcher, Mission Control and Force Quit |
+| `~/.config/omarchy/plugins/overtake.menubar`, `overtake.control-center` | Studio's menu bar, and its Spotlight and Control Center buttons |
 | `~/.config/omarchy/plugins/overtake.{workspaces,bluetooth,audio}` | copies of Omarchy's own widgets, made from your installed Omarchy, with small changes (no gaps in the workspace list; right-click opens the Bluetooth and sound panels instead of turning Bluetooth off or muting) |
 | `~/.config/omarchy/plugins/overtake.notifications` | a copy of Omarchy's notifications with a close button on each card, critical toasts leaving after 15 s instead of never, and a 50-entry history for the notification center. Loaded in both modes: with Overtake Mode off it behaves exactly like Omarchy's own, so switching needs no shell restart |
 | `~/.config/omarchy/plugins/overtake.battery` | a copy of Omarchy's battery service; while the mode is on its fixed 10% warning gives way to Overtake's battery alerts, otherwise it's Omarchy's own |
@@ -181,6 +266,11 @@ The default **Rotate** mode makes no network requests.
   for one) keep their own buttons; listed in `no-controls.txt`.
 - Dragging such an app by its own title area snaps when you hold still over a
   layout for half a second, since Hyprland doesn't report their mouse button.
+- Studio's menus are the same for every app (apps on Linux don't share
+  their own menus with the desktop); app-specific commands stay in the app.
+- Studio's Super-as-Command keys are sent to the app as Ctrl + key, so an app
+  that uses a different key for something (say, find) won't respond to the
+  usual one.
 - Network picking, Bluetooth pairing and detailed sound settings open
   Omarchy's own panels; screen resolution and keyboard layouts open the
   config file.

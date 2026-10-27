@@ -56,6 +56,8 @@ say "command: ~/.local/bin/overtake"
 
 # 2. Hyprland: the Overtake shortcuts file, the switch shortcut, and the login hook.
 install -Dm644 "$REPO/hypr/overtake.lua" "$HYPR/overtake.lua"
+install -Dm644 "$REPO/hypr/overtake-classic.lua" "$HYPR/overtake-classic.lua"
+install -Dm644 "$REPO/hypr/overtake-studio.lua" "$HYPR/overtake-studio.lua"
 set_block "$HYPR/bindings.lua" "--" '-- Overtake Mode: switch with SUPER+CTRL+SHIFT+W (or `overtake on|off|toggle`).
 -- Its shortcuts load only while the mode is on.
 o.bind("SUPER + CTRL + SHIFT + W", "Toggle Overtake Mode", "overtake toggle")
@@ -66,23 +68,28 @@ if overtake_flag then
 end'
 set_block "$HYPR/autostart.lua" "--" '-- Overtake Mode: restart its wallpaper slideshow after login if the mode is on.
 o.launch_on_start("overtake resume")'
-say "Hyprland: ~/.config/hypr/overtake.lua, plus marked blocks in bindings.lua and autostart.lua"
+say "Hyprland: ~/.config/hypr/overtake{,-classic,-studio}.lua, plus marked blocks in bindings.lua and autostart.lua"
 
 # 3. Shell plugins: the taskbar (Start menu, title bars, desktop icons,
 #    Settings), three Omarchy bar widgets and Omarchy's notifications, copied
 #    from this machine's Omarchy and patched. One whose patch no longer
 #    applies is left out, and Overtake uses Omarchy's own one instead.
 mkdir -p "$PLUGINS"
-rm -rf "${PLUGINS:?}/overtake.taskbar" "${PLUGINS:?}/overtake.notification-center"
-cp -r "$REPO/plugins/overtake.taskbar" "$PLUGINS/overtake.taskbar"
-cp -r "$REPO/plugins/overtake.notification-center" "$PLUGINS/overtake.notification-center"
+OWN_PLUGINS="overtake.taskbar overtake.notification-center overtake.menubar overtake.control-center"
+for plugin in $OWN_PLUGINS; do
+  rm -rf "${PLUGINS:?}/$plugin"
+  cp -r "$REPO/plugins/$plugin" "$PLUGINS/$plugin"
+done
 
 build_widget() {  # build_widget <name> <source dir> <manifest> <files or dirs...>
   local name=$1 source=$2 manifest=$3; shift 3
   local target="$PLUGINS/overtake.$name"
   # An enabled copy whose rebuild fails below is removed; disable it first, so
-  # Omarchy's own (which enabling the copy disabled) comes back.
-  omarchy plugin disable "overtake.$name" >/dev/null 2>&1 || true
+  # Omarchy's own (which enabling the copy disabled) comes back. Not in a test
+  # install (OVERTAKE_NO_RELOAD): `omarchy plugin` acts on the running shell
+  # whatever HOME says, and disabling a bar widget swaps it back to Omarchy's
+  # in the live bar.
+  [[ -n ${OVERTAKE_NO_RELOAD:-} ]] || omarchy plugin disable "overtake.$name" >/dev/null 2>&1 || true
   rm -rf "${target:?}"
   mkdir -p "$target"
   cp -L "$source/$manifest" "$target/manifest.json"
@@ -110,10 +117,12 @@ build_widget notifications "$OMARCHY_PLUGINS/notifications" manifest.json Servic
 build_widget battery "$OMARCHY_PLUGINS/services/battery" manifest.json Service.qml BatteryModel.js
 # Both stay enabled in either mode (they check it themselves), so switching
 # modes needs no shell restart. The reload below picks them up.
-for id in notifications battery; do
-  [[ -d $PLUGINS/overtake.$id ]] && { omarchy plugin enable "overtake.$id" >/dev/null 2>&1 || true; }
-done
-say "plugins: overtake.taskbar, overtake.notification-center"
+if [[ -z ${OVERTAKE_NO_RELOAD:-} ]]; then
+  for id in notifications battery; do
+    [[ -d $PLUGINS/overtake.$id ]] && { omarchy plugin enable "overtake.$id" >/dev/null 2>&1 || true; }
+  done
+fi
+say "plugins: ${OWN_PLUGINS// /, }"
 
 # 4. The Omarchy menu entry (Overtake Mode, under the main menu).
 mkdir -p "$(dirname "$MENU")"
@@ -142,12 +151,14 @@ say "menu: Overtake Mode in the Omarchy menu"
 
 # 5. Your settings (only the ones you don't have yet) and the wallpapers.
 mkdir -p "$CONFIG"
-for file in desktop-icons.txt no-controls.txt start-pinned.txt; do
+for file in desktop-icons.txt no-controls.txt start-pinned.txt dock-pinned.txt; do
   [[ -e $CONFIG/$file ]] || cp "$REPO/config/$file" "$CONFIG/$file"
 done
 mkdir -p "$PICTURES/slideshow"
 cp "$REPO"/wallpapers/*.png "$PICTURES/slideshow/"
-say "settings: ~/.config/overtake (existing files kept); wallpapers: ~/Pictures/overtake/slideshow"
+mkdir -p "$PICTURES/studio"
+cp "$REPO"/wallpapers/studio/*.png "$PICTURES/studio/"
+say "settings: ~/.config/overtake (existing files kept); wallpapers: ~/Pictures/overtake/{slideshow,studio}"
 
 # Trash as an app, so it can be found in Start, pinned to Start or the
 # taskbar, and added back to the desktop after being removed from it.
@@ -213,4 +224,5 @@ fi
 
 echo
 echo "Done. Turn Overtake Mode on with SUPER+CTRL+SHIFT+W, \`overtake on\`, or"
-echo "Omarchy menu → Overtake Mode. Run \`overtake\` for everything else it can do."
+echo "Omarchy menu → Overtake Mode. Pick its look with \`overtake style classic|studio\`."
+echo "Run \`overtake\` for everything else it can do."

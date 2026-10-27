@@ -503,7 +503,10 @@ Panel {
     return name
   }
 
-  visible: !root.vertical
+  // "hidden": true (the Studio look's bar): nothing on the bar, but the
+  // plugin's service (title bars, desktop icons, the Dock) stays loaded.
+  readonly property bool hiddenEntry: setting("hidden", false) === true
+  visible: !root.vertical && !hiddenEntry
   implicitWidth: visible ? row.implicitWidth : 0
   implicitHeight: root.barSize
 
