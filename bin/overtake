@@ -4,7 +4,7 @@
 # and a wallpaper slideshow.
 #
 #   overtake on|off|toggle|status
-#   overtake style [classic|studio]  # pick or print the look: Classic (taskbar, Start) or Studio (menu bar, Dock)
+#   overtake style [classic|studio]  # pick or print the mode: Classic (taskbar, Start) or Studio (menu bar, Dock)
 #   overtake studio-get|studio-set <dockSize|dockMagnify|dockAutohide> [value]  # Studio's Dock options (Settings)
 #   overtake show-desktop     # SUPER+D: jump to an empty workspace and back
 #   overtake theme-picker [omarchy|custom|all]  # pick a theme from one folder; prints its name
@@ -491,7 +491,7 @@ set_style() {
   if [[ -f $FLAG && $before == classic ]]; then save_taskbar_settings; fi
   [[ -f $FLAG && $before != "$1" ]] && save_look "$before"
   echo "$1" >"$STYLE_FILE"
-  [[ -f $FLAG ]] || { notify $'\uf0ec' "Overtake look: ${1^} (applies when Overtake Mode is on)"; return 0; }
+  [[ -f $FLAG ]] || { notify $'\uf0ec' "Overtake mode: ${1^} (applies when Overtake Mode is on)"; return 0; }
   [[ $before == "$1" ]] && return 0
   set_bar "$(style_bar)"
   add_bar_size
@@ -506,7 +506,7 @@ set_style() {
   fi
   hyprctl reload >/dev/null
   setsid sh -c 'sleep 1.5; overtake relayout all' </dev/null >/dev/null 2>&1 &
-  notify $'\uf0ec' "Overtake look: ${1^}"
+  notify $'\uf0ec' "Overtake mode: ${1^}"
 }
 
 turn_on() {
@@ -1253,42 +1253,88 @@ theme_picker() {
   exec omarchy-menu-images --print-name --show-labels --filterable --lazy-thumbnails --selected "$selected" "$cache"
 }
 
-# Style > Background with Overtake's wallpapers next to the theme's own: the
-# theme's backgrounds first (one may be its live wallpaper), then yours for
-# this theme, then the Classic and Studio slideshow pictures. Prints the
-# picked file. `bg-picker cache` only makes the previews (the installer runs
-# it), so the first opening doesn't wait for them.
+# Style > Background: every wallpaper in one list, in groups, each named by
+# where it comes from (the picker labels a picture by its file name):
+#   1. this theme's own backgrounds   "Topside Mountain View (This Theme, Live)"
+#   2. live wallpapers of your other themes, so a different live wallpaper
+#      doesn't mean a different theme   "Topside Dusk (Live)" (Lite versions
+#      share their picture, so they're left out)
+#   3. the Classic and Studio pictures   "Classic: Hills Day"
+# Prints the picked file itself. `bg-picker cache` only makes the previews
+# (the installer runs it), so the first opening doesn't wait for them.
+pretty_name() {  # topside-mountain-view -> Topside Mountain View
+  local word out=()
+  for word in ${1//[-_]/ }; do out+=("${word^}"); done
+  echo "${out[*]}"
+}
+
+bg_link() {  # bg_link <group dir> <name> <file>: (re)point one entry
+  local link="$1/$2.${3##*.}"
+  BG_WANT[$link]=1
+  [[ $(readlink "$link" 2>/dev/null) == "$3" ]] || ln -sfn "$3" "$link"
+  [[ $(readlink -f "$3") == "$BG_CURRENT" ]] && BG_SELECTED=$link
+  return 0
+}
+
 bg_picker() {
   shopt -s nullglob
-  local theme current cache dir file link selected="" n=0 want=()
+  local theme theme_base cache dir file name base n link live suffix
+  declare -gA BG_WANT=()
+  BG_SELECTED=""
+  BG_CURRENT=$(readlink -f "$CURRENT_BG" 2>/dev/null || true)
   theme=$(cat "$CURRENT_THEME_NAME" 2>/dev/null || true)
-  current=$(readlink -f "$CURRENT_BG" 2>/dev/null || true)
+  theme_base=${theme%-lite}
   cache="${XDG_CACHE_HOME:-$HOME/.cache}/overtake/bg-picker"
-  mkdir -p "$cache"
-  for dir in "$HOME/.local/state/omarchy/current/theme/backgrounds" "$HOME/.config/omarchy/backgrounds/$theme" \
-             "$HOME/Pictures/overtake/slideshow" "$HOME/Pictures/overtake/studio"; do
+  # links change only when the pictures do: unchanged folders let Omarchy's
+  # picker reuse its list instead of rereading every picture
+  rm -f "$cache"/* 2>/dev/null || true   # (flat layout of an older version)
+  mkdir -p "$cache/1-theme" "$cache/2-live" "$cache/3-overtake"
+
+  n=0
+  for file in "$HOME/.local/state/omarchy/current/theme/backgrounds"/* "$HOME/.config/omarchy/backgrounds/$theme"/*; do
+    [[ -f $file && ${file,,} =~ \.(png|jpe?g|webp)$ ]] || continue
     n=$((n + 1))
-    for file in "$dir"/*.{png,jpg,jpeg,webp,PNG,JPG,JPEG,WEBP}; do
-      [[ -f $file ]] || continue
-      link="$cache/$n-${file##*/}"
-      want+=("$link")
-      # links change only when the pictures do: an unchanged folder lets
-      # Omarchy's picker reuse its list instead of rereading every picture
-      [[ $(readlink "$link" 2>/dev/null) == "$file" ]] || ln -sfn "$file" "$link"
-      [[ $(readlink -f "$file") == "$current" ]] && selected=$link
+    base=${file##*/}; base=${base%.*}
+    live=""
+    [[ -f ${file%/backgrounds/*}/live/$base.frag.qsb ]] && live=", Live"
+    suffix=""; (( n > 1 )) && suffix=" $n"
+    bg_link "$cache/1-theme" "$(pretty_name "$theme")$suffix (This Theme$live)" "$file"
+  done
+
+  for dir in "${OMARCHY_PATH:-/usr/share/omarchy}/themes"/*/ "$HOME/.config/omarchy/themes"/*/; do
+    dir=${dir%/}; name=${dir##*/}
+    [[ $name == *-lite || $name == "$theme_base" ]] && continue
+    n=0
+    for file in "$dir"/live/*.frag.qsb; do
+      base=${file##*/}; base=${base%.frag.qsb}
+      for link in "$dir/backgrounds/$base".{png,jpg,jpeg,webp}; do
+        [[ -f $link ]] || continue
+        n=$((n + 1)); suffix=""; (( n > 1 )) && suffix=" $n"
+        bg_link "$cache/2-live" "$(pretty_name "$name")$suffix (Live)" "$link"
+        break
+      done
     done
   done
-  for link in "$cache"/*; do
-    [[ " ${want[*]} " == *" $link "* ]] || rm -f "$link"
+
+  for dir in slideshow:Classic studio:Studio; do
+    for file in "$HOME/Pictures/overtake/${dir%%:*}"/*; do
+      [[ -f $file && ${file,,} =~ \.(png|jpe?g|webp)$ ]] || continue
+      base=${file##*/}; base=${base%.*}; base=${base#[0-9]-}
+      bg_link "$cache/3-overtake" "${dir#*:}: $(pretty_name "$base")" "$file"
+    done
   done
+
+  for link in "$cache"/*/*; do
+    [[ -n ${BG_WANT[$link]:-} ]] || rm -f "$link"
+  done
+  local groups=("$cache/1-theme" "$cache/2-live" "$cache/3-overtake")
   if [[ ${1:-} == cache ]]; then
-    omarchy-menu-images --cache-only "$cache" >/dev/null 2>&1 || true
+    omarchy-menu-images --cache-only "${groups[@]}" >/dev/null 2>&1 || true
     return 0
   fi
   local picked
-  picked=$(omarchy-menu-images --lazy-thumbnails --selected "$selected" "$cache") || return 0
+  picked=$(omarchy-menu-images --show-labels --lazy-thumbnails --selected "$BG_SELECTED" "${groups[@]}") || return 0
   [[ -n $picked ]] || return 0
-  # the file itself, so a theme background keeps its place under the theme
   readlink "$picked" 2>/dev/null || echo "$picked"
 }
 

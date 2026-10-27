@@ -184,7 +184,7 @@ Item {
     ]},
     { id: "overtake", name: "Overtake Mode", glyph: "\uf0ec", sections: [
       { title: "Overtake Mode", rows: [
-        { type: "choice", title: "Look", detail: "Classic: taskbar and Start at the bottom. Studio: menu bar on top, Dock at the bottom, Super as Command",
+        { type: "choice", title: "Mode", detail: "Classic: taskbar and Start at the bottom. Studio: menu bar on top, Dock at the bottom, Super as Command",
           options: "printf 'Classic\\nStudio\\n'", current: "overtake style | sed 's/^./\\U&/'", set: "overtake style {}" },
         { type: "link", title: "Switch to Omarchy", detail: "Go back to Omarchy's own layout (Super+Ctrl+Shift+W switches either way)", run: "overtake off" }
       ]},

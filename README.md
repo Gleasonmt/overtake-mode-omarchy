@@ -7,7 +7,7 @@ on-ramp for people coming from other desktops: ease in with what you know, and
 switch to Omarchy's own keyboard-first tiling whenever you're ready. One
 shortcut switches either way, and Omarchy itself isn't changed.
 
-It comes in two looks, switchable any time (`overtake style classic|studio`,
+It comes in two modes, switchable any time (`overtake style classic|studio`,
 Settings → Overtake Mode, or the Omarchy menu):
 
 - **Classic** — taskbar and Start menu along the bottom.
@@ -118,22 +118,26 @@ grouped by app, with per-app Show / Quiet / Off and Do Not Disturb.
 - **Desktop icons**, a **wallpaper slideshow** (rotate every 15 minutes, or
   follow sunrise and sunset), and an **Overtake Mode** entry in the Omarchy menu.
   A wallpaper you pick yourself stays put; Super+Ctrl+Alt+Space goes back to
-  the slideshow. Style → Background (and the desktop's right-click menu)
-  lists the theme's own backgrounds first, its live wallpaper if it has one,
-  then the Classic and Studio pictures.
-- **A look per mode** — Omarchy (Overtake Mode off), Classic and Studio each
+  the slideshow.
+- **Every wallpaper in Style → Background** (and the desktop's right-click
+  menu), named by where it comes from: this theme's own ("Topside Mountain
+  View (This Theme, Live)"), the live wallpapers of your other themes
+  ("Topside Dusk (Live)"), then the Classic and Studio pictures. So a
+  different live wallpaper doesn't mean a different theme: the theme sets
+  the colours, Background sets the wallpaper.
+- **A theme and wallpaper per mode** — Omarchy (Overtake Mode off), Classic and Studio each
   remember their own theme and wallpaper. Pick a theme while in Studio and
   Studio keeps it; switching modes puts each one's back.
 
 ## Studio
 
-The second look, for people used to a menu bar and a Dock. Everything else
+The second mode, for people used to a menu bar and a Dock. Everything else
 above (title bars, snapping, notifications, Settings, battery alerts,
-wallpapers, dock/undock layouts) works the same in both looks.
+wallpapers, dock/undock layouts) works the same in both modes.
 
 - **Menu bar** — the Omarchy logo opens the system menu (About, System
   Settings, Force Quit, Sleep / Restart / Shut Down, Lock, Log Out, and the
-  look switch). Next to it, the focused app's name in bold, then File, Edit,
+  mode switch). Next to it, the focused app's name in bold, then File, Edit,
   View, Window and Help. Linux apps don't hand their own menus to the
   desktop, so these hold what works in every app: new window and tab, the
   edit keys (sent to the app), full screen, zoom, tiling, and the app's
@@ -241,7 +245,7 @@ All in `~/.config/overtake/`:
 | Where | What |
 | --- | --- |
 | `~/.local/bin/overtake` | the command |
-| `~/.config/hypr/overtake.lua`, `overtake-classic.lua`, `overtake-studio.lua` | the window rules and each look's shortcuts, loaded only while the mode is on |
+| `~/.config/hypr/overtake.lua`, `overtake-classic.lua`, `overtake-studio.lua` | the window rules and each mode's shortcuts, loaded only while the mode is on |
 | `~/.config/hypr/bindings.lua`, `autostart.lua` | a few lines between `>>> overtake` / `<<< overtake` markers |
 | `~/.config/omarchy/plugins/overtake.taskbar` | taskbar, Start menu, title bars, desktop icons, Settings; Studio's Dock, Spotlight, App Switcher, Mission Control and Force Quit |
 | `~/.config/omarchy/plugins/overtake.menubar`, `overtake.control-center` | Studio's menu bar, and its Spotlight and Control Center buttons |

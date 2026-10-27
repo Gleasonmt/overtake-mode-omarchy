@@ -78,7 +78,7 @@ Item {
     { name: "Force Quit…", detail: "Action", glyph: "", command: ["overtake", "ui", "force-quit"], extra: "kill app not responding" },
     { name: "Omarchy Menu", detail: "Action", glyph: "", font: "omarchy", command: ["omarchy-menu", "toggle"], extra: "omarchy" },
     { name: "Keyboard Shortcuts", detail: "Help", glyph: "", command: ["omarchy-menu-keybindings"], extra: "keys bindings help" },
-    { name: "Classic look", detail: "Overtake Mode", glyph: "", command: ["overtake", "style", "classic"], extra: "taskbar start overtake style" },
+    { name: "Classic mode", detail: "Overtake Mode", glyph: "", command: ["overtake", "style", "classic"], extra: "taskbar start overtake style" },
     { name: "Omarchy desktop", detail: "Overtake Mode", glyph: "", command: ["overtake", "off"], extra: "tiling turn off overtake" }
   ].map(function(a) { return Object.assign({ kind: "action" }, a) })
 
