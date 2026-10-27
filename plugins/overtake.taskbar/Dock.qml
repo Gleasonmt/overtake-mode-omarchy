@@ -46,9 +46,17 @@ Item {
   })
   readonly property var minimizedItems: apps.windows.filter(function(t) { return apps.isMinimized(t) })
 
-  function clickApp(group) {
+  // An app with several windows (on any workspace) opens a list of them to
+  // pick from, as the taskbar does.
+  function clickApp(group, label, screen, x) {
     if (group.key === "overtake-apps") { run(["ui", "apps"]); return }
     if (group.windows.length === 0) { apps.launch(group); return }
+    if (group.windows.length > 1) {
+      var rows = windowRows(group)
+      if (group.entry) rows.push({ separator: true }, { label: "New Window", run: function() { apps.launch(group) } })
+      openMenu(label, rows, screen, x)
+      return
+    }
     var front = apps.frontWindow(group)
     if (front === Hyprland.activeToplevel && !apps.isMinimized(front) && front.workspace === Hyprland.focusedWorkspace) {
       run(["minimize", apps.addressOf(front)])
@@ -63,13 +71,16 @@ Item {
   property var menuScreen: null
   property string menuTitle: ""
 
-  function appMenu(group) {
-    var rows = []
-    group.windows.forEach(function(t) {
-      rows.push({ label: apps.titleOf(t) || apps.nameOf(group), check: t === Hyprland.activeToplevel,
-                  detail: apps.isMinimized(t) ? "Minimized" : (t.workspace && t.workspace !== Hyprland.focusedWorkspace ? "Workspace " + t.workspace.name : ""),
-                  run: function() { apps.show(t) } })
+  function windowRows(group) {
+    return group.windows.map(function(t) {
+      return { label: apps.titleOf(t) || apps.nameOf(group), check: t === Hyprland.activeToplevel,
+               detail: apps.isMinimized(t) ? "Minimized" : (t.workspace && t.workspace !== Hyprland.focusedWorkspace ? "Workspace " + t.workspace.name : "This workspace"),
+               run: function() { apps.show(t) } }
     })
+  }
+
+  function appMenu(group) {
+    var rows = windowRows(group)
     if (rows.length) rows.push({ separator: true })
     if (group.entry) rows.push({ label: "New Window", run: function() { apps.launch(group) } })
     if (group.key !== "overtake-apps" && group.entry)
@@ -218,7 +229,7 @@ Item {
             label: modelData.key === "overtake-apps" ? "Apps" : root.apps.nameOf(modelData)
             running: modelData.windows.length > 0
             win: dockWindow
-            onLeftClicked: root.clickApp(modelData)
+            onLeftClicked: root.clickApp(modelData, label, dockWindow.modelData, centerX())
             onMiddleClicked: root.apps.launch(modelData)
             onRightClicked: root.openMenu(label, root.appMenu(modelData), dockWindow.modelData, centerX())
           }
