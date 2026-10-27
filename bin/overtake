@@ -108,7 +108,8 @@ WINDOWS_BAR='{
   }
 }'
 
-# Studio: a menu bar along the top (the focused app's menus on the left, status
+# Studio: a menu bar along the top (the focused app's menus on the left, the
+# workspace numbers in the middle, status
 # icons, Control Center and the clock on the right; the clock opens the
 # notification center). The Dock is drawn by the overtake.taskbar service,
 # which Omarchy loads only while its widget is on the bar: hence the hidden
@@ -116,9 +117,10 @@ WINDOWS_BAR='{
 STUDIO_BAR='{
   "position": "top",
   "transparent": true,
+  "centerAnchor": "overtake.workspaces",
   "layout": {
     "left": [{ "id": "overtake.menubar" }, { "id": "overtake.taskbar", "hidden": true }],
-    "center": [],
+    "center": [{ "id": "overtake.workspaces" }],
     "right": [
       { "id": "omarchy.system-update" },
       { "id": "omarchy.tray" },

@@ -130,7 +130,8 @@ wallpapers, dock/undock layouts) works the same in both looks.
   View, Window and Help. Linux apps don't hand their own menus to the
   desktop, so these hold what works in every app: new window and tab, the
   edit keys (sent to the app), full screen, zoom, tiling, and the app's
-  windows. Status icons, Spotlight and Control Center sit on the right; the
+  windows. Workspace numbers sit in the middle (click one to go there);
+  status icons, Spotlight and Control Center on the right; the
   clock opens the notification center.
 - **Dock** — pinned and running apps (a dot means running), minimized windows
   after the divider, then Downloads (click for the newest files) and Trash.
