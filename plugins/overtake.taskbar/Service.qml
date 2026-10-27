@@ -131,4 +131,21 @@ Item {
     }
     onLoadFailed: root.settingsRequestSeen = true
   }
+
+  // Omarchy's own copies of the workspaces, Bluetooth and sound widgets can
+  // land back in the bar (disabling one of Overtake's does that); a moment
+  // after the bar settings change, `overtake fix-bar` swaps them back. A bar
+  // change can also restart this service, so it checks on starting too.
+  FileView {
+    path: Quickshell.env("HOME") + "/.config/omarchy/shell.json"
+    watchChanges: true
+    printErrors: false
+    onFileChanged: barCheck.restart()
+  }
+  onModeOnChanged: if (modeOn) barCheck.restart()
+  Timer {
+    id: barCheck
+    interval: 1500
+    onTriggered: Quickshell.execDetached(["overtake", "fix-bar"])
+  }
 }

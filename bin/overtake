@@ -434,7 +434,15 @@ fix_bar_widgets() {
     omarchy-shell shell reloadConfig >/dev/null 2>&1 || true
     echo "$(date '+%F %T') put back Overtake's ${fixed[*]} (the bar had Omarchy's)" >>"$STATE_DIR/bar-fixes.log"
   fi
-  (( ${#missing[@]} == 0 )) || notify $'\uf071' "Overtake's ${missing[*]} widget isn't installed, so the bar uses Omarchy's. Run ./install.sh again to fix it."
+  # Said once, not on every bar change: a copy the installer couldn't build
+  # stays missing until Overtake is updated and installed again.
+  local said="$STATE_DIR/bar-fixes.missing"
+  if (( ${#missing[@]} == 0 )); then
+    rm -f "$said"
+  elif [[ $(cat "$said" 2>/dev/null) != "${missing[*]}" ]]; then
+    echo "${missing[*]}" >"$said"
+    notify $'\uf071' "Overtake's ${missing[*]} widget isn't installed, so the bar uses Omarchy's. Installing Overtake again (./install.sh) brings it back."
+  fi
 }
 
 # The taskbar's settings (pins) out of the live bar, kept while the mode is
@@ -1258,7 +1266,7 @@ case "${1:-help}" in
   off) mode_lock; turn_off ;;
   toggle) mode_lock; if [[ -f $FLAG ]]; then turn_off; else turn_on; fi ;;
   status) [[ -f $FLAG ]] && echo on || echo off ;;
-  fix-bar) fix_bar_widgets ;;
+  fix-bar) mode_lock; fix_bar_widgets ;;   # also run by the shell when the bar settings change
   style) if [[ -n ${2:-} ]]; then mode_lock; set_style "${2,,}"; else style; fi ;;
   studio-get) studio_get "${2:-}" ;;
   studio-set) studio_set "${2:-}" "${3:-}" ;;

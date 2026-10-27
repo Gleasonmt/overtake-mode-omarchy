@@ -281,10 +281,10 @@ The default **Rotate** mode makes no network requests.
 - Overtake's bar uses its own copies of Omarchy's workspaces, Bluetooth and
   sound widgets (all workspaces in use, no gaps; right-click opens the panel
   instead of turning Bluetooth off or muting). If Omarchy's originals end up
-  back in the bar (disabling a copy does that), they're swapped out again at
-  login and on `overtake on`, or right away with `overtake fix-bar`. If a copy
-  isn't installed (an Omarchy update the installer couldn't patch), you get a
-  notification: run `./install.sh` again.
+  back in the bar (disabling a copy does that), Overtake notices within a few
+  seconds and swaps its copies back on its own (`overtake fix-bar` does the
+  same by hand). If a copy isn't installed (an Omarchy update the installer
+  couldn't patch), Omarchy's stays and you get a one-time notification.
 - Network picking, Bluetooth pairing and detailed sound settings open
   Omarchy's own panels; screen resolution and keyboard layouts open the
   config file.
