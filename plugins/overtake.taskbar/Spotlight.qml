@@ -185,6 +185,15 @@ Item {
       }
     }
   }
+  // A sum's result to the clipboard, through wl-copy's stdin
+  Process {
+    id: copier
+    property string value: ""
+    command: ["wl-copy"]
+    stdinEnabled: true
+    onStarted: { write(value); value = ""; stdinEnabled = false }
+  }
+
   function filterFiles() {
     var q = root.query.trim().toLowerCase()
     if (q.length < 2 || root.view !== "search") return
@@ -208,7 +217,7 @@ Item {
     if (item.kind === "app") Quickshell.execDetached(["uwsm-app", "--", "gtk-launch", item.id + ".desktop"])
     else if (item.kind === "action") Quickshell.execDetached(item.command)
     else if (item.kind === "file") Quickshell.execDetached(["uwsm-app", "--", "xdg-open", item.path])
-    else if (item.kind === "sum") Quickshell.execDetached(["wl-copy", "--", item.name])
+    else if (item.kind === "sum") { copier.value = item.name; copier.running = true }
   }
 
   // Apps view: the grid, filtered by what's typed.

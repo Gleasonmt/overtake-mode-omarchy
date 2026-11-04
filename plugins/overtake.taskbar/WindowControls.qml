@@ -477,10 +477,10 @@ Item {
   Connections {
     target: Hyprland
     function onRawEvent(event) {
-      if (/window|workspace|fullscreen|floating|monitor/.test(event.name)) {
-        Hyprland.refreshToplevels()
-        Hyprland.refreshMonitors()
-      }
+      // (a title change moves nothing: Claude Code's spinner changes its title
+      // constantly; and a burst of events is one refresh)
+      if (/window|workspace|fullscreen|floating|monitor/.test(event.name) && !/^windowtitle/.test(event.name)
+          && !refreshSoon.running) refreshSoon.start()
       // Close the picker only when focus moves to a different window.
       if (event.name === "activewindowv2" && "0x" + event.data !== root.pickerFor) root.pickerOpen = false
       // A screen came or went (lid, dock): windows go back to their zones and
@@ -538,6 +538,15 @@ Item {
   }
 
   Timer {
+    id: refreshSoon
+    interval: 100
+    onTriggered: {
+      Hyprland.refreshToplevels()
+      Hyprland.refreshMonitors()
+    }
+  }
+
+  Timer {
     interval: 400
     running: root.modeOn && !root.dragging && !root.watchingSelfMove
     repeat: true
@@ -578,7 +587,8 @@ Item {
   }
 
   Timer {
-    interval: 80
+    // quick only once the window has started moving
+    interval: root.movedTicks > 0 || root.selfMoving ? 80 : 250
     running: root.watchingSelfMove
     repeat: true
     onTriggered: {

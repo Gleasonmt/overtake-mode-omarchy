@@ -105,10 +105,19 @@ fi
 # (Omarchy's own that you had turned off before installing stay off.)
 KEEP_OFF=$(jq -Rsc 'split("\n") | map(select(length > 0))' "$HOME/.local/state/overtake/disabled-before" 2>/dev/null) || KEEP_OFF='[]'
 if [[ -f $SHELL_JSON ]]; then
-  tmp=$(mktemp "$SHELL_JSON.XXXXXX")
-  jq --argjson keep "${KEEP_OFF:-[]}" '(.plugins |= (if type == "array" then map(select((if type == "object" then .id else . end) | tostring | startswith("overtake.") | not)) else . end))
-      | (.disabledPlugins |= (if type == "array" then map(select((. == "omarchy.notifications" or . == "omarchy.battery") as $ours | ($ours | not) or (. as $id | $keep | index($id)))) else . end))' \
-    "$SHELL_JSON" >"$tmp" && mv "$tmp" "$SHELL_JSON" || rm -f "$tmp"
+  # (written next to the real file, the link's target if it's a symlink, and
+  # renamed over it, keeping its mode)
+  target=$(readlink -f "$SHELL_JSON")
+  tmp=$(mktemp "$target.XXXXXX")
+  if jq --argjson keep "${KEEP_OFF:-[]}" '(.plugins |= (if type == "array" then map(select((if type == "object" then .id else . end) | tostring | startswith("overtake.") | not)) else . end))
+      | (.disabledPlugins |= (if type == "array" then map(select((tostring | startswith("overtake.") | not) and ((. == "omarchy.notifications" or . == "omarchy.battery") as $ours | ($ours | not) or (. as $id | $keep | index($id))))) else . end))
+      | (if (.cloneSourceRestores | type) == "array" then .cloneSourceRestores |= map(select(tostring | startswith("overtake.") | not)) else . end)' \
+      "$SHELL_JSON" >"$tmp"; then
+    chmod --reference="$target" "$tmp" 2>/dev/null || true
+    mv -f "$tmp" "$target"
+  else
+    rm -f "$tmp"
+  fi
 fi
 
 # The bar-size block Overtake adds to shell.toml
@@ -136,14 +145,14 @@ for t in image/png image/jpeg image/jpg image/gif image/bmp image/webp image/tif
   [[ $(xdg-mime query default "$t" 2>/dev/null) == overtake-image-viewer.desktop ]] || continue
   if [[ -f $IMAGE_DEFAULTS ]] && grep -q "^$t	" "$IMAGE_DEFAULTS"; then
     before=$(awk -F'\t' -v t="$t" '$1 == t { print $2; exit }' "$IMAGE_DEFAULTS")
+    # Overtake's line out, and your own line (if you had one) back exactly
     tmp=$(mktemp "$MIMEAPPS.XXXXXX")
-    awk -v t="$t" '/^\[/ { s = ($0 == "[Default Applications]") } !(s && index($0, t "=overtake-image-viewer.desktop") == 1)' "$MIMEAPPS" >"$tmp" &&
+    awk -v t="$t" -v before="$before" '
+      /^\[/ { s = ($0 == "[Default Applications]") }
+      s && index($0, t "=overtake-image-viewer.desktop") == 1 { if (before != "") print t "=" before; next }
+      { print }' "$MIMEAPPS" >"$tmp" &&
       cat "$tmp" >"$MIMEAPPS"
     rm -f "$tmp"
-    if [[ -n $before ]]; then
-      IFS=';' read -ra apps <<<"$before"
-      xdg-mime default "${apps[@]}" "$t"
-    fi
   else
     xdg-mime default imv.desktop "$t"
   fi

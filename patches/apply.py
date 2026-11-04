@@ -135,7 +135,7 @@ PATCHES = {
     watchChanges: true
     printErrors: false
     onFileChanged: reload()
-    onLoaded: service.overtakeOn = text().trim() === "on"
+    onLoaded: { var v = text().trim(); if (v) service.overtakeOn = v === "on" }
     onLoadFailed: service.overtakeOn = false
   }
   FileView {
@@ -190,7 +190,7 @@ PATCHES = {
     watchChanges: true
     printErrors: false
     onFileChanged: reload()
-    onLoaded: root.overtakeOn = text().trim() === "on"
+    onLoaded: { var v = text().trim(); if (v) root.overtakeOn = v === "on" }
     onLoadFailed: root.overtakeOn = false
   }
 

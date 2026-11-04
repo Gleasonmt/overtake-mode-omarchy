@@ -49,7 +49,7 @@ Item {
     watchChanges: true
     printErrors: false
     onFileChanged: reload()
-    onLoaded: root.modeOn = text().trim() === "on"
+    onLoaded: { var v = text().trim(); if (v) root.modeOn = v === "on" }   // (an empty read is a rewrite in progress)
     onLoadFailed: root.modeOn = false
   }
 
@@ -116,17 +116,27 @@ Item {
   Connections {
     target: Hyprland
     function onRawEvent(event) {
-      if (/window|workspace|fullscreen|floating|monitor|special|group/.test(event.name)) {
-        Hyprland.refreshToplevels()
-        Hyprland.refreshMonitors()
-      }
-      if (/^(openwindow|closewindow)$/.test(event.name)) sessionsSoon.restart()
+      // (not title changes: Claude Code's spinner changes its title constantly;
+      // a burst of events is one refresh)
+      if (/window|workspace|fullscreen|floating|monitor|special|group/.test(event.name) && !/^windowtitle/.test(event.name)
+          && !geometrySoon.running) geometrySoon.start()
+      // only with Claude Code running, or tags to tidy
+      if (/^(openwindow|closewindow)$/.test(event.name) && (claudeSessions.count > 0 || Object.keys(root.claude).length > 0))
+        sessionsSoon.restart()
       // Naming gives up when another window takes focus.
       if (event.name === "activewindowv2" && root.editing && "0x" + event.data !== root.editing) root.editing = ""
     }
   }
   Timer {
-    interval: 700
+    id: geometrySoon
+    interval: 100
+    onTriggered: {
+      Hyprland.refreshToplevels()
+      Hyprland.refreshMonitors()
+    }
+  }
+  Timer {
+    interval: 1500   // resizes send no event
     running: root.tagged.length > 0
     repeat: true
     onTriggered: {
@@ -318,6 +328,7 @@ Item {
           id: pencil
           anchors { left: labelText.right; leftMargin: 6; verticalCenter: parent.verticalCenter }
           visible: tagArea.containsMouse && !tag.editing
+          textFormat: Text.PlainText
           text: ""
           color: Commons.Color.accent
           font.family: Style.font.family

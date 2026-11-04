@@ -179,10 +179,14 @@ Panel {
   // brought forward if it's open. If none of those can happen the entry
   // stays in the list rather than vanishing for nothing.
   function activate(entry) {
+    // The toast's own action, checked and run exactly as Omarchy's own
+    // notifications do (an argv of strings, through a login shell's PATH).
     var argv = null
     try { argv = JSON.parse(entry.execArgv || "") } catch (e) {}
-    if (Array.isArray(argv) && argv.length && typeof argv[0] === "string" && argv[0] && argv[0].charAt(0) !== "-") {
-      Quickshell.execDetached(argv)
+    var valid = Array.isArray(argv) && argv.length > 0 && argv.every(function(a) { return typeof a === "string" })
+      && argv[0] !== "" && argv[0].charAt(0) !== "-"
+    if (valid) {
+      Quickshell.execDetached(["bash", "-lc", 'exec "$@"', "bash"].concat(argv))
       remove(entry)
       close()
       return
