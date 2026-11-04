@@ -62,7 +62,7 @@ Item {
   readonly property var actions: [
     { name: "System Settings", detail: "Overtake Settings", glyph: "", command: ["overtake", "settings"], extra: "preferences control panel" },
     { name: "Lock Screen", detail: "Action", glyph: "", command: ["omarchy-system-lock"], extra: "lock" },
-    { name: "Sleep", detail: "Action", glyph: "", command: ["systemctl", "suspend"], extra: "suspend" },
+    { name: "Sleep", detail: "Action", glyph: "", command: ["overtake", "suspend"], extra: "suspend" },
     { name: "Restart…", detail: "Action", glyph: "", command: ["omarchy-menu", "toggle", "system"], extra: "reboot" },
     { name: "Shut Down…", detail: "Action", glyph: "", command: ["omarchy-menu", "toggle", "system"], extra: "power off" },
     { name: "Take Screenshot", detail: "Action", glyph: "", command: ["omarchy-capture-screenshot", "region"], extra: "capture screen shot" },
@@ -94,11 +94,51 @@ Item {
   readonly property string sumText: {
     var q = query.trim().replace(/^=/, "").replace(/\^/g, "**").replace(/[x×]/g, "*").replace(/÷/g, "/").replace(/,/g, "")
     if (!/^[\d\s.+\-*/%()]+$/.test(q) || !/\d/.test(q) || !/[+\-*/%]/.test(q.replace(/^\s*-/, ""))) return ""
+    var value = calculate(q)
+    if (typeof value !== "number" || !isFinite(value)) return ""
+    return String(Math.round(value * 1e10) / 1e10)
+  }
+
+  // Arithmetic for sums: + - * / % ** and brackets, read by a small parser
+  // (no eval). null when it isn't a complete sum.
+  function calculate(text) {
+    var tokens = text.match(/\d*\.?\d+|\*\*|[+\-*/%()]/g) || []
+    if (tokens.join("") !== text.replace(/\s+/g, "")) return null
+    var i = 0
+    function peek() { return tokens[i] }
+    function expr() {
+      var v = term()
+      while (peek() === "+" || peek() === "-") v = tokens[i++] === "+" ? v + term() : v - term()
+      return v
+    }
+    function term() {
+      var v = unary()
+      while (peek() === "*" || peek() === "/" || peek() === "%") {
+        var op = tokens[i++], r = unary()
+        v = op === "*" ? v * r : op === "/" ? v / r : v % r
+      }
+      return v
+    }
+    function unary() {
+      if (peek() === "-") { i++; return -unary() }
+      if (peek() === "+") { i++; return unary() }
+      return power()
+    }
+    function power() {
+      var base = atom()
+      if (peek() === "**") { i++; return Math.pow(base, unary()) }
+      return base
+    }
+    function atom() {
+      var tok = tokens[i++]
+      if (tok === "(") { var v = expr(); if (tokens[i++] !== ")") throw "bracket"; return v }
+      if (tok !== undefined && /^\d*\.?\d+$/.test(tok)) return parseFloat(tok)
+      throw "token"
+    }
     try {
-      var value = Function('"use strict"; return (' + q + ')')()
-      if (typeof value !== "number" || !isFinite(value)) return ""
-      return String(Math.round(value * 1e10) / 1e10)
-    } catch (e) { return "" }
+      var result = expr()
+      return i === tokens.length ? result : null
+    } catch (e) { return null }
   }
 
   readonly property var results: {
@@ -121,32 +161,45 @@ Item {
     fileResults = []
     if (query.trim().length >= 2 && view === "search") fileTimer.restart()
   }
+  // Files: your home folder is listed once per opening and matched here as
+  // you type, so what you type never goes into another program's command
+  // line (which other users can read).
+  property var fileIndex: []
+  onOpenChanged: if (!open) fileIndex = []
   Timer {
     id: fileTimer
     interval: 220
     onTriggered: {
-      fileSearch.running = false
-      fileSearch.wanted = root.query.trim()
-      fileSearch.command = ["fd", "--ignore-case", "--max-results", "8", "--max-depth", "6", "--fixed-strings", "--", fileSearch.wanted, root.home]
-      fileSearch.running = true
+      if (root.fileIndex.length) root.filterFiles()
+      else if (!fileList.running) fileList.running = true
     }
   }
   Process {
-    id: fileSearch
-    property string wanted: ""
+    id: fileList
+    command: ["fd", "--max-depth", "6", "--max-results", "100000", ".", root.home]
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: {
-        if (fileSearch.wanted !== root.query.trim()) return
-        root.fileResults = text.split("\n").filter(function(l) { return l }).map(function(path) {
-          var clean = path.replace(/\/$/, "")
-          var dir = path.charAt(path.length - 1) === "/"
-          return { kind: "file", name: clean.split("/").pop(), path: clean, dir: dir,
-                   detail: clean.replace(root.home, "~").replace(/\/[^/]*$/, ""),
-                   icon: Quickshell.iconPath(dir ? "folder" : "text-x-generic", true) }
-        })
+        root.fileIndex = text.split("\n").filter(function(l) { return l })
+        root.filterFiles()
       }
     }
+  }
+  function filterFiles() {
+    var q = root.query.trim().toLowerCase()
+    if (q.length < 2 || root.view !== "search") return
+    var found = []
+    for (var i = 0; i < fileIndex.length && found.length < 8; i++) {
+      var clean = fileIndex[i].replace(/\/$/, "")
+      if (clean.split("/").pop().toLowerCase().indexOf(q) !== -1) found.push(fileIndex[i])
+    }
+    root.fileResults = found.map(function(path) {
+      var clean = path.replace(/\/$/, "")
+      var dir = path.charAt(path.length - 1) === "/"
+      return { kind: "file", name: clean.split("/").pop(), path: clean, dir: dir,
+               detail: clean.replace(root.home, "~").replace(/\/[^/]*$/, ""),
+               icon: Quickshell.iconPath(dir ? "folder" : "text-x-generic", true) }
+    })
   }
 
   function activate(item) {

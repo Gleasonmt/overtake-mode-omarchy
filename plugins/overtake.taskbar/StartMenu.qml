@@ -314,7 +314,7 @@ Item {
     { glyph: "", label: "Run", command: "omarchy-menu toggle apps" },
     { separator: true },
     { glyph: "", label: "Lock", command: "omarchy-system-lock" },
-    { glyph: "", label: "Sleep", command: "systemctl suspend" },
+    { glyph: "", label: "Sleep", command: "overtake suspend" },
     { glyph: "", label: "Sign out", command: "omarchy-system-logout" },
     { glyph: "", label: "Restart", command: "omarchy-system-reboot" },
     { glyph: "", label: "Shut down", command: "omarchy-system-shutdown" },
@@ -326,7 +326,7 @@ Item {
 
   readonly property var powerItems: [
     { glyph: "", label: "Lock", command: "omarchy-system-lock" },
-    { glyph: "", label: "Sleep", command: "systemctl suspend" },
+    { glyph: "", label: "Sleep", command: "overtake suspend" },
     { glyph: "", label: "Sign out", command: "omarchy-system-logout" },
     { glyph: "", label: "Restart", command: "omarchy-system-reboot" },
     { glyph: "", label: "Shut down", command: "omarchy-system-shutdown" }

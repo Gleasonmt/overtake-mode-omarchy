@@ -30,6 +30,8 @@
 #   overtake start [quick]    # Super+S / Super+X: open the Start menu or its quick-link menu
 #   overtake settings [page]  # Super+I: the Settings window (system, bluetooth, network, ...)
 #   overtake snap-layouts     # SUPER+Z: show the snap layouts for the focused window
+#   overtake suspend          # Sleep in Start, Spotlight and the menu bar (unless Omarchy's Suspend is toggled off)
+#   overtake uninstall [--purge] [--dry-run] [--yes]  # remove Overtake Mode (runs its uninstall.sh)
 #   overtake taskbar-position <left|center>  # right-click Start: where the taskbar sits on the bar
 #   overtake copy-url <address>  # title bar menu: copy a browser window's page address
 #   overtake rename [address]    # taskbar menu, SUPER+ALT+N: bring a window up with its name ready to edit
@@ -153,31 +155,52 @@ notify() { omarchy-notification-send -g "$1" "$2" >/dev/null 2>&1 || true; }
 # Studio, kept in a marked block of the machine-level shell.toml so turning
 # the mode off removes exactly it.
 add_bar_size() {
-  remove_bar_size
+  [[ -f $SHELL_TOML ]] || : >"$SHELL_TOML"
   if [[ $(style) == studio ]]; then
-    printf '%s\n[bar]\nsize-horizontal = 30\nicon-font = 13\n%s\n' "$TOML_BEGIN" "$TOML_END" >>"$SHELL_TOML"
+    replace_with "$SHELL_TOML" bar_size_toml 30 13
   else
-    printf '%s\n[bar]\nsize-horizontal = 40\nicon-font = 15\n%s\n' "$TOML_BEGIN" "$TOML_END" >>"$SHELL_TOML"
+    replace_with "$SHELL_TOML" bar_size_toml 40 15
+  fi
+}
+
+bar_size_toml() {  # bar_size_toml <bar size> <icon font>: shell.toml with Overtake's block (once) at the end
+  awk -v b="$TOML_BEGIN" -v e="$TOML_END" '$0 == b { skip = 1 } !skip { print } $0 == e { skip = 0 }' "$SHELL_TOML"
+  printf '%s\n[bar]\nsize-horizontal = %s\nicon-font = %s\n%s\n' "$TOML_BEGIN" "$1" "$2" "$TOML_END"
+}
+
+overtake_bar_showing() {  # Overtake's bar is in shell.json (whether or not the mode flag says on)
+  jq -e '[.bar | .. | .id? // empty] | (index("overtake.taskbar") or index("overtake.menubar"))' "$SHELL_JSON" >/dev/null 2>&1
+}
+
+# Omarchy's settings files are replaced whole, the way Omarchy's own
+# omarchy-shell-config writes them: a temp file next to the real one (the
+# link's target, if it's a symlink), renamed over it once it's complete. The
+# shell never reads a half-written file, and a full /tmp can't empty it.
+replace_with() {  # replace_with <file> <command...>: the command's output becomes the file
+  local file target tmp
+  file=$1; shift
+  target=$(readlink -f "$file") || return 1
+  tmp=$(mktemp "$target.XXXXXX") || return 1
+  if "$@" >"$tmp"; then
+    chmod --reference="$target" "$tmp" 2>/dev/null || true
+    mv -f "$tmp" "$target"
+  else
+    rm -f "$tmp"
+    return 1
   fi
 }
 
 remove_bar_size() {
   [[ -f $SHELL_TOML ]] || return 0
-  local tmp
-  # (next to the file, not in /tmp, and copied over only once fully written:
-  # a full /tmp mustn't leave the settings empty)
-  tmp=$(mktemp "$SHELL_TOML.XXXXXX") || return 1
-  awk -v b="$TOML_BEGIN" -v e="$TOML_END" '$0 == b { skip = 1 } !skip { print } $0 == e { skip = 0 }' "$SHELL_TOML" >"$tmp" &&
-    cat "$tmp" >"$SHELL_TOML"
-  rm -f "$tmp"
+  replace_with "$SHELL_TOML" awk -v b="$TOML_BEGIN" -v e="$TOML_END" \
+    '$0 == b { skip = 1 } !skip { print } $0 == e { skip = 0 }' "$SHELL_TOML"
 }
 
-# Rewrite shell.json in place (not a rename) so the shell's file watcher sees it.
+# The bar layout in shell.json (fails, leaving the file as it was, if the
+# layout isn't valid JSON).
 set_bar() {
-  local tmp
-  tmp=$(mktemp "$SHELL_JSON.XXXXXX") || return 1
-  jq --argjson bar "$1" '.bar = $bar' "$SHELL_JSON" >"$tmp" && [[ -s $tmp ]] && cat "$tmp" >"$SHELL_JSON"
-  rm -f "$tmp"
+  jq -e --argjson bar "$1" 'type == "object"' <<<'{}' >/dev/null 2>&1 || return 1
+  replace_with "$SHELL_JSON" jq --argjson bar "$1" '.bar = $bar' "$SHELL_JSON"
 }
 
 next_wallpaper() {
@@ -261,7 +284,7 @@ sun_times() {
   local cache="$STATE_DIR/sun-$(date +%F)" times
   if [[ ! -s $cache ]]; then
     rm -f "$STATE_DIR"/sun-*
-    times=$(curl -fsS --max-time 8 'https://wttr.in/?format=j1' 2>/dev/null |
+    times=$(curl -fs --max-time 8 'https://wttr.in/?format=j1' |
       jq -r '.weather[0].astronomy[0] | "\(.sunrise)|\(.sunset)"' 2>/dev/null) || true
     if [[ $times == *"|"* ]]; then
       echo "$(date -d "${times%%|*}" +%H%M) $(date -d "${times##*|}" +%H%M)" >"$cache"
@@ -339,6 +362,10 @@ live_wallpaper_showing() {
 # every 5 minutes whether the sun has come up or gone down. Neither replaces
 # a wallpaper you picked (see picked_wallpaper).
 slideshow_loop() {
+  # one loop at a time: two quick starts can each launch one before either
+  # has written its pid, and the later one quits here
+  exec 8>"$STATE_DIR/.slideshow-run.lock"
+  flock -n 8 || return 0
   echo $$ >"$SLIDESHOW_PID"
   while [[ -f $FLAG ]]; do
     if [[ $(wallpaper_mode) == day-night ]]; then
@@ -546,6 +573,7 @@ turn_on() {
   hyprctl clients -j | jq -c '[.[] | select(.workspace.id > 0 and .floating) | .address]' >"$KEEP_FLOATING" 2>/dev/null || true
   hyprctl clients -j | jq -c '[.[] | select(.workspace.id > 0 and (.floating | not)) | {address, ws: .workspace.id, at, size}]' >"$TILED" 2>/dev/null || true
   touch "$FLAG" "$STATE_DIR/snap-request"
+  echo on >"$STATE_DIR/mode"   # the plugins watch this (they don't poll the flag)
   # this look's theme and picked wallpaper; else a theme's animated
   # wallpaper stays, or the slideshow's picture
   if ! apply_look "$(style)"; then
@@ -566,7 +594,8 @@ turn_on() {
 }
 
 turn_off() {
-  [[ -f $FLAG ]] || { echo "Overtake Mode is already off"; return; }
+  # (also when only the bar says so: a switch that failed halfway)
+  [[ -f $FLAG ]] || overtake_bar_showing || { echo "Overtake Mode is already off"; return; }
   [[ $(style) == classic ]] && save_taskbar_settings
   save_look "$(style)"
   if [[ -s $SAVED_BAR ]]; then
@@ -578,6 +607,7 @@ turn_off() {
   fi
   remove_bar_size
   rm -f "$FLAG" "$DESKTOP_RETURN"
+  echo off >"$STATE_DIR/mode"
   restore_all
   tile_all
   if [[ -s $SAVED_GTK_BUTTONS ]]; then
@@ -876,10 +906,9 @@ open_url() {
   else
     args=(--new-window "$@")
   fi
-  omarchy-cmd-browser-handoff "$browser" "${args[@]}" 2>/dev/null ||
-    systemd-run --user --quiet --collect --unit="overtake-browser-$(date +%s%N)" \
-      --property=StandardOutput=null --property=StandardError=null \
-      uwsm-app -- "$browser" "${args[@]}"
+  # Omarchy's own launcher does the rest: hands the link to a running browser,
+  # or starts one detached
+  omarchy-launch-browser "${args[@]}"
 }
 
 # A notification clicked in the notification center that carries no action of
@@ -1026,21 +1055,22 @@ copy_url() {
   esac
   # the page title through the environment, not the process list
   url=$(OVERTAKE_TITLE=$title python3 -I - "$dir" <<'PY'
-import glob, os, shutil, sqlite3, sys, tempfile
+import glob, os, sqlite3, sys, urllib.parse
 root, title = sys.argv[1], os.environ.get("OVERTAKE_TITLE", "")
 for suffix in (" - Chromium", " - Google Chrome", " - Brave"):
     if title.endswith(suffix): title = title[: -len(suffix)]
 best = None
-with tempfile.TemporaryDirectory() as tmp:
-    for i, db in enumerate(glob.glob(os.path.join(root, "*", "History"))):
-        copy = os.path.join(tmp, str(i))
-        shutil.copy(db, copy)   # the browser keeps the database locked
-        try:
-            row = sqlite3.connect(copy).execute(
-                "select url, last_visit_time from urls where title = ? order by last_visit_time desc limit 1", (title,)).fetchone()
-        except sqlite3.Error:
-            continue
-        if row and (best is None or row[1] > best[1]): best = row
+for db in glob.glob(os.path.join(root, "*", "History")):
+    # read-only and immutable: the browser keeps the database locked, and
+    # this reads it in place instead of copying it anywhere
+    try:
+        con = sqlite3.connect("file:" + urllib.parse.quote(db) + "?mode=ro&immutable=1", uri=True)
+        row = con.execute(
+            "select url, last_visit_time from urls where title = ? order by last_visit_time desc limit 1", (title,)).fetchone()
+        con.close()
+    except sqlite3.Error:
+        continue
+    if row and (best is None or row[1] > best[1]): best = row
 print(best[0] if best else "")
 PY
 )
@@ -1608,6 +1638,16 @@ esac
 
 case "${1:-help}" in
   help|-h|--help) usage ;;
+  uninstall)
+    shift
+    [[ -x $HOME/.local/share/overtake/uninstall.sh ]] || { echo "overtake: the uninstaller isn't installed; run ./uninstall.sh from the repository" >&2; exit 1; }
+    exec "$HOME/.local/share/overtake/uninstall.sh" "$@" ;;
+  suspend)  # what Omarchy's own Suspend entry runs; it can be removed in Omarchy's menu (Toggle > Suspend)
+    if omarchy-toggle-enabled suspend-off 2>/dev/null; then
+      notify $'\U000f04b2' "Suspend is turned off in the Omarchy menu (Toggle > Suspend)"
+    else
+      systemctl suspend
+    fi ;;
   on) mode_lock; turn_on ;;
   off) mode_lock; turn_off ;;
   toggle) mode_lock; if [[ -f $FLAG ]]; then turn_off; else turn_on; fi ;;

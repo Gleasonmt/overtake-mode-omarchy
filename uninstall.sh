@@ -40,11 +40,12 @@ Uninstalling Overtake Mode will:
   switch back to Omarchy, if the mode is on
   remove its marked blocks from ~/.config/hypr/bindings.lua, autostart.lua,
     ~/.config/omarchy/extensions/omarchy-menu.jsonc and shell.toml
-  hand notifications and battery back to Omarchy's own (shell.json)
-  point links and images back at Omarchy's own handlers
+  hand notifications and battery back to Omarchy's own (shell.json; any
+    you had turned off yourself stay off)
+  point links and images back at what opened them before
   delete ~/.local/bin/overtake, ~/.config/hypr/overtake*.lua,
     ~/.config/omarchy/plugins/overtake.*, its .desktop files,
-    ~/.local/state/overtake and ~/.cache/overtake
+    ~/.local/share/overtake, ~/.local/state/overtake and ~/.cache/overtake
 EOF
 if [[ $PURGE ]]; then
   echo "  delete ~/.config/overtake and ~/Pictures/overtake (--purge)"
@@ -65,7 +66,11 @@ fi
 # Back to Omarchy first. The state folder holds your saved Omarchy bar and
 # background, so stop here if switching off fails rather than delete them.
 OVERTAKE="$HOME/.local/bin/overtake"
-if [[ -f $HOME/.local/state/overtake/enabled ]]; then
+overtake_bar() {  # Overtake's bar in shell.json, even if a switch failed halfway
+  jq -e '[.bar | .. | .id? // empty] | (index("overtake.taskbar") or index("overtake.menubar"))' \
+    "$HOME/.config/omarchy/shell.json" >/dev/null 2>&1
+}
+if [[ -f $HOME/.local/state/overtake/enabled ]] || overtake_bar; then
   if ! [[ -x $OVERTAKE ]] || ! "$OVERTAKE" off >/dev/null; then
     echo "Couldn't switch Overtake Mode off; nothing removed. Fix that first (overtake off)." >&2
     exit 1
@@ -97,10 +102,12 @@ if [[ -z ${OVERTAKE_NO_RELOAD:-} ]]; then
     omarchy plugin disable "$id" >/dev/null 2>&1 || true
   done
 fi
+# (Omarchy's own that you had turned off before installing stay off.)
+KEEP_OFF=$(jq -Rsc 'split("\n") | map(select(length > 0))' "$HOME/.local/state/overtake/disabled-before" 2>/dev/null) || KEEP_OFF='[]'
 if [[ -f $SHELL_JSON ]]; then
   tmp=$(mktemp "$SHELL_JSON.XXXXXX")
-  jq '(.plugins |= (if type == "array" then map(select((if type == "object" then .id else . end) | tostring | startswith("overtake.") | not)) else . end))
-      | (.disabledPlugins |= (if type == "array" then map(select(. != "omarchy.notifications" and . != "omarchy.battery")) else . end))' \
+  jq --argjson keep "${KEEP_OFF:-[]}" '(.plugins |= (if type == "array" then map(select((if type == "object" then .id else . end) | tostring | startswith("overtake.") | not)) else . end))
+      | (.disabledPlugins |= (if type == "array" then map(select((. == "omarchy.notifications" or . == "omarchy.battery") as $ours | ($ours | not) or (. as $id | $keep | index($id)))) else . end))' \
     "$SHELL_JSON" >"$tmp" && mv "$tmp" "$SHELL_JSON" || rm -f "$tmp"
 fi
 
@@ -151,7 +158,7 @@ rm -rf "${PLUGINS:?}/overtake.taskbar" "${PLUGINS:?}/overtake.workspaces" \
        "${PLUGINS:?}/overtake.notifications" "${PLUGINS:?}/overtake.notification-center" \
        "${PLUGINS:?}/overtake.battery" "${PLUGINS:?}/overtake.menubar" "${PLUGINS:?}/overtake.control-center" \
        "${PLUGINS:?}/overtake.session-names" \
-       "$HOME/.local/state/overtake" "$HOME/.cache/overtake"
+       "$HOME/.local/state/overtake" "${XDG_CACHE_HOME:-$HOME/.cache}/overtake" "$HOME/.local/share/overtake"
 
 if [[ $PURGE ]]; then
   rm -rf "$HOME/.config/overtake" "$HOME/Pictures/overtake"

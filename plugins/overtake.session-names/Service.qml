@@ -1,4 +1,5 @@
 import QtQuick
+import Qt.labs.folderlistmodel
 import Quickshell
 import Quickshell.Hyprland
 import Quickshell.Io
@@ -41,18 +42,15 @@ Item {
 
   // ---------- Mode ----------
   // Overtake Mode on: the focused window has a title bar showing its name.
+  // (`overtake` keeps "on" or "off" in state/mode; watched, not polled)
   property bool modeOn: false
-  Timer {
-    interval: 1500
-    running: true
-    repeat: true
-    triggeredOnStart: true
-    onTriggered: flagCheck.running = true
-  }
-  Process {
-    id: flagCheck
-    command: ["test", "-f", root.stateDir + "/enabled"]
-    onExited: function(code) { root.modeOn = code === 0 }
+  FileView {
+    path: root.stateDir + "/mode"
+    watchChanges: true
+    printErrors: false
+    onFileChanged: reload()
+    onLoaded: root.modeOn = text().trim() === "on"
+    onLoadFailed: root.modeOn = false
   }
 
   // ---------- Names and Claude Code windows ----------
@@ -77,12 +75,22 @@ Item {
     }
   }
   function refreshSessions() { if (!sessions.running) sessions.running = true }
-  // Claude Code can start in a terminal that's already open: poll.
+  // Claude Code registers each running session as ~/.claude/sessions/<pid>.json:
+  // one starting or ending (even in a terminal that's already open) shows up
+  // here, so nothing is polled while no Claude Code is running. A slow check
+  // while one is catches a session replaced in place (/clear).
+  FolderListModel {
+    id: claudeSessions
+    folder: "file://" + Quickshell.env("HOME") + "/.claude/sessions"
+    nameFilters: ["*.json"]
+    showDirs: false
+    onCountChanged: sessionsSoon.restart()
+  }
+  Component.onCompleted: refreshSessions()
   Timer {
-    interval: 3000
-    running: true
+    interval: 15000
+    running: claudeSessions.count > 0
     repeat: true
-    triggeredOnStart: true
     onTriggered: root.refreshSessions()
   }
   Timer {
