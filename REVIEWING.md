@@ -2,7 +2,7 @@
 
 Notes for marketplace reviewers: what the automated baseline will report, where
 to find each thing it points at, and how to check the rest quickly. Line numbers
-are for release v0.1.2.
+are for release v0.1.3.
 
 ## Shape
 
@@ -24,9 +24,12 @@ are for release v0.1.2.
 | `installer` | `install.sh`, `uninstall.sh`, `Setup.qml` (by file name) | The installer and uninstaller described below; `Setup.qml` is the reminder above. No sudo, no package installs, nothing downloaded. |
 | `remote-build` | `README.md:27` (and the same fenced block) | The README's install steps clone this repository and run its own `./install.sh`. Nothing outside the repository is fetched or built. |
 
-There is no `systemctl`, `systemd-run`, `sudo` or `pkexec` anywhere. Sleep,
-Restart and Shut Down open Omarchy's own system menu (`omarchy-menu toggle
-system`), and links open through `omarchy-launch-browser`.
+There is no `systemctl`, `systemd-run`, `sudo` or `pkexec` anywhere. Sleep runs
+Omarchy's own Suspend menu entry by its route (`omarchy-menu summon
+system.suspend`), or opens Omarchy's system menu instead if the user has turned
+Suspend off there (Toggle > Suspend). Restart and Shut Down use Omarchy's
+`omarchy-system-reboot` / `omarchy-system-shutdown` or its system menu, and
+links open through `omarchy-launch-browser`.
 
 Precedents: [macOS Dock #13499](https://github.com/omacom/omarchy-plugin-marketplace/issues/13499)
 (`installer` + `remote-build`), [Omarchy to Windows #13475](https://github.com/omacom/omarchy-plugin-marketplace/issues/13475)
