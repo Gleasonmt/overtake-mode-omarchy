@@ -237,6 +237,15 @@ apply_look() {  # apply_look <mode>
   [[ $bg == theme:* ]] && bg="$HOME/.local/state/omarchy/current/theme/backgrounds/${bg#theme:}"
   [[ -n $bg && -f $bg ]] || return 1
   [[ $(readlink -f "$CURRENT_BG") == "$(readlink -f "$bg")" ]] || omarchy-theme-bg-set "$bg" >/dev/null 2>&1 || true
+  mark_picked
+}
+
+# A wallpaper you picked can be one of the slideshow's own pictures, even the
+# one it showed last; then picked_wallpaper would take it for the slideshow's
+# and the mode would drop it. Clear what the slideshow showed, so it can't.
+mark_picked() {
+  mkdir -p "$STATE_DIR"
+  echo picked >"$SLIDE_SHOWN"
 }
 
 wallpaper_mode() {
@@ -1530,6 +1539,7 @@ bg_picker() {
   local picked
   picked=$(omarchy-menu-images --show-labels --lazy-thumbnails --selected "$BG_SELECTED" "${groups[@]}") || return 0
   [[ -n $picked ]] || return 0
+  mark_picked
   readlink "$picked" 2>/dev/null || echo "$picked"
 }
 
