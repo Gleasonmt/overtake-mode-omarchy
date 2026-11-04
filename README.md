@@ -14,7 +14,7 @@ Settings → Overtake Mode, or the Omarchy menu):
 - **Studio** — a menu bar along the top, a Dock at the bottom, Spotlight
   search, and the Super key working as a Command key. See [Studio](#studio).
 
-![Overtake Mode: the desktop, taskbar and Start menu](media/desktop-start.webp)
+![Overtake Mode: Omarchy, Classic and Studio, one after another](media/modes.webp)
 
 > Status: early. Tested on Omarchy 4.0.6 (Hyprland, the Quickshell-based
 > Omarchy shell). Feedback and pull requests welcome in Issues.
@@ -59,11 +59,10 @@ what sets it up.
 
 ## See it in action
 
-**One shortcut through all three:** Omarchy → Classic → Studio → back to
-Omarchy. Each mode keeps its own theme and wallpaper, and your windows come
-back exactly where they were.
+**Classic:** a taskbar, desktop icons and a Start menu with your pinned apps,
+folders and recent files.
 
-![Switching from Omarchy to Classic, Studio and back to Omarchy](media/switch-modes.webp)
+![Classic: the desktop, taskbar and Start menu](media/desktop-start.webp)
 
 **Snap windows** to halves, quarters or full screen, and back.
 
