@@ -32,7 +32,10 @@
 #   overtake snap-layouts     # SUPER+Z: show the snap layouts for the focused window
 #   overtake taskbar-position <left|center>  # right-click Start: where the taskbar sits on the bar
 #   overtake copy-url <address>  # title bar menu: copy a browser window's page address
-#   overtake rename <address>    # taskbar menu: bring a window up with its title bar tab ready to rename
+#   overtake rename [address]    # taskbar menu, SUPER+ALT+N: bring a window up with its name ready to edit
+#   overtake name <address|here> [name]  # name a window (a Claude Code window: its session too); no name clears it
+#                             # "here": the window this runs in (a Claude Code session renaming its own tag)
+#   overtake sessions         # name tags: {"<address>": "<session id>"} for windows running Claude Code
 #   overtake fill-gap <address>  # a window opened: snap it into a spot snapped windows leave free
 #   overtake open-url <url>      # links from other apps: open on this workspace, not the browser's last window
 #   overtake ui <spotlight|apps|switcher|switcher-back|switcher-cancel|mission-control|force-quit|app-menu|control-center>
@@ -77,6 +80,7 @@ MINIMIZED="$STATE_DIR/minimized.json"
 LAYOUT="$STATE_DIR/layout.json"     # each floating window's place as fractions of its screen
 ZONES="$STATE_DIR/zones.json"       # snapped windows: address -> {ws, zone, restore: [w, h]}
 KEEP_FLOATING="$STATE_DIR/kept-floating.json"  # windows already floating before `on`; `off` tiles all the others
+TILED="$STATE_DIR/tiled.json"       # tiled windows' places before `on`; `off` rebuilds those tiles
 TASKBAR_SETTINGS="$STATE_DIR/taskbar-settings.json"  # taskbar pins etc., kept while the mode is off
 SAVED_GTK_BUTTONS="$STATE_DIR/gtk-button-layout"  # GTK apps' own title-bar buttons, restored on off
 NO_FILL="$STATE_DIR/no-fill"        # Settings: new windows don't fill free snap spots
@@ -523,6 +527,7 @@ turn_on() {
   set_bar "$(style_bar)"
   add_bar_size
   hyprctl clients -j | jq -c '[.[] | select(.workspace.id > 0 and .floating) | .address]' >"$KEEP_FLOATING" 2>/dev/null || true
+  hyprctl clients -j | jq -c '[.[] | select(.workspace.id > 0 and (.floating | not)) | {address, ws: .workspace.id, at, size}]' >"$TILED" 2>/dev/null || true
   touch "$FLAG" "$STATE_DIR/snap-request"
   # this look's theme and picked wallpaper; else a theme's animated
   # wallpaper stays, or the slideshow's picture
@@ -1025,6 +1030,76 @@ json_set() {  # json_set <file> <jq filter> [jq args...]
   ) 9>"$STATE_DIR/.lock"
 }
 
+# Window names (title bar Rename tab, taskbar Rename window, name tags) live in
+# names.json as address -> name. An address is gone once its window closes,
+# so a Claude Code window's name is also kept under its session id
+# (session-names.json) and given back to the window that resumes the session
+# (after a reboot hypr-session-restore reopens it with `claude --resume`).
+NAMES="$STATE_DIR/names.json"
+SESSION_NAMES="$STATE_DIR/session-names.json"
+
+claude_windows() {  # {"<address>": "<session id>"}: the window each running Claude Code is in
+  local sessions windows
+  # Claude Code registers each running session as ~/.claude/sessions/<pid>.json.
+  sessions=$(cat "$HOME"/.claude/sessions/*.json 2>/dev/null | jq -sc 'map(select(.pid and .sessionId) | {key: (.pid | tostring), value: .sessionId}) | from_entries' 2>/dev/null) || true
+  windows=$(hyprctl clients -j | jq -c 'map({key: (.pid | tostring), value: .address}) | from_entries')
+  # Walk up from each Claude process (foot -> shell -> claude) to its window.
+  ps -eo pid=,ppid= | jq -Rnc --argjson s "${sessions:-"{}"}" --argjson w "$windows" '
+    ([inputs | [splits(" +")] | map(select(length > 0)) | select(length == 2) | {key: .[0], value: .[1]}] | from_entries) as $parent
+    | [$s | to_entries[] | .value as $session
+        | first(limit(30; .key | recurse(if $parent[.] and . != "1" then $parent[.] else empty end)) | select($w[.]))
+        | {key: $w[.], value: $session}]
+    | from_entries'
+}
+
+# Keep both files in step and print claude_windows (the name tags poll this):
+# a named Claude window's session takes the name (/clear starts a new
+# session), a resumed session's window gets it back, closed windows' names go
+# (Hyprland hands their addresses to new windows).
+sync_session_names() {
+  local map live
+  map=$(claude_windows)
+  live=$(hyprctl clients -j | jq -c 'map(.address)')
+  mkdir -p "$STATE_DIR"
+  (
+    flock 9
+    names=$(jq -c . "$NAMES" 2>/dev/null) || names='{}'
+    sessions=$(jq -c . "$SESSION_NAMES" 2>/dev/null) || sessions='{}'
+    new_sessions=$(jq -nc --argjson n "${names:-"{}"}" --argjson s "${sessions:-"{}"}" --argjson m "$map" '
+      $s + ($m | to_entries | map(select($n[.key] and ($s[.value] | not)) | {key: .value, value: $n[.key]}) | from_entries)')
+    new_names=$(jq -nc --argjson n "${names:-"{}"}" --argjson s "$new_sessions" --argjson m "$map" --argjson live "$live" '
+      ($n | with_entries(select(.key as $a | $live | any(. == $a))))
+      + ($m | to_entries | map(select(($n[.key] | not) and $s[.value]) | {key: .key, value: $s[.value]}) | from_entries)')
+    # Rewritten in place, only when something changed (the shell watches them).
+    [[ $new_sessions == "$sessions" ]] || jq . <<<"$new_sessions" >"$SESSION_NAMES"
+    [[ $new_names == "$names" ]] || jq . <<<"$new_names" >"$NAMES"
+  ) 9>"$STATE_DIR/.lock"
+  echo "$map"
+}
+
+window_here() {  # the window this command runs in: walk up the process tree to a window's process
+  local windows pid=$$ i
+  windows=$(hyprctl clients -j | jq -c 'map({key: (.pid | tostring), value: .address}) | from_entries')
+  for i in $(seq 30); do
+    jq -e --arg p "$pid" '.[$p]' <<<"$windows" >/dev/null && { jq -r --arg p "$pid" '.[$p]' <<<"$windows"; return; }
+    pid=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')
+    [[ -n $pid && $pid != 0 && $pid != 1 ]] || return 0
+  done
+}
+
+set_name() {  # set_name <address> [name]; an empty name clears it
+  local addr=$1 name=${2:-} session live
+  name=${name//$'\n'/ }
+  name=${name#"${name%%[![:space:]]*}"}
+  name=${name%"${name##*[![:space:]]}"}
+  name=${name:0:80}
+  session=$(claude_windows | jq -r --arg a "$addr" '.[$a] // empty')
+  live=$(hyprctl clients -j | jq -c 'map(.address)')
+  json_set "$NAMES" 'with_entries(select(.key as $k | $live | any(. == $k))) | if $n == "" then del(.[$a]) else .[$a] = $n end' \
+    --arg a "$addr" --arg n "$name" --argjson live "$live"
+  [[ -z $session ]] || json_set "$SESSION_NAMES" 'if $n == "" then del(.[$s]) else .[$s] = $n end' --arg s "$session" --arg n "$name"
+}
+
 float_all() {
   local addr
   mark_arranging
@@ -1040,12 +1115,94 @@ float_all() {
 tile_all() {
   local addr keep='[]'
   [[ -s $KEEP_FLOATING ]] && keep=$(<"$KEEP_FLOATING")
+  retile_saved "$keep"
   for addr in $(hyprctl clients -j | jq -r --argjson keep "$keep" \
       '.[] | select(.workspace.id > 0 and .floating and (.address as $a | $keep | index($a) | not)) | .address'); do
     hyprctl dispatch "hl.dsp.window.float({ action = \"disable\", window = \"address:$addr\" })" >/dev/null 2>&1 || true
   done
   # Zones are kept: `on` puts snapped windows back in them.
-  rm -f "$KEEP_FLOATING"
+  rm -f "$KEEP_FLOATING" "$TILED"
+}
+
+# Put the windows that were tiled before `on` back in the same tiles. Tiling
+# them one by one in any order lets Hyprland's dwindle layout split them its
+# own way, so three windows stacked on the left come back as three columns.
+# Instead rebuild each workspace's split tree: find the cut through the saved
+# places, tile one window from each side with the split direction preselected,
+# set the ratio, and repeat inside each side.
+retile_saved() {  # retile_saved <kept-floating json>
+  [[ -s $TILED ]] || return 0
+  local active cmds
+  active=$(hyprctl activewindow -j 2>/dev/null | jq -r '.address // empty')
+  cmds=$(python3 -I - "$TILED" "$1" "$(hyprctl clients -j)" <<'PY'
+import json, sys
+
+saved = json.load(open(sys.argv[1]))
+keep = set(json.loads(sys.argv[2]))
+live = {c["address"]: c for c in json.loads(sys.argv[3])}
+GAP = 30  # px: wider than any gap between tiles, narrower than a window
+
+def box(w):
+    x, y = w["at"]; cw, ch = w["size"]
+    return x, y, x + cw, y + ch
+
+def cut(wins):  # -> (axis, first side, second side), or None
+    for axis in (0, 1):
+        for c in sorted({box(w)[axis + 2] for w in wins}):
+            a = [w for w in wins if box(w)[axis + 2] <= c + GAP / 2]
+            b = [w for w in wins if box(w)[axis] >= c - GAP / 2]
+            if a and b and len(a) + len(b) == len(wins):
+                return axis, a, b
+    return None
+
+def extent(wins, axis):
+    return max(box(w)[axis + 2] for w in wins) - min(box(w)[axis] for w in wins)
+
+def first(wins):
+    return min(wins, key=lambda w: (box(w)[1], box(w)[0]))["address"]
+
+out = []
+def focus(a): out.append(f'dispatch hl.dsp.focus({{ window = "address:{a}" }})')
+def tile(a): out.append(f'dispatch hl.dsp.window.float({{ action = "disable", window = "address:{a}" }})')
+def layout(m): out.append(f'dispatch hl.dsp.layout("{m}")')
+
+def build(wins, leaf):  # leaf: the window of wins already tiled, filling their space
+    if len(wins) < 2:
+        return
+    split = cut(wins)
+    if not split:  # not a tiling dwindle could have made: tile the rest as they come
+        for w in wins:
+            if w["address"] != leaf:
+                tile(w["address"])
+        return
+    axis, a, b = split
+    leaf_in_a = any(w["address"] == leaf for w in a)
+    new = first(b if leaf_in_a else a)
+    focus(leaf)
+    layout("preselect " + ("rd" if leaf_in_a else "lu")[axis])
+    tile(new)
+    ea, eb = extent(a, axis), extent(b, axis)
+    focus(leaf)
+    layout(f"splitratio exact {2 * ea / (ea + eb):.3f}")
+    build(a, leaf if leaf_in_a else new)
+    build(b, new if leaf_in_a else leaf)
+
+for ws in sorted({w["ws"] for w in saved}):
+    wins = [w for w in saved if w["ws"] == ws and w["address"] in live
+            and live[w["address"]]["floating"] and live[w["address"]]["workspace"]["id"] == ws
+            and w["address"] not in keep]
+    if not wins:
+        continue
+    root = first(wins)
+    focus(root)
+    tile(root)
+    build(wins, root)
+print(" ; ".join(out))
+PY
+) || return 0
+  [[ -n $cmds ]] || return 0
+  mark_arranging
+  hyprctl --batch "eval hl.config({ cursor = { no_warps = true } }) ; $cmds${active:+ ; dispatch hl.dsp.focus({ window = \"address:$active\" })} ; eval hl.config({ cursor = { no_warps = false } })" >/dev/null 2>&1 || true
 }
 
 # Overtake is about to move windows itself. The title-bar plugin watches the
@@ -1283,6 +1440,8 @@ theme_picker() {
 #      doesn't mean a different theme   "Topside Dusk (Live)" (Lite versions
 #      share their picture, so they're left out)
 #   3. the Classic and Studio pictures   "Classic: Hills Day"
+#   4. every other theme's still backgrounds, Omarchy's own included,
+#      so picking one doesn't mean switching theme   "Tokyo Night 2"
 # Prints the picked file itself. `bg-picker cache` only makes the previews
 # (the installer runs it), so the first opening doesn't wait for them.
 pretty_name() {  # topside-mountain-view -> Topside Mountain View
@@ -1311,7 +1470,7 @@ bg_picker() {
   # links change only when the pictures do: unchanged folders let Omarchy's
   # picker reuse its list instead of rereading every picture
   rm -f "$cache"/* 2>/dev/null || true   # (flat layout of an older version)
-  mkdir -p "$cache/1-theme" "$cache/2-live" "$cache/3-overtake"
+  mkdir -p "$cache/1-theme" "$cache/2-live" "$cache/3-overtake" "$cache/4-themes"
 
   n=0
   for file in "$HOME/.local/state/omarchy/current/theme/backgrounds"/* "$HOME/.config/omarchy/backgrounds/$theme"/*; do
@@ -1347,10 +1506,23 @@ bg_picker() {
     done
   done
 
+  for dir in "${OMARCHY_PATH:-/usr/share/omarchy}/themes"/*/ "$HOME/.config/omarchy/themes"/*/; do
+    dir=${dir%/}; name=${dir##*/}
+    [[ $name == *-lite || $name == "$theme_base" ]] && continue
+    n=0
+    for file in "$dir"/backgrounds/*; do
+      [[ -f $file && ${file,,} =~ \.(png|jpe?g|webp)$ ]] || continue
+      base=${file##*/}; base=${base%.*}
+      [[ -f $dir/live/$base.frag.qsb ]] && continue   # listed under 2 already
+      n=$((n + 1)); suffix=""; (( n > 1 )) && suffix=" $n"
+      bg_link "$cache/4-themes" "$(pretty_name "$name")$suffix" "$file"
+    done
+  done
+
   for link in "$cache"/*/*; do
     [[ -n ${BG_WANT[$link]:-} ]] || rm -f "$link"
   done
-  local groups=("$cache/1-theme" "$cache/2-live" "$cache/3-overtake")
+  local groups=("$cache/1-theme" "$cache/2-live" "$cache/3-overtake" "$cache/4-themes")
   if [[ ${1:-} == cache ]]; then
     omarchy-menu-images --cache-only "${groups[@]}" >/dev/null 2>&1 || true
     return 0
@@ -1413,7 +1585,14 @@ case "${1:-help}" in
   copy-url) [[ -n ${2:-} ]] && copy_url "$2" || true ;;
   open-url) shift; open_url "$@" ;;
   fill-gap) [[ -n ${2:-} ]] && fill_gap "$2" || true ;;
-  rename) [[ -n ${2:-} ]] && { show_window "$2"; mkdir -p "$STATE_DIR"; echo "$2 $(date +%s%N)" >"$STATE_DIR/rename-request"; } || true ;;
+  rename)
+    addr=$(window_address "${2:-}")
+    [[ -n $addr ]] && { show_window "$addr"; mkdir -p "$STATE_DIR"; echo "$addr $(date +%s%N)" >"$STATE_DIR/rename-request"; } || true ;;
+  name)
+    addr=${2:-}
+    [[ $addr == here ]] && addr=$(window_here)
+    [[ -n $addr ]] && set_name "$addr" "${3:-}" || { [[ ${2:-} == here ]] && echo "overtake: no window found for this process" >&2; true; } ;;
+  sessions) sync_session_names ;;
   start)
     mkdir -p "$STATE_DIR"
     # Studio has no Start menu: Spotlight (and its Apps view) stands in.

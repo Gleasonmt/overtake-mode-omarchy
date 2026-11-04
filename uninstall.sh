@@ -88,11 +88,15 @@ remove_block "$MENU" "  //"
 
 # Hand notifications and battery back to Omarchy's own before removing the
 # patched copies. Disabling goes through the shell; if it isn't running, edit
-# shell.json directly so Omarchy's own aren't left disabled.
+# shell.json directly so Omarchy's own aren't left disabled. Not in a test
+# uninstall (OVERTAKE_NO_RELOAD): `omarchy plugin` acts on the running shell
+# whatever HOME says.
 SHELL_JSON="$HOME/.config/omarchy/shell.json"
-for id in overtake.notifications overtake.battery; do
-  omarchy plugin disable "$id" >/dev/null 2>&1 || true
-done
+if [[ -z ${OVERTAKE_NO_RELOAD:-} ]]; then
+  for id in overtake.notifications overtake.battery overtake.session-names; do
+    omarchy plugin disable "$id" >/dev/null 2>&1 || true
+  done
+fi
 if [[ -f $SHELL_JSON ]]; then
   tmp=$(mktemp "$SHELL_JSON.XXXXXX")
   jq '(.plugins |= (if type == "array" then map(select((if type == "object" then .id else . end) | tostring | startswith("overtake.") | not)) else . end))
@@ -129,6 +133,7 @@ rm -rf "${PLUGINS:?}/overtake.taskbar" "${PLUGINS:?}/overtake.workspaces" \
        "${PLUGINS:?}/overtake.bluetooth" "${PLUGINS:?}/overtake.audio" \
        "${PLUGINS:?}/overtake.notifications" "${PLUGINS:?}/overtake.notification-center" \
        "${PLUGINS:?}/overtake.battery" "${PLUGINS:?}/overtake.menubar" "${PLUGINS:?}/overtake.control-center" \
+       "${PLUGINS:?}/overtake.session-names" \
        "$HOME/.local/state/overtake" "$HOME/.cache/overtake"
 
 if [[ $PURGE ]]; then

@@ -77,6 +77,8 @@ Overtake Mode will add (./uninstall.sh removes all of it):
                                           Omarchy's workspaces, bluetooth, audio,
                                           notifications and battery (made from
                                           your installed Omarchy; yours is untouched)
+                                          and name tags on Claude Code windows,
+                                          shown in every mode
   ~/.local/share/applications/overtake-trash.desktop
   ~/.config/overtake/                     settings (only ones you don't have yet)
   ~/Pictures/overtake/                    wallpapers
@@ -86,12 +88,17 @@ EOF
 
 and change files you already have (./uninstall.sh undoes each one):
   ~/.config/hypr/bindings.lua             a block between ">>> overtake" markers:
-                                          the mode shortcut, and loading Overtake's
-                                          shortcuts while the mode is on
+                                          the mode shortcut, Super+Alt+N to name a
+                                          window, and loading Overtake's shortcuts
+                                          while the mode is on
   ~/.config/hypr/autostart.lua            a marked block: resume the wallpaper
                                           slideshow at login if the mode is on
   ~/.config/omarchy/extensions/omarchy-menu.jsonc
-                                          a marked block: the Overtake Mode entry
+                                          a marked block: the Overtake Mode entry,
+                                          and Style > Background and Style > Theme
+                                          replaced in every mode (Background lists
+                                          every theme's wallpapers; Theme splits
+                                          Omarchy's themes from yours)
   ~/.config/omarchy/shell.json            enables overtake.notifications and
                                           overtake.battery (they act exactly like
                                           Omarchy's own while the mode is off)
@@ -161,6 +168,8 @@ install -Dm644 "$REPO/hypr/overtake-studio.lua" "$HYPR/overtake-studio.lua"
 set_block "$HYPR/bindings.lua" "--" '-- Overtake Mode: SUPER+CTRL+SHIFT+W goes to the next mode, Omarchy -> Classic -> Studio (or `overtake cycle|on|off`).
 -- Its shortcuts load only while the mode is on.
 o.bind("SUPER + CTRL + SHIFT + W", "Next desktop mode", "overtake cycle")
+-- Name tags: name the focused window (a Claude Code window keeps it with its session).
+o.bind("SUPER + ALT + N", "Name window", "overtake rename")
 local overtake_flag = io.open((os.getenv("HOME") or "") .. "/.local/state/overtake/enabled", "r")
 if overtake_flag then
   overtake_flag:close()
@@ -175,7 +184,7 @@ say "Hyprland: ~/.config/hypr/overtake{,-classic,-studio}.lua, plus marked block
 #    from this machine's Omarchy and patched. One whose patch no longer
 #    applies is left out, and Overtake uses Omarchy's own one instead.
 mkdir -p "$PLUGINS"
-OWN_PLUGINS="overtake.taskbar overtake.notification-center overtake.menubar overtake.control-center"
+OWN_PLUGINS="overtake.taskbar overtake.notification-center overtake.menubar overtake.control-center overtake.session-names"
 for plugin in $OWN_PLUGINS; do
   rm -rf "${PLUGINS:?}/$plugin"
   cp -r "$REPO/plugins/$plugin" "$PLUGINS/$plugin"
@@ -216,9 +225,10 @@ build_widget notifications "$OMARCHY_PLUGINS/notifications" manifest.json Servic
 # Battery service without Omarchy's 10% warning (Overtake's battery alerts replace it).
 build_widget battery "$OMARCHY_PLUGINS/services/battery" manifest.json Service.qml BatteryModel.js
 # Both stay enabled in either mode (they check it themselves), so switching
-# modes needs no shell restart. The reload below picks them up.
+# modes needs no shell restart. The reload below picks them up. So do the
+# name tags on Claude Code windows (overtake.session-names).
 if [[ -z ${OVERTAKE_NO_RELOAD:-} ]]; then
-  for id in notifications battery; do
+  for id in notifications battery session-names; do
     [[ -d $PLUGINS/overtake.$id ]] && { omarchy plugin enable "overtake.$id" >/dev/null 2>&1 || true; }
   done
 fi
