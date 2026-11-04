@@ -2,7 +2,7 @@
 
 Notes for marketplace reviewers: what the automated baseline will report, where
 to find each thing it points at, and how to check the rest quickly. Line numbers
-are for release v0.1.5.
+are for release v0.1.6.
 
 ## Shape
 
@@ -38,9 +38,17 @@ Precedents: [macOS Dock #13499](https://github.com/omacom/omarchy-plugin-marketp
 
 ## Install and uninstall
 
-- `install.sh`: `plan()` (line 71) prints every file it will add and every
-  existing file it will change; nothing is written before the prompt (line 136)
+- `install.sh`: `plan()` (line 117) prints every file it will add and every
+  existing file it will change; nothing is written before the prompt (line 190)
   or `--yes`, and it refuses without a terminal. `--dry-run` only prints.
+- **Optional extras are off unless chosen** (asked one by one in a terminal, or
+  `--link-handler`, `--image-viewer`, `--style-menus`, `--name-tags`): the
+  link handler (`omarchy-browser.desktop`), the default image viewer
+  (`xdg-mime`), Overtake's Style > Background / Theme in the Omarchy menu, and
+  the Claude Code name tags (`~/.claude/sessions`, Super+Alt+N). Without them
+  Overtake changes nothing outside its own files, its marked blocks, and the
+  two `shell.json` plugin entries below. An update keeps earlier choices;
+  `--no-…` takes one back out exactly.
 - Edits to existing files are between `>>> overtake` / `<<< overtake` markers
   (`bindings.lua`, `autostart.lua`, `omarchy-menu.jsonc`). The README's
   [What it installs](README.md#what-it-installs) table lists every path.
@@ -48,10 +56,19 @@ Precedents: [macOS Dock #13499](https://github.com/omacom/omarchy-plugin-marketp
   `~/.local/share/overtake`) prints what it will do and asks (line 62). It
   switches back to Omarchy first (also if a switch failed halfway), removes the
   marked blocks, re-enables Omarchy's notifications/battery unless the user had
-  turned them off before installing (recorded at `install.sh:246`), restores
+  turned them off before installing (recorded at `install.sh:309`), restores
   the exact earlier `mimeapps.list` lines (recorded per type, `uninstall.sh:142`)
   and the link handler, and deletes its own files. `--purge` also removes
   settings and wallpapers.
+- **Why patched copies of Omarchy's notifications and battery services:**
+  the notification center needs every notification kept in Omarchy's history
+  with a close button and per-app quiet/off settings, and Overtake's battery
+  alerts cover each device instead of Omarchy's single 10% warning. The copies
+  are built at install time from the installed Omarchy by exact replacements
+  (`patches/apply.py`): if Omarchy's code has changed, that copy isn't
+  installed and Omarchy's own stays. While Overtake Mode is off they behave
+  exactly like Omarchy's own (so switching modes needs no shell restart).
+  Uninstall hands Omarchy's own back, leaving off any the user had turned off.
 - While a mode is on, `overtake` swaps the bar layout in `shell.json`, adds a
   marked block to `shell.toml` and sets GTK's `button-layout`; all of it is put
   back when switching to Omarchy. Both files are replaced whole through a temp
@@ -75,6 +92,12 @@ Precedents: [macOS Dock #13499](https://github.com/omacom/omarchy-plugin-marketp
   - Spotlight lists the home folder once per opening and matches typed text
     in-process (`Spotlight.qml:178`); its calculator is a small parser
     (`Spotlight.qml:104`), no eval.
+- **What still goes into process arguments**, and why: file paths a click
+  opens (`xdg-open` needs the path); a notification's app name and plain icon
+  name (`overtake notification-open`, to find its window or launcher; the
+  message text itself goes on stdin); a device's name in a battery alert
+  (`notify-send`'s title); and `overtake name here "<name>"` when a user types
+  it that way on purpose (`echo name | overtake name here -` keeps it out).
 - **Shell and Lua:** window addresses must match `^0x[0-9a-f]+$` before any
   command runs (`bin/overtake:1641`); workspace names with quotes or
   backslashes are refused before reaching Hyprland's Lua (`lua_safe` :651);
