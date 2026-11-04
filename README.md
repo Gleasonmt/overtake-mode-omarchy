@@ -24,8 +24,24 @@ Settings → Overtake Mode, or the Omarchy menu):
 ```bash
 git clone https://github.com/Gleasonmt/overtake-mode-omarchy.git
 cd overtake-mode-omarchy
+git checkout "$(git describe --tags --abbrev=0 2>/dev/null || echo main)"  # latest release
 ./install.sh
 ```
+
+The installer first lists every file it will add and every file of yours it
+will change (see [What it installs](#what-it-installs)), and writes nothing
+until you say yes.
+
+| Option | Does |
+| --- | --- |
+| `--dry-run` | only list what would change |
+| `--yes` | don't ask (for scripts and updates) |
+| `--no-link-handler` | leave `omarchy-browser.desktop` alone |
+| `--no-image-viewer` | leave your default image viewer alone |
+
+Needs Omarchy 4 (tested on 4.0.6) with `jq`, `python3` and `hyprctl`, which
+Omarchy ships. Optional: `imv-dir` (ships with imv) for folder-browsing image
+viewing, and Nautilus for the Trash app.
 
 Then switch it on with **Super + Ctrl + Shift + W**, `overtake on`, or
 **Omarchy menu → Overtake Mode**. Each press of the shortcut goes to the next
@@ -37,10 +53,11 @@ are never overwritten.
 
 ## See it in action
 
-**One shortcut between Omarchy and Overtake Mode.** Your windows come back
-exactly where they were.
+**One shortcut through all three:** Omarchy → Classic → Studio → back to
+Omarchy. Each mode keeps its own theme and wallpaper, and your windows come
+back exactly where they were.
 
-![Switching between Omarchy and Overtake Mode](media/switch-modes.webp)
+![Switching from Omarchy to Classic, Studio and back to Omarchy](media/switch-modes.webp)
 
 **Snap windows** to halves, quarters or full screen, and back.
 
@@ -123,9 +140,20 @@ grouped by app, with per-app Show / Quiet / Off and Do Not Disturb.
 - **Every wallpaper in Style → Background** (and the desktop's right-click
   menu), named by where it comes from: this theme's own ("Topside Mountain
   View (This Theme, Live)"), the live wallpapers of your other themes
-  ("Topside Dusk (Live)"), then the Classic and Studio pictures. So a
+  ("Topside Dusk (Live)"), the Classic and Studio pictures, then every other
+  theme's backgrounds, Omarchy's own included ("Tokyo Night 2"). So a
   different live wallpaper doesn't mean a different theme: the theme sets
   the colours, Background sets the wallpaper.
+- **Name tags on Claude Code windows**, in all three modes (plain Omarchy
+  too). A small tag across the top edge of each Claude Code window shows its
+  name, or Claude's own title, dimmed, until you name it. Click the tag, or
+  press Super+Alt+N on the focused window, type a name, then Enter (Escape
+  cancels, an empty name clears it). Renaming from the taskbar or the title
+  bar sets the same name. A name stays with its Claude session, so it comes
+  back when the session is resumed (`claude --resume`, or after a reboot).
+  Other windows get a tag once you name them. From inside a window,
+  `overtake name here "<name>"` renames its own tag (so a Claude session can
+  rename itself when its topic changes).
 - **A theme and wallpaper per mode** — Omarchy (Overtake Mode off), Classic and Studio each
   remember their own theme and wallpaper. Pick a theme while in Studio and
   Studio keeps it; switching modes puts each one's back.
@@ -247,15 +275,28 @@ All in `~/.config/overtake/`:
 | --- | --- |
 | `~/.local/bin/overtake` | the command |
 | `~/.config/hypr/overtake.lua`, `overtake-classic.lua`, `overtake-studio.lua` | the window rules and each mode's shortcuts, loaded only while the mode is on |
-| `~/.config/hypr/bindings.lua`, `autostart.lua` | a few lines between `>>> overtake` / `<<< overtake` markers |
+| `~/.config/hypr/bindings.lua`, `autostart.lua` | a few lines between `>>> overtake` / `<<< overtake` markers: the mode shortcut, Super+Alt+N (name a window), loading the mode's shortcuts while it's on, and resuming the slideshow at login |
 | `~/.config/omarchy/plugins/overtake.taskbar` | taskbar, Start menu, title bars, desktop icons, Settings; Studio's Dock, Spotlight, App Switcher, Mission Control and Force Quit |
 | `~/.config/omarchy/plugins/overtake.menubar`, `overtake.control-center` | Studio's menu bar, and its Spotlight and Control Center buttons |
 | `~/.config/omarchy/plugins/overtake.{workspaces,bluetooth,audio}` | copies of Omarchy's own widgets, made from your installed Omarchy, with small changes (no gaps in the workspace list; right-click opens the Bluetooth and sound panels instead of turning Bluetooth off or muting) |
 | `~/.config/omarchy/plugins/overtake.notifications` | a copy of Omarchy's notifications with a close button on each card, critical toasts leaving after 15 s instead of never, and a 50-entry history for the notification center. Loaded in both modes: with Overtake Mode off it behaves exactly like Omarchy's own, so switching needs no shell restart |
 | `~/.config/omarchy/plugins/overtake.battery` | a copy of Omarchy's battery service; while the mode is on its fixed 10% warning gives way to Overtake's battery alerts, otherwise it's Omarchy's own |
 | `~/.config/omarchy/plugins/overtake.notification-center` | the bell and its panel; it reads Omarchy's notification history folder (`~/.local/state/omarchy/notifications/history`). `omarchy-shell overtake.notification-center toggle` opens it |
-| `~/.config/omarchy/extensions/omarchy-menu.jsonc` | the Overtake Mode menu entry, between markers |
+| `~/.config/omarchy/plugins/overtake.session-names` | the name tags on Claude Code windows (and named ones), loaded in every mode; names live in `~/.local/state/overtake/names.json` and, per Claude session, `session-names.json` |
+| `~/.config/omarchy/extensions/omarchy-menu.jsonc` | between markers: the Overtake Mode menu entry, and Overtake's own **Style → Background** (every theme's wallpapers, see above) and **Style → Theme** (Omarchy's themes and yours in separate lists). These two replace Omarchy's in every mode, Omarchy included; uninstalling brings Omarchy's back |
+| `~/.config/omarchy/shell.json` | `overtake.notifications` and `overtake.battery` enabled (through `omarchy plugin enable`) |
 | `~/.config/overtake/`, `~/Pictures/overtake/` | your settings and the wallpapers |
+| `~/.local/share/applications/overtake-trash.desktop` | Trash as an app, for Start, the taskbar and the desktop |
+| `~/.local/share/applications/omarchy-browser.desktop` | its `Exec` line, so links from other apps open on your current workspace; only if it's still Omarchy's, and not with `--no-link-handler` |
+| `~/.local/share/applications/overtake-image-viewer.desktop`, `xdg-mime` defaults | images open with their folder (`imv-dir`); only for types that open with imv or nothing, only if `imv-dir` is installed, and not with `--no-image-viewer` |
+
+While the mode is on, `overtake` also saves your Omarchy bar layout and
+swaps in its own (`~/.config/omarchy/shell.json`), adds a marked bar-size
+block to `~/.config/omarchy/shell.toml` for Studio, and puts both back when
+you switch to Omarchy. Your saved Omarchy layout lives in
+`~/.local/state/overtake`.
+
+`./uninstall.sh` undoes every row above.
 
 If a future Omarchy changes one of those widgets so the change no longer
 applies, the installer says so and Overtake uses Omarchy's own one.
@@ -270,9 +311,12 @@ The default **Rotate** mode makes no network requests.
 ## Uninstall
 
 ```bash
-./uninstall.sh          # keeps ~/.config/overtake and the wallpapers
-./uninstall.sh --purge  # removes those too
+./uninstall.sh            # keeps ~/.config/overtake and the wallpapers
+./uninstall.sh --purge    # removes those too
+./uninstall.sh --dry-run  # only lists what it would do
 ```
+
+It lists what it will remove and asks first (`--yes` skips the question).
 
 ## Known limits
 

@@ -68,10 +68,10 @@ Item {
   }
 
   // Windows given a name of their own (title bar right-click > Rename tab):
-  // address -> name. The taskbar's window list shows them too.
+  // address -> name. The taskbar's window list and the name tags
+  // (overtake.session-names) show them too.
   property var names: ({})
   FileView {
-    id: namesFile
     path: Quickshell.env("HOME") + "/.local/state/overtake/names.json"
     watchChanges: true
     printErrors: false
@@ -84,15 +84,15 @@ Item {
   function titleOf(t) {
     return t ? (root.names[addressOf(t)] || t.title || "") : ""
   }
+  // `overtake name` writes names.json (and a Claude Code window's session
+  // name); show the new name straight away.
   function setName(address, name) {
-    var live = (Hyprland.toplevels.values || []).map(addressOf)
-    var next = {}
-    for (var k in root.names) if (live.indexOf(k) !== -1) next[k] = root.names[k]   // drop closed windows
+    var next = Object.assign({}, root.names)
     name = String(name || "").trim()
     if (name) next[address] = name
     else delete next[address]
     root.names = next
-    namesFile.setText(JSON.stringify(next, null, 2) + "\n")
+    run(["name", address, name])
   }
 
   // ---------- Title bar menu (right-click) ----------
