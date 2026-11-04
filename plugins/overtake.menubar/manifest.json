@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "overtake.menubar",
   "name": "Overtake Menu Bar",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "author": "Gleasonmt",
   "description": "Overtake Mode's Studio look: the system menu and the focused app's menus",
   "kinds": [
