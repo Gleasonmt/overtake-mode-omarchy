@@ -1,7 +1,11 @@
 #!/bin/bash
 # Install (or update) Overtake Mode into the current user's Omarchy setup.
 #
-#   ./install.sh
+#   ./install.sh             # lists what it will change, then asks
+#   ./install.sh --dry-run   # only lists what it would change
+#   ./install.sh --yes       # doesn't ask (scripts, updates)
+#
+# Nothing is written before you say yes (or pass --yes).
 #
 # Safe to run again: files are replaced, the lines it adds to your Hyprland
 # and menu config sit between ">>> overtake" / "<<< overtake" markers and are
@@ -17,15 +21,111 @@ HYPR="$HOME/.config/hypr"
 MENU="$HOME/.config/omarchy/extensions/omarchy-menu.jsonc"
 CONFIG="$HOME/.config/overtake"
 PICTURES="$HOME/Pictures/overtake"
+APPS="$HOME/.local/share/applications"
+BROWSER_ENTRY="$APPS/omarchy-browser.desktop"
 
 say() { printf '  %s\n' "$*"; }
 die() { printf 'overtake install: %s\n' "$*" >&2; exit 1; }
+
+usage() {
+  cat <<'EOF'
+Usage: ./install.sh [options]
+
+  -n, --dry-run          list what would change; change nothing
+  -y, --yes              don't ask before changing files
+      --no-link-handler  leave omarchy-browser.desktop alone (links keep
+                         going to the browser window used last, as in Omarchy)
+      --no-image-viewer  leave your default image viewer alone
+  -h, --help             show this
+EOF
+}
+
+ASSUME_YES='' DRY_RUN='' LINKS=1 IMAGES=1
+for arg in "$@"; do
+  case $arg in
+    -y|--yes) ASSUME_YES=1 ;;
+    -n|--dry-run) DRY_RUN=1 ;;
+    --no-link-handler) LINKS='' ;;
+    --no-image-viewer) IMAGES='' ;;
+    -h|--help) usage; exit 0 ;;
+    *) usage >&2; die "unknown option: $arg" ;;
+  esac
+done
 
 command -v omarchy-version >/dev/null || die "Omarchy isn't installed (omarchy-version not found)."
 for tool in jq python3 hyprctl; do
   command -v "$tool" >/dev/null || die "$tool is required."
 done
 [[ -d $OMARCHY_PLUGINS ]] || die "Omarchy's shell plugins weren't found in $OMARCHY_PLUGINS (Omarchy 4 is required)."
+
+# Which optional changes apply on this machine.
+CHANGE_LINKS='' CHANGE_IMAGES=''
+if [[ $LINKS && -f $BROWSER_ENTRY ]] && grep -q '^Exec=omarchy-launch-browser ' "$BROWSER_ENTRY"; then
+  CHANGE_LINKS=1
+fi
+if [[ $IMAGES ]] && command -v imv-dir >/dev/null; then
+  CHANGE_IMAGES=1
+fi
+
+# Everything below is listed here first, before anything is written.
+plan() {
+  cat <<'EOF'
+Overtake Mode will add (./uninstall.sh removes all of it):
+  ~/.local/bin/overtake
+  ~/.config/hypr/overtake.lua, overtake-classic.lua, overtake-studio.lua
+  ~/.config/omarchy/plugins/overtake.*   its own plugins, plus patched copies of
+                                          Omarchy's workspaces, bluetooth, audio,
+                                          notifications and battery (made from
+                                          your installed Omarchy; yours is untouched)
+  ~/.local/share/applications/overtake-trash.desktop
+  ~/.config/overtake/                     settings (only ones you don't have yet)
+  ~/Pictures/overtake/                    wallpapers
+EOF
+  [[ $CHANGE_IMAGES ]] && echo "  ~/.local/share/applications/overtake-image-viewer.desktop"
+  cat <<'EOF'
+
+and change files you already have (./uninstall.sh undoes each one):
+  ~/.config/hypr/bindings.lua             a block between ">>> overtake" markers:
+                                          the mode shortcut, and loading Overtake's
+                                          shortcuts while the mode is on
+  ~/.config/hypr/autostart.lua            a marked block: resume the wallpaper
+                                          slideshow at login if the mode is on
+  ~/.config/omarchy/extensions/omarchy-menu.jsonc
+                                          a marked block: the Overtake Mode entry
+  ~/.config/omarchy/shell.json            enables overtake.notifications and
+                                          overtake.battery (they act exactly like
+                                          Omarchy's own while the mode is off)
+EOF
+  [[ $CHANGE_LINKS ]] && cat <<'EOF'
+  ~/.local/share/applications/omarchy-browser.desktop
+                                          links clicked in other apps open on the
+                                          workspace you're on (--no-link-handler
+                                          skips this)
+EOF
+  [[ $CHANGE_IMAGES ]] && cat <<'EOF'
+  default image viewer (xdg-mime)         only for image types that open with imv
+                                          or nothing: imv-dir, so the arrow keys
+                                          step through the folder
+                                          (--no-image-viewer skips this)
+EOF
+  cat <<'EOF'
+
+then reload Hyprland and restart the Omarchy shell.
+EOF
+}
+
+plan
+echo
+if [[ $DRY_RUN ]]; then
+  echo "Dry run: nothing was changed."
+  exit 0
+fi
+if [[ -z $ASSUME_YES ]]; then
+  [[ -t 0 ]] || die "can't ask without a terminal. Re-run with --yes to go ahead, or --dry-run to see the list."
+  read -r -p "Go ahead? [y/N] " reply
+  [[ $reply == [yY]* ]] || { echo "Nothing changed."; exit 1; }
+  echo
+fi
 
 echo "Installing Overtake Mode (Omarchy) on Omarchy $(omarchy-version)"
 
@@ -170,7 +270,6 @@ setsid "$HOME/.local/bin/overtake" bg-picker cache </dev/null >/dev/null 2>&1 &
 
 # Trash as an app, so it can be found in Start, pinned to Start or the
 # taskbar, and added back to the desktop after being removed from it.
-APPS="$HOME/.local/share/applications"
 mkdir -p "$APPS"
 cat >"$APPS/overtake-trash.desktop" <<'DESKTOP'
 [Desktop Entry]
@@ -187,18 +286,17 @@ DESKTOP
 # Links clicked in other apps go through Omarchy's link handler, which hands
 # them to the browser window used last, wherever it is. Route them through
 # Overtake, which opens them on the workspace you're on (and, while the mode
-# is off, passes them straight back to Omarchy's handler).
-BROWSER_ENTRY="$APPS/omarchy-browser.desktop"
-if [[ -f $BROWSER_ENTRY ]] && grep -q '^Exec=omarchy-launch-browser ' "$BROWSER_ENTRY"; then
+# is off, passes them straight back to Omarchy's handler). --no-link-handler skips it.
+if [[ $CHANGE_LINKS ]]; then
   sed -i "s|^Exec=omarchy-launch-browser |Exec=$HOME/.local/bin/overtake open-url |" "$BROWSER_ENTRY"
   say "links: open on the workspace you're on"
 fi
 
 # Images open with their whole folder, so the arrow keys step through the
 # others (imv-dir, which ships with imv). Only while images still open with
-# Omarchy's imv; your own choice of viewer is left alone.
+# Omarchy's imv; your own choice of viewer is left alone. --no-image-viewer skips it.
 IMAGE_TYPES="image/png image/jpeg image/jpg image/gif image/bmp image/webp image/tiff image/avif image/heif image/jxl image/svg+xml"
-if command -v imv-dir >/dev/null; then
+if [[ $CHANGE_IMAGES ]]; then
   mkdir -p "$APPS"
   cat >"$APPS/overtake-image-viewer.desktop" <<'DESKTOP'
 [Desktop Entry]

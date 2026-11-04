@@ -24,8 +24,24 @@ Settings → Overtake Mode, or the Omarchy menu):
 ```bash
 git clone https://github.com/Gleasonmt/overtake-mode-omarchy.git
 cd overtake-mode-omarchy
+git checkout "$(git describe --tags --abbrev=0 2>/dev/null || echo main)"  # latest release
 ./install.sh
 ```
+
+The installer first lists every file it will add and every file of yours it
+will change (see [What it installs](#what-it-installs)), and writes nothing
+until you say yes.
+
+| Option | Does |
+| --- | --- |
+| `--dry-run` | only list what would change |
+| `--yes` | don't ask (for scripts and updates) |
+| `--no-link-handler` | leave `omarchy-browser.desktop` alone |
+| `--no-image-viewer` | leave your default image viewer alone |
+
+Needs Omarchy 4 (tested on 4.0.6) with `jq`, `python3` and `hyprctl`, which
+Omarchy ships. Optional: `imv-dir` (ships with imv) for folder-browsing image
+viewing, and Nautilus for the Trash app.
 
 Then switch it on with **Super + Ctrl + Shift + W**, `overtake on`, or
 **Omarchy menu → Overtake Mode**. Each press of the shortcut goes to the next
@@ -255,7 +271,19 @@ All in `~/.config/overtake/`:
 | `~/.config/omarchy/plugins/overtake.battery` | a copy of Omarchy's battery service; while the mode is on its fixed 10% warning gives way to Overtake's battery alerts, otherwise it's Omarchy's own |
 | `~/.config/omarchy/plugins/overtake.notification-center` | the bell and its panel; it reads Omarchy's notification history folder (`~/.local/state/omarchy/notifications/history`). `omarchy-shell overtake.notification-center toggle` opens it |
 | `~/.config/omarchy/extensions/omarchy-menu.jsonc` | the Overtake Mode menu entry, between markers |
+| `~/.config/omarchy/shell.json` | `overtake.notifications` and `overtake.battery` enabled (through `omarchy plugin enable`) |
 | `~/.config/overtake/`, `~/Pictures/overtake/` | your settings and the wallpapers |
+| `~/.local/share/applications/overtake-trash.desktop` | Trash as an app, for Start, the taskbar and the desktop |
+| `~/.local/share/applications/omarchy-browser.desktop` | its `Exec` line, so links from other apps open on your current workspace; only if it's still Omarchy's, and not with `--no-link-handler` |
+| `~/.local/share/applications/overtake-image-viewer.desktop`, `xdg-mime` defaults | images open with their folder (`imv-dir`); only for types that open with imv or nothing, only if `imv-dir` is installed, and not with `--no-image-viewer` |
+
+While the mode is on, `overtake` also saves your Omarchy bar layout and
+swaps in its own (`~/.config/omarchy/shell.json`), adds a marked bar-size
+block to `~/.config/omarchy/shell.toml` for Studio, and puts both back when
+you switch to Omarchy. Your saved Omarchy layout lives in
+`~/.local/state/overtake`.
+
+`./uninstall.sh` undoes every row above.
 
 If a future Omarchy changes one of those widgets so the change no longer
 applies, the installer says so and Overtake uses Omarchy's own one.
@@ -270,9 +298,12 @@ The default **Rotate** mode makes no network requests.
 ## Uninstall
 
 ```bash
-./uninstall.sh          # keeps ~/.config/overtake and the wallpapers
-./uninstall.sh --purge  # removes those too
+./uninstall.sh            # keeps ~/.config/overtake and the wallpapers
+./uninstall.sh --purge    # removes those too
+./uninstall.sh --dry-run  # only lists what it would do
 ```
+
+It lists what it will remove and asks first (`--yes` skips the question).
 
 ## Known limits
 
