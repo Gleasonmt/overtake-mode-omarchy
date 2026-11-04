@@ -308,13 +308,15 @@ All in `~/.config/overtake/`:
 
 While the mode is on, `overtake` also saves your Omarchy bar layout and
 swaps in its own (`~/.config/omarchy/shell.json`), adds a marked bar-size
-block to `~/.config/omarchy/shell.toml` for Studio, and sets GTK apps'
+block to `~/.config/omarchy/shell.toml` (each mode's bar height), and sets GTK apps'
 title-bar buttons to none (`gsettings` `org.gnome.desktop.wm.preferences
 button-layout`, since Overtake's title bars have them), and puts all of it
 back when you switch to Omarchy. Your saved Omarchy layout lives in
 `~/.local/state/overtake`.
 
-`./uninstall.sh` undoes every row above.
+`./uninstall.sh` undoes every row above, except that it keeps your settings
+and wallpapers (`~/.config/overtake`, `~/Pictures/overtake`) unless you add
+`--purge`.
 
 If a future Omarchy changes one of those widgets so the change no longer
 applies, the installer says so and Overtake uses Omarchy's own one.
@@ -325,8 +327,8 @@ Overtake Mode sends nothing anywhere, with one exception: the **Day & Night**
 wallpaper mode looks up today's sunrise and sunset from
 [wttr.in](https://wttr.in), which estimates your location from your IP address.
 The default **Rotate** mode makes no network requests. Album art in the
-Control Center comes from the address your music player gives, as in
-Omarchy's own media widget.
+Control Center is shown only when the player gives a local file (art at a web
+address isn't fetched).
 
 What it reads on your machine, and keeps there:
 

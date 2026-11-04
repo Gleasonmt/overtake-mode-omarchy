@@ -49,7 +49,7 @@ Precedents: [macOS Dock #13499](https://github.com/omacom/omarchy-plugin-marketp
   switches back to Omarchy first (also if a switch failed halfway), removes the
   marked blocks, re-enables Omarchy's notifications/battery unless the user had
   turned them off before installing (recorded at `install.sh:246`), restores
-  the exact earlier `mimeapps.list` lines (recorded per type, `uninstall.sh:133`)
+  the exact earlier `mimeapps.list` lines (recorded per type, `uninstall.sh:142`)
   and the link handler, and deletes its own files. `--purge` also removes
   settings and wallpapers.
 - While a mode is on, `overtake` swaps the bar layout in `shell.json`, adds a
@@ -60,32 +60,36 @@ Precedents: [macOS Dock #13499](https://github.com/omacom/omarchy-plugin-marketp
 
 ## Untrusted input and private data
 
-- **Rich text:** all 137 `Text` items that can show app-controlled text use
+- **Rich text:** every `Text` item (138) uses
   `textFormat: Text.PlainText`; there are no `ToolTip`, `Label` or `TextEdit`.
 - **Process arguments:** window titles, window names, Claude Code session ids
   and notification text never go into another process's argv:
   - jq gets them through `--slurpfile`/`--rawfile` from `<(printf …)`
-    (`remember_layout` :781, `relayout` :803, `claude_windows` :1151,
-    `sync_session_names` :1170, `set_name` :1206);
-  - names and notification text reach `overtake` on stdin (`name … -` :1739,
-    `notification-open … -` :1712; QML: `session-names/Service.qml:222`,
-    `notification-center/Panel.qml:204`);
-  - Copy URL passes the page title in the environment (`copy_url` :1078) and
+    (`remember_layout` :751, `relayout` :773, `claude_windows` :1121,
+    `sync_session_names` :1140, `set_name` :1176);
+  - names and notification text reach `overtake` on stdin (`name … -` :1710,
+    `notification-open … -` :1683; QML: `session-names/Service.qml:232`,
+    `notification-center/Panel.qml:208`);
+  - Copy URL passes the page title in the environment (`copy_url` :1048) and
     reads browser history read-only in place;
   - Spotlight lists the home folder once per opening and matches typed text
     in-process (`Spotlight.qml:178`); its calculator is a small parser
     (`Spotlight.qml:104`), no eval.
 - **Shell and Lua:** window addresses must match `^0x[0-9a-f]+$` before any
-  command runs (`bin/overtake:1671`); workspace names with quotes or
-  backslashes are refused before reaching Hyprland's Lua (`lua_safe` :681);
+  command runs (`bin/overtake:1641`); workspace names with quotes or
+  backslashes are refused before reaching Hyprland's Lua (`lua_safe` :651);
   Settings shell-quotes font and theme names (`Settings.qml:47`).
-- **Opening things from other apps' text:** a clicked notification opens a file
-  it names only if it's under `$HOME`, not executable, and both its extension
-  and its content are a picture, video, sound, PDF or plain text
-  (`notification_open` :951); app names are matched only as plain desktop-file
-  names. `open-url` (:917) drops option-like arguments.
+- **Opening things from other apps' text:** clicking a notification in the
+  notification center runs the notification's own action exactly as Omarchy's
+  toasts do (`notification-center/Panel.qml`, the same checks as Omarchy's
+  `parseExecArgv`, run through `bash -lc 'exec "$@"'`). Without one, it opens a
+  folder or file the message names only if it's under `$HOME`, not
+  executable, and (for a file) both its extension and its content are a
+  picture, video, sound, PDF or plain text
+  (`notification_open` :922); app names are matched only as plain desktop-file
+  names. `open-url` (:888) drops option-like arguments.
 - **Images:** notification icons and album art load local files only
-  (`Panel.qml:261`, `ControlCenter.qml:256`).
+  (`Panel.qml:265`, `ControlCenter.qml:256`).
 - **Network:** one request, `wttr.in` for sunrise/sunset, only in the optional
   Day & Night wallpaper mode (`sun_times` :290); documented in the README.
 - **Local reads** (browser history for Copy URL, `~/.claude/sessions` for name
@@ -95,18 +99,25 @@ Precedents: [macOS Dock #13499](https://github.com/omacom/omarchy-plugin-marketp
   state; the slideshow's saved pid is checked against `/proc/<pid>/cmdline`
   before it's stopped (`stop_slideshow` :335).
 - **Background work:** the mode, Claude Code sessions and the Trash are
-  watched, not polled (`session-names/Service.qml:83`). What's left: a name-tag
-  check every 15 s while Claude Code runs, and window places recorded every
-  5 s while Classic or Studio is on.
+  watched, not polled (`session-names/Service.qml:83`), and Hyprland window
+  events trigger at most one refresh per 100 ms (title changes are ignored).
+  Process spawns that remain: `overtake sessions` every 15 s while Claude Code
+  runs (and when a window opens or closes then), and `overtake remember`
+  every 5 s while Classic or Studio is on. In-process Hyprland IPC polling
+  that remains: window geometry every 1.5 s while a window has a name tag;
+  in Classic and Studio every 400 ms (Hyprland sends no event for resizes),
+  and while a floating window has focus every 250 ms, 80 ms once it's
+  moving (to follow an app dragging its own window).
 
 ## Trying it without touching your desktop
 
 ```bash
 git clone https://github.com/Gleasonmt/overtake-mode-omarchy.git && cd overtake-mode-omarchy
 ./install.sh --dry-run                     # the full change list; writes nothing
-mkdir -p /tmp/ovt-home/.config/omarchy && echo '{}' > /tmp/ovt-home/.config/omarchy/shell.json
-HOME=/tmp/ovt-home OVERTAKE_NO_RELOAD=1 ./install.sh --yes     # installs into the scratch home
-HOME=/tmp/ovt-home OVERTAKE_NO_RELOAD=1 ./uninstall.sh --yes   # and removes it again
+scratch=$(mktemp -d)      # a private, empty home to install into
+mkdir -p "$scratch/.config/omarchy" && echo '{}' > "$scratch/.config/omarchy/shell.json"
+HOME=$scratch OVERTAKE_NO_RELOAD=1 ./install.sh --yes     # installs into the scratch home
+HOME=$scratch OVERTAKE_NO_RELOAD=1 ./uninstall.sh --yes   # and removes it again
 ```
 
 `OVERTAKE_NO_RELOAD=1` skips reloading Hyprland and the shell. (Unset the

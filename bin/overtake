@@ -383,36 +383,6 @@ slideshow_loop() {
   done
 }
 
-# Overtake's patched copies of two Omarchy services, enabled by the installer
-# and kept loaded in both modes (they check the mode themselves, so switching
-# needs no shell restart); `switch_services off` hands back Omarchy's own:
-# overtake.notifications (close buttons, the notification center's timings and
-# per-app settings) and overtake.battery (no fixed 10% warning; BatteryAlerts
-# sends per-device ones). Omarchy keeps a service loaded until the shell
-# restarts, so switching restarts the shell (only when something changed)
-# and waits for it to come back.
-switch_services() {  # switch_services on|off
-  local listed id enabled changed=0
-  listed=$(omarchy-shell shell listPlugins 2>/dev/null || true)
-  for id in overtake.notifications overtake.battery; do
-    # on: only if the installer could build it; off: whenever it's enabled,
-    # even if its folder has gone (or Omarchy's own would stay disabled)
-    [[ $1 == off || -d $HOME/.config/omarchy/plugins/$id ]] || continue
-    enabled=$(jq -r --arg id "$id" '.[] | select(.id == $id) | .enabled' <<<"$listed" 2>/dev/null || true)
-    if [[ $1 == on && $enabled != true ]]; then
-      omarchy plugin enable "$id" >/dev/null 2>&1 && changed=1
-    elif [[ $1 == off && $enabled == true ]]; then
-      omarchy plugin disable "$id" >/dev/null 2>&1 && changed=1
-    fi
-  done
-  (( changed )) || return 0
-  omarchy-restart-shell >/dev/null 2>&1 || true
-  local i
-  for i in $(seq 20); do
-    omarchy-shell shell ping >/dev/null 2>&1 && break
-    sleep 0.25
-  done
-}
 
 # on/off/toggle run one at a time (a double-tapped shortcut, or the menu and a
 # shortcut together, would otherwise interleave and save the Overtake bar as
@@ -885,6 +855,7 @@ focus_raise() {
 hide_minimized() {
   local mon
   for mon in $(hyprctl monitors -j | jq -r '.[] | select(.specialWorkspace.name == "special:minimized") | .name'); do
+    lua_safe "$mon" || continue
     hyprctl --batch "dispatch hl.dsp.focus({ monitor = \"$mon\" }) ; dispatch hl.dsp.workspace.toggle_special(\"minimized\")" >/dev/null
   done
 }
@@ -1017,8 +988,7 @@ screensaver_cmd() {
       [[ $1 == lock ]] && key=lock
       if [[ -z ${2:-} ]]; then jq -r --arg k "$key" '.idle[$k] // (if $k == "lock" then 300 else 150 end)' "$SHELL_JSON"; return; fi
       [[ $2 =~ ^[0-9]+$ ]] || { echo "seconds, please" >&2; return 1; }
-      tmp=$(mktemp "$SHELL_JSON.XXXXXX")
-      jq --arg k "$key" --argjson v "$2" '.idle[$k] = $v' "$SHELL_JSON" >"$tmp" && mv "$tmp" "$SHELL_JSON"
+      replace_with "$SHELL_JSON" jq --arg k "$key" --argjson v "$2" '.idle[$k] = $v' "$SHELL_JSON"
       omarchy-shell shell reloadConfig >/dev/null 2>&1 || true ;;
     show)
       local omarchy="${OMARCHY_PATH:-/usr/share/omarchy}"
@@ -1135,8 +1105,8 @@ json_set() {  # json_set <file> <jq filter> [jq args...]
   (
     flock 9
     [[ -s $file ]] || echo '{}' >"$file"
-    tmp=$(mktemp "$file.XXXXXX")
-    if jq "$@" "$filter" "$file" >"$tmp" && [[ -s $tmp ]]; then mv "$tmp" "$file"; else rm -f "$tmp"; fi
+    # (through replace_with: a symlinked file keeps its link, and its mode)
+    replace_with "$file" jq "$@" "$filter" "$file" || true
   ) 9>"$STATE_DIR/.lock"
 }
 
@@ -1326,7 +1296,7 @@ PY
   mark_arranging
   # One batch, with animations paused and your view put back at its end, so
   # the visits to other workspaces don't show.
-  anim=$(hyprctl getoption animations:enabled -j 2>/dev/null | jq -r '.bool // .int // true')
+  anim=$(hyprctl getoption animations:enabled -j 2>/dev/null | jq -r 'if has("bool") then .bool else (.int != 0) end')
   [[ $anim == true || $anim == 1 ]] && anim=true || anim=false
   hyprctl --batch "eval hl.config({ animations = { enabled = false } }) ; eval hl.config({ cursor = { no_warps = true } }) ; $cmds${view:+ ; $view}${active:+ ; dispatch hl.dsp.focus({ window = \"address:$active\" })} ; eval hl.config({ cursor = { no_warps = false } }) ; eval hl.config({ animations = { enabled = $anim } })" >/dev/null 2>&1 || true
 }
@@ -1670,10 +1640,12 @@ usage() {
 # Window addresses and workspace names end up inside the Lua that
 # `hyprctl dispatch` runs: take addresses only in Hyprland's own form.
 case ${1:-} in
-  minimize|restore|show|make-room|maximize|close|unsnap|send|copy-url|fill-gap|rename|name|hide-app|hide-others|quit-app)
-    [[ -z ${2:-} || $2 == here || $2 =~ ^0x[0-9a-fA-F]+$ ]] || { echo "overtake $1: not a window address: $2" >&2; exit 1; } ;;
-  snap)
-    [[ -z ${3:-} || $3 =~ ^0x[0-9a-fA-F]+$ ]] || { echo "overtake snap: not a window address: $3" >&2; exit 1; } ;;
+  minimize|restore|show|make-room|maximize|close|unsnap|copy-url|fill-gap|rename|hide-app|hide-others|quit-app)
+    [[ -z ${2:-} || $2 =~ ^0x[0-9a-fA-F]+$ ]] || { echo "overtake $1: not a window address: $2" >&2; exit 1; } ;;
+  name)
+    [[ -z ${2:-} || $2 == here || $2 =~ ^0x[0-9a-fA-F]+$ ]] || { echo "overtake name: not a window address: $2" >&2; exit 1; } ;;
+  snap|send)   # the window is the second argument (after the zone, or the workspace)
+    [[ -z ${3:-} || $3 =~ ^0x[0-9a-fA-F]+$ ]] || { echo "overtake $1: not a window address: $3" >&2; exit 1; } ;;
 esac
 
 case "${1:-help}" in
@@ -1706,7 +1678,6 @@ case "${1:-help}" in
   restore) [[ -n ${2:-} ]] && restore_window "$2" "${3:-follow}" || true ;;
   restore-all) restore_all ;;
   minimize-all) minimize_all "${2:-}" ;;
-  services) switch_services "${2:-on}" ;;   # internal: install/uninstall
   focus-app) [[ -n ${2:-} ]] && focus_app "$2" ;;
   notification-open)  # the message text as "-": one line on stdin
     body=${4:-}; [[ $body == - ]] && { IFS= read -r -t 5 body || true; }

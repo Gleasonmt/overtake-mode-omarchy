@@ -19,7 +19,7 @@ Item {
     watchChanges: true
     printErrors: false
     onFileChanged: reload()
-    onLoaded: root.modeOn = text().trim() === "on"
+    onLoaded: { var v = text().trim(); if (v) root.modeOn = v === "on" }   // (an empty read is a rewrite in progress)
     onLoadFailed: root.modeOn = false
   }
 
