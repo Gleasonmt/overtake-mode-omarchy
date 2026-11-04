@@ -130,12 +130,14 @@ PATCHES = {
   // too, acting like Omarchy's own while the mode is off, so switching modes
   // needs no shell restart.
   property bool overtakeOn: false
-  Process {
-    id: overtakeFlag
-    command: ["test", "-f", Quickshell.env("HOME") + "/.local/state/overtake/enabled"]
-    onExited: function(code) { service.overtakeOn = code === 0 }
+  FileView {   // "on" or "off", kept by `overtake` (watched, not polled)
+    path: Quickshell.env("HOME") + "/.local/state/overtake/mode"
+    watchChanges: true
+    printErrors: false
+    onFileChanged: reload()
+    onLoaded: service.overtakeOn = text().trim() === "on"
+    onLoadFailed: service.overtakeOn = false
   }
-  Timer { interval: 1500; running: true; repeat: true; triggeredOnStart: true; onTriggered: if (!overtakeFlag.running) overtakeFlag.running = true }
   FileView {
     path: Quickshell.env("HOME") + "/.config/overtake/notifications.json"
     watchChanges: true
@@ -183,12 +185,14 @@ PATCHES = {
 '''  // Overtake Mode on? (its flag file). This copy stays loaded in Omarchy mode
   // too, warning as Omarchy's own does while the mode is off.
   property bool overtakeOn: false
-  Process {
-    id: overtakeFlag
-    command: ["test", "-f", Quickshell.env("HOME") + "/.local/state/overtake/enabled"]
-    onExited: function(code) { root.overtakeOn = code === 0 }
+  FileView {   // "on" or "off", kept by `overtake` (watched, not polled)
+    path: Quickshell.env("HOME") + "/.local/state/overtake/mode"
+    watchChanges: true
+    printErrors: false
+    onFileChanged: reload()
+    onLoaded: root.overtakeOn = text().trim() === "on"
+    onLoadFailed: root.overtakeOn = false
   }
-  Timer { interval: 1500; running: true; repeat: true; triggeredOnStart: true; onTriggered: if (!overtakeFlag.running) overtakeFlag.running = true }
 
   function checkBattery() {
     if (root.overtakeOn) return  // Overtake Mode: BatteryAlerts in overtake.taskbar sends battery warnings

@@ -133,13 +133,15 @@ Item {
   }
 
   // ---------- Trash ----------
-  property bool trashFull: false
-  Process {
-    id: trashCheck
-    command: ["sh", "-c", "ls -A \"$HOME/.local/share/Trash/files\" 2>/dev/null | head -n1"]
-    stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.trashFull = text.trim() !== "" }
+  // (the folder is watched, not polled)
+  readonly property bool trashFull: trashFiles.count > 0
+  FolderListModel {
+    id: trashFiles
+    folder: "file://" + Quickshell.env("HOME") + "/.local/share/Trash/files"
+    showDirs: true
+    showHidden: true
+    showDotAndDotDot: false
   }
-  Timer { interval: 5000; repeat: true; running: root.active; triggeredOnStart: true; onTriggered: trashCheck.running = true }
 
   // ---------- One Dock per screen ----------
   Variants {

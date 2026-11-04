@@ -253,7 +253,14 @@ Panel {
             anchors.leftMargin: Style.space(10)
             anchors.verticalCenter: parent.verticalCenter
             width: Style.space(44); height: width
-            source: root.player && root.player.trackArtUrl ? root.player.trackArtUrl : ""
+            // local art only: a web address here comes from the player (or a
+            // website playing in the browser), and loading it would fetch it
+            source: {
+              var url = root.player && root.player.trackArtUrl ? String(root.player.trackArtUrl) : ""
+              return /^(file|image):\/\//.test(url) ? url : ""
+            }
+            sourceSize.width: 96
+            sourceSize.height: 96
             fillMode: Image.PreserveAspectCrop
             asynchronous: true
             Rectangle { anchors.fill: parent; visible: art.status !== Image.Ready; radius: 6; color: Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.12)

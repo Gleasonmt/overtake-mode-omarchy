@@ -12,21 +12,15 @@ Item {
 
   property var shell: null
 
-  readonly property string flagPath: Quickshell.env("HOME") + "/.local/state/overtake/enabled"
+  // On or off: `overtake` keeps "on" or "off" in state/mode (watched, not polled).
   property bool modeOn: false
-
-  Timer {
-    interval: 1500
-    running: true
-    repeat: true
-    triggeredOnStart: true
-    onTriggered: flagCheck.running = true
-  }
-
-  Process {
-    id: flagCheck
-    command: ["test", "-f", root.flagPath]
-    onExited: function(code) { root.modeOn = code === 0 }
+  FileView {
+    path: Quickshell.env("HOME") + "/.local/state/overtake/mode"
+    watchChanges: true
+    printErrors: false
+    onFileChanged: reload()
+    onLoaded: root.modeOn = text().trim() === "on"
+    onLoadFailed: root.modeOn = false
   }
 
   // The look: "classic" or "studio" (~/.config/overtake/style, set by

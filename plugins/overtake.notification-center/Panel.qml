@@ -191,7 +191,10 @@ Panel {
     openProc.entry = entry
     // the message text goes on stdin ("-"), not in the process list
     openProc.body = String(entry.body || "").replace(/<[^>]*>/g, "").replace(/\n/g, " ")
-    openProc.command = ["overtake", "notification-open", String(entry.app || ""), String(entry.appIcon || ""), "-"]
+    // (the icon only when it's a plain icon name: a path, like a contact's
+    // picture, stays out of the process list)
+    var icon = String(entry.appIcon || "")
+    openProc.command = ["overtake", "notification-open", String(entry.app || ""), /^[A-Za-z0-9._-]+$/.test(icon) ? icon : "", "-"]
     openProc.running = true
   }
   Process {
