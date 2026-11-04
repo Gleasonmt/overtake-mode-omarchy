@@ -217,7 +217,7 @@ Item {
     if (item.kind === "app") Quickshell.execDetached(["uwsm-app", "--", "gtk-launch", item.id + ".desktop"])
     else if (item.kind === "action") Quickshell.execDetached(item.command)
     else if (item.kind === "file") Quickshell.execDetached(["uwsm-app", "--", "xdg-open", item.path])
-    else if (item.kind === "sum") { copier.value = item.name; copier.running = true }
+    else if (item.kind === "sum" && !copier.running) { copier.value = item.name; copier.stdinEnabled = true; copier.running = true }
   }
 
   // Apps view: the grid, filtered by what's typed.

@@ -304,6 +304,21 @@ build_widget battery "$OMARCHY_PLUGINS/services/battery" manifest.json Service.q
 # Both stay enabled in either mode (they check it themselves), so switching
 # modes needs no shell restart. The reload below picks them up. So do the
 # name tags on Claude Code windows (overtake.session-names).
+# Turn a plugin on through the running shell. Just after its files are
+# written the shell may not know it yet ("not known"): ask it to look again and
+# retry for a few seconds rather than fail quietly.
+enable_plugin() {
+  local id=$1 out="" i
+  for i in $(seq 15); do
+    out=$(omarchy plugin enable "$id" 2>&1) && return 0
+    [[ $out == *"not known"* ]] || break
+    omarchy-shell shell rescanPlugins >/dev/null 2>&1 || true
+    sleep 0.2
+  done
+  say "couldn't turn on $id (${out:-no reply from the shell}); afterwards run: omarchy plugin enable $id"
+  return 0
+}
+
 # Which of Omarchy's own you had turned off yourself, so ./uninstall.sh leaves
 # those off instead of turning them back on.
 if [[ ! -e $HOME/.local/state/overtake/disabled-before ]]; then
@@ -312,7 +327,7 @@ if [[ ! -e $HOME/.local/state/overtake/disabled-before ]]; then
 fi
 if [[ -z ${OVERTAKE_NO_RELOAD:-} ]]; then
   for id in notifications battery $([[ $NAME_TAGS == yes ]] && echo session-names || true); do
-    [[ -d $PLUGINS/overtake.$id ]] && { omarchy plugin enable "overtake.$id" >/dev/null 2>&1 || true; }
+    [[ -d $PLUGINS/overtake.$id ]] && enable_plugin "overtake.$id"
   done
 fi
 say "plugins: ${OWN_PLUGINS// /, }"
