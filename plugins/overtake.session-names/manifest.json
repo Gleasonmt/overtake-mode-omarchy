@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "overtake.session-names",
   "name": "Overtake Name Tags",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "author": "Gleasonmt",
   "description": "A name tag on the top edge of every Claude Code window (and every window you name), in Omarchy, Classic and Studio",
   "kinds": [

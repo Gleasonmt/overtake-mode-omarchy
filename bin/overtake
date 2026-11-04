@@ -1,7 +1,8 @@
 #!/bin/bash
-# Switch Omarchy between its own layout and Overtake Mode, a classic desktop: bottom taskbar
-# (overtake.taskbar), a date-and-time clock, familiar shortcuts (~/.config/hypr/overtake.lua)
-# and a wallpaper slideshow.
+# Switch between Omarchy's own desktop and Overtake Mode's two: Classic (a
+# taskbar and Start menu along the bottom, title bars, snap layouts) and Studio
+# (a menu bar on top, a Dock, Spotlight), each with familiar shortcuts
+# (~/.config/hypr/overtake*.lua) and its own theme and wallpaper.
 #
 #   overtake on|off|toggle|status
 #   overtake cycle            # SUPER+CTRL+SHIFT+W: next mode (Omarchy -> Classic -> Studio -> Omarchy)
@@ -251,24 +252,43 @@ save_look() {  # save_look <mode>
 # Omarchy look's always; Classic's or Studio's only if you picked it). Fails
 # when the wallpaper is left to the slideshow.
 apply_look() {  # apply_look <mode>
-  local theme bg keep=""
+  local theme bg keep="" src="" dir
   theme=$(cat "$LOOKS_DIR/$1.theme" 2>/dev/null || true)
   bg=$(cat "$LOOKS_DIR/$1.bg" 2>/dev/null || true)
   # A wallpaper to put back: switch the theme without its own wallpaper
   # (OMARCHY_THEME_SKIP_BACKGROUND, as omarchy-theme-refresh does), so the
   # theme's default doesn't show for a moment before this one.
   [[ ($1 == omarchy || -f $LOOKS_DIR/$1.picked) && -n $bg ]] && keep=1
+  if [[ -n $keep ]]; then
+    # Where it really lives: a theme's own picture from that theme's folder,
+    # not from the current-theme copy the switch is about to replace.
+    if [[ $bg == theme:* ]]; then
+      for dir in "$HOME/.config/omarchy/backgrounds/$theme" "$HOME/.config/omarchy/themes/$theme/backgrounds" \
+                 "${OMARCHY_PATH:-/usr/share/omarchy}/themes/$theme/backgrounds"; do
+        [[ -n $theme && -f $dir/${bg#theme:} ]] && { src=$dir/${bg#theme:}; break; }
+      done
+    elif [[ -f $bg ]]; then
+      src=$bg
+    fi
+    # set first, so the wallpaper never points into a theme folder that's gone
+    [[ -z $src || $(readlink -f "$CURRENT_BG") == "$(readlink -f "$src")" ]] || omarchy-theme-bg-set "$src" >/dev/null 2>&1 || true
+  fi
   if [[ -n $theme && $theme != "$(cat "$CURRENT_THEME_NAME" 2>/dev/null)" ]]; then
     OMARCHY_THEME_SKIP_BACKGROUND=${keep:+1} omarchy-theme-set "$theme" >/dev/null 2>&1 || true
   fi
   [[ -n $keep ]] || return 1
-  [[ $bg == theme:* ]] && bg="$HOME/.local/state/omarchy/current/theme/backgrounds/${bg#theme:}"
-  if [[ ! -f $bg ]]; then
-    # gone (theme removed or renamed): the theme's own wallpaper after all
-    [[ -n $theme ]] && omarchy-theme-set "$theme" >/dev/null 2>&1 || true
-    return 1
+  if [[ -z $src ]]; then
+    [[ $bg == theme:* ]] && bg="$HOME/.local/state/omarchy/current/theme/backgrounds/${bg#theme:}"
+    if [[ ! -f $bg ]]; then
+      # gone (theme removed or renamed): the theme's own first wallpaper
+      # instead (not a whole theme re-apply)
+      local first
+      first=$(find -L "$HOME/.local/state/omarchy/current/theme/backgrounds" -maxdepth 1 -type f 2>/dev/null | sort | head -1)
+      [[ -n $first ]] && omarchy-theme-bg-set "$first" >/dev/null 2>&1 || true
+      return 1
+    fi
+    [[ $(readlink -f "$CURRENT_BG") == "$(readlink -f "$bg")" ]] || omarchy-theme-bg-set "$bg" >/dev/null 2>&1 || true
   fi
-  [[ $(readlink -f "$CURRENT_BG") == "$(readlink -f "$bg")" ]] || omarchy-theme-bg-set "$bg" >/dev/null 2>&1 || true
   mark_picked
 }
 
@@ -399,7 +419,7 @@ mode_lock() {
       trap 'rmdir "$MODE_LOCK" 2>/dev/null' EXIT
       return 0
     fi
-    [[ -n $(find "$MODE_LOCK" -maxdepth 0 -mmin +1 2>/dev/null) ]] && rmdir "$MODE_LOCK" 2>/dev/null
+    [[ -n $(find "$MODE_LOCK" -maxdepth 0 -mmin +1 2>/dev/null) ]] && { rmdir "$MODE_LOCK" 2>/dev/null || true; }
     sleep 0.5
   done
   echo "overtake: another on/off is still running" >&2
@@ -622,7 +642,7 @@ current_view() {
   [[ $active =~ ^0x[0-9a-f]+$ ]] || active=""
   cmds+=$last
   [[ -n $active ]] && cmds+=" ; dispatch hl.dsp.focus({ window = \"address:$active\" })"
-  [[ -n $cmds ]] && echo "eval hl.config({ cursor = { no_warps = true } }) ; $cmds ; eval hl.config({ cursor = { no_warps = false } })"
+  [[ -n $cmds ]] && echo "eval hl.config({ cursor = { no_warps = true } }) ; $cmds ; eval hl.config({ cursor = { no_warps = $(warps_setting) } })"
   return 0
 }
 
@@ -648,6 +668,10 @@ cycle_mode() {
 
 # Window controls. Minimized windows wait on the hidden special:minimized
 # workspace; minimized.json remembers where each one came from.
+warps_setting() {  # your cursor:no_warps (true/false), put back after Overtake's moves pause it
+  hyprctl getoption cursor:no_warps -j 2>/dev/null | jq -r 'if has("bool") then .bool else (.int != 0) end' 2>/dev/null || echo false
+}
+
 lua_safe() {  # a name that can sit inside a "..." Lua string as it is
   [[ $1 != *[\"\\]* && $1 != *[[:cntrl:]]* ]]
 }
@@ -821,7 +845,7 @@ unstick_workspaces() {
       /^Monitor /                      { ws = "" }
       /^\tactive workspace: /          { ws = $3 }
       /^\tsolitaryBlockedBy: .*workspace offset/ && ws != "" { print ws }'); do
-    hyprctl --batch "eval hl.config({ cursor = { no_warps = true } }) ; dispatch hl.dsp.focus({ workspace = \"empty\" }) ; dispatch hl.dsp.focus({ workspace = \"$ws\" }) ; eval hl.config({ cursor = { no_warps = false } })" >/dev/null
+    hyprctl --batch "eval hl.config({ cursor = { no_warps = true } }) ; dispatch hl.dsp.focus({ workspace = \"empty\" }) ; dispatch hl.dsp.focus({ workspace = \"$ws\" }) ; eval hl.config({ cursor = { no_warps = $(warps_setting) } })" >/dev/null
   done
 }
 
@@ -845,7 +869,7 @@ show_window() {
 # Focus and raise without moving the mouse (Hyprland normally warps the cursor
 # to the window it focuses; a click shouldn't move the pointer).
 focus_raise() {
-  hyprctl --batch "eval hl.config({ cursor = { no_warps = true } }) ; dispatch hl.dsp.focus({ window = \"address:$1\" }) ; dispatch hl.dsp.window.bring_to_top() ; eval hl.config({ cursor = { no_warps = false } })" >/dev/null
+  hyprctl --batch "eval hl.config({ cursor = { no_warps = true } }) ; dispatch hl.dsp.focus({ window = \"address:$1\" }) ; dispatch hl.dsp.window.bring_to_top() ; eval hl.config({ cursor = { no_warps = $(warps_setting) } })" >/dev/null
 }
 
 # Hyprland shows a special workspace when something focuses a window on it
@@ -1028,12 +1052,14 @@ maximize_window() {
   local addr
   addr=$(window_address "${1:-}")
   [[ -n $addr ]] && hyprctl dispatch "hl.dsp.window.fullscreen({ mode = \"maximized\", window = \"address:$addr\" })" >/dev/null
+  return 0
 }
 
 close_window() {
   local addr
   addr=$(window_address "${1:-}")
   [[ -n $addr ]] && hyprctl dispatch "hl.dsp.window.close({ window = \"address:$addr\" })" >/dev/null
+  return 0
 }
 
 # ---------- Floating and snap layouts ----------
@@ -1121,8 +1147,14 @@ SESSION_NAMES="$STATE_DIR/session-names.json"
 claude_windows() {  # {"<address>": "<session id>"}: the window each running Claude Code is in
   local sessions windows
   # Claude Code registers each running session as ~/.claude/sessions/<pid>.json.
-  sessions=$(cat "$HOME"/.claude/sessions/*.json 2>/dev/null | jq -sc 'map(select(.pid and .sessionId) | {key: (.pid | tostring), value: .sessionId}) | from_entries' 2>/dev/null) || true
-  windows=$(hyprctl clients -j | jq -c 'map({key: (.pid | tostring), value: .address}) | from_entries')
+  # (each file on its own: one being rewritten mustn't drop all the others)
+  local f
+  sessions=$(for f in "$HOME"/.claude/sessions/*.json; do [[ -f $f ]] && jq -c . "$f" 2>/dev/null; done |
+    jq -sc 'map(select(.pid and .sessionId) | {key: (.pid | tostring), value: .sessionId}) | from_entries' 2>/dev/null) || true
+  # Only windows with a process of their own: a terminal that runs all its
+  # windows in one process (single-instance Ghostty, kitty) can't say which
+  # window a session is in, so those get no guess.
+  windows=$(hyprctl clients -j | jq -c 'group_by(.pid) | map(select(length == 1) | .[0] | {key: (.pid | tostring), value: .address}) | from_entries')
   # Walk up from each Claude process (foot -> shell -> claude) to its window.
   ps -eo pid=,ppid= | jq -Rnc --slurpfile s <(printf '%s' "${sessions:-"{}"}") --argjson w "$windows" '
     $s[0] as $s
@@ -1298,7 +1330,7 @@ PY
   # the visits to other workspaces don't show.
   anim=$(hyprctl getoption animations:enabled -j 2>/dev/null | jq -r 'if has("bool") then .bool else (.int != 0) end')
   [[ $anim == true || $anim == 1 ]] && anim=true || anim=false
-  hyprctl --batch "eval hl.config({ animations = { enabled = false } }) ; eval hl.config({ cursor = { no_warps = true } }) ; $cmds${view:+ ; $view}${active:+ ; dispatch hl.dsp.focus({ window = \"address:$active\" })} ; eval hl.config({ cursor = { no_warps = false } }) ; eval hl.config({ animations = { enabled = $anim } })" >/dev/null 2>&1 || true
+  hyprctl --batch "eval hl.config({ animations = { enabled = false } }) ; eval hl.config({ cursor = { no_warps = true } }) ; $cmds${view:+ ; $view} ; eval hl.config({ cursor = { no_warps = $(warps_setting) } }) ; eval hl.config({ animations = { enabled = $anim } })" >/dev/null 2>&1 || true
 }
 
 # Overtake is about to move windows itself. The title-bar plugin watches the

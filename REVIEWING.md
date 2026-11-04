@@ -2,7 +2,7 @@
 
 Notes for marketplace reviewers: what the automated baseline will report, where
 to find each thing it points at, and how to check the rest quickly. Line numbers
-are for release v0.1.6.
+are for release v0.1.7.
 
 ## Shape
 
@@ -56,7 +56,7 @@ Precedents: [macOS Dock #13499](https://github.com/omacom/omarchy-plugin-marketp
   `~/.local/share/overtake`) prints what it will do and asks (line 62). It
   switches back to Omarchy first (also if a switch failed halfway), removes the
   marked blocks, re-enables Omarchy's notifications/battery unless the user had
-  turned them off before installing (recorded at `install.sh:309`), restores
+  turned them off before installing (recorded at `install.sh:324`), restores
   the exact earlier `mimeapps.list` lines (recorded per type, `uninstall.sh:142`)
   and the link handler, and deletes its own files. `--purge` also removes
   settings and wallpapers.
@@ -72,7 +72,7 @@ Precedents: [macOS Dock #13499](https://github.com/omacom/omarchy-plugin-marketp
 - While a mode is on, `overtake` swaps the bar layout in `shell.json`, adds a
   marked block to `shell.toml` and sets GTK's `button-layout`; all of it is put
   back when switching to Omarchy. Both files are replaced whole through a temp
-  file next to them and a rename (`replace_with`, `bin/overtake:178`), as
+  file next to them and a rename (`replace_with`, `bin/overtake:179`), as
   Omarchy's own `omarchy-shell-config` does.
 
 ## Untrusted input and private data
@@ -82,12 +82,12 @@ Precedents: [macOS Dock #13499](https://github.com/omacom/omarchy-plugin-marketp
 - **Process arguments:** window titles, window names, Claude Code session ids
   and notification text never go into another process's argv:
   - jq gets them through `--slurpfile`/`--rawfile` from `<(printf …)`
-    (`remember_layout` :751, `relayout` :773, `claude_windows` :1121,
-    `sync_session_names` :1140, `set_name` :1176);
-  - names and notification text reach `overtake` on stdin (`name … -` :1710,
-    `notification-open … -` :1683; QML: `session-names/Service.qml:232`,
+    (`remember_layout` :775, `relayout` :797, `claude_windows` :1147,
+    `sync_session_names` :1172, `set_name` :1208);
+  - names and notification text reach `overtake` on stdin (`name … -` :1742,
+    `notification-open … -` :1715; QML: `session-names/Service.qml:232`,
     `notification-center/Panel.qml:208`);
-  - Copy URL passes the page title in the environment (`copy_url` :1048) and
+  - Copy URL passes the page title in the environment (`copy_url` :1074) and
     reads browser history read-only in place;
   - Spotlight lists the home folder once per opening and matches typed text
     in-process (`Spotlight.qml:178`); its calculator is a small parser
@@ -99,8 +99,8 @@ Precedents: [macOS Dock #13499](https://github.com/omacom/omarchy-plugin-marketp
   (`notify-send`'s title); and `overtake name here "<name>"` when a user types
   it that way on purpose (`echo name | overtake name here -` keeps it out).
 - **Shell and Lua:** window addresses must match `^0x[0-9a-f]+$` before any
-  command runs (`bin/overtake:1641`); workspace names with quotes or
-  backslashes are refused before reaching Hyprland's Lua (`lua_safe` :651);
+  command runs (`bin/overtake:1673`); workspace names with quotes or
+  backslashes are refused before reaching Hyprland's Lua (`lua_safe` :675);
   Settings shell-quotes font and theme names (`Settings.qml:47`).
 - **Opening things from other apps' text:** clicking a notification in the
   notification center runs the notification's own action exactly as Omarchy's
@@ -109,18 +109,18 @@ Precedents: [macOS Dock #13499](https://github.com/omacom/omarchy-plugin-marketp
   folder or file the message names only if it's under `$HOME`, not
   executable, and (for a file) both its extension and its content are a
   picture, video, sound, PDF or plain text
-  (`notification_open` :922); app names are matched only as plain desktop-file
-  names. `open-url` (:888) drops option-like arguments.
+  (`notification_open` :946); app names are matched only as plain desktop-file
+  names. `open-url` (:912) drops option-like arguments.
 - **Images:** notification icons and album art load local files only
   (`Panel.qml:265`, `ControlCenter.qml:256`).
 - **Network:** one request, `wttr.in` for sunrise/sunset, only in the optional
-  Day & Night wallpaper mode (`sun_times` :290); documented in the README.
+  Day & Night wallpaper mode (`sun_times` :310); documented in the README.
 - **Local reads** (browser history for Copy URL, `~/.claude/sessions` for name
   tags, recent files, files under home for search) are listed in the README's
   Privacy section and never leave the machine.
 - **Files:** state lives in `~/.local/state/overtake`, created 0700; no `/tmp`
   state; the slideshow's saved pid is checked against `/proc/<pid>/cmdline`
-  before it's stopped (`stop_slideshow` :335).
+  before it's stopped (`stop_slideshow` :355).
 - **Background work:** the mode, Claude Code sessions and the Trash are
   watched, not polled (`session-names/Service.qml:83`), and Hyprland window
   events trigger at most one refresh per 100 ms (title changes are ignored).

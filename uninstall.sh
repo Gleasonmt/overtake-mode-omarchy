@@ -109,8 +109,8 @@ if [[ -f $SHELL_JSON ]]; then
   # renamed over it, keeping its mode)
   target=$(readlink -f "$SHELL_JSON")
   tmp=$(mktemp "$target.XXXXXX")
-  if jq --argjson keep "${KEEP_OFF:-[]}" '(.plugins |= (if type == "array" then map(select((if type == "object" then .id else . end) | tostring | startswith("overtake.") | not)) else . end))
-      | (.disabledPlugins |= (if type == "array" then map(select((tostring | startswith("overtake.") | not) and ((. == "omarchy.notifications" or . == "omarchy.battery") as $ours | ($ours | not) or (. as $id | $keep | index($id))))) else . end))
+  if jq --argjson keep "${KEEP_OFF:-[]}" '(if (.plugins | type) == "array" then .plugins |= map(select((if type == "object" then .id else . end) | tostring | startswith("overtake.") | not)) else . end)
+      | (if (.disabledPlugins | type) == "array" then .disabledPlugins |= map(select((tostring | startswith("overtake.") | not) and ((. == "omarchy.notifications" or . == "omarchy.battery") as $ours | ($ours | not) or (. as $id | $keep | index($id))))) else . end)
       | (if (.cloneSourceRestores | type) == "array" then .cloneSourceRestores |= map(select(tostring | startswith("overtake.") | not)) else . end)' \
       "$SHELL_JSON" >"$tmp"; then
     chmod --reference="$target" "$tmp" 2>/dev/null || true
