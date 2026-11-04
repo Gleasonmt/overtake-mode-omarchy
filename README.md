@@ -51,6 +51,12 @@ Start also switches back to Omarchy.
 Running `./install.sh` again updates it. Your own settings in `~/.config/overtake`
 are never overwritten.
 
+Added it with `omarchy plugin add` (or from the plugin marketplace)? That only
+copies this repository into `~/.config/omarchy/plugins/gleasonmt.overtake-mode`,
+whose small root plugin (`Setup.qml`) reminds you to finish with
+`./install.sh` in that folder. Overtake Mode is a suite, so the installer is
+what sets it up.
+
 ## See it in action
 
 **One shortcut through all three:** Omarchy → Classic → Studio → back to
@@ -306,7 +312,23 @@ applies, the installer says so and Overtake uses Omarchy's own one.
 Overtake Mode sends nothing anywhere, with one exception: the **Day & Night**
 wallpaper mode looks up today's sunrise and sunset from
 [wttr.in](https://wttr.in), which estimates your location from your IP address.
-The default **Rotate** mode makes no network requests.
+The default **Rotate** mode makes no network requests. Album art in the
+Control Center comes from the address your music player gives, as in
+Omarchy's own media widget.
+
+What it reads on your machine, and keeps there:
+
+- **Copy URL** (a browser window's title bar menu) looks the page up by its
+  title in Chromium's, Chrome's or Brave's history database.
+- **Name tags** read `~/.claude/sessions/*.json` (just each Claude Code
+  session's process id and session id), to find which window a session runs
+  in and keep its name with it.
+- **Start** lists your recent files from `~/.local/share/recently-used.xbel`;
+  **Spotlight** searches your home folder with `fd` as you type.
+- Window names, Claude Code session ids and window places are kept in
+  `~/.local/state/overtake`, readable only by you. Window titles and names
+  are passed between Overtake's parts through pipes, not command lines, so
+  they don't show up in the process list for other users.
 
 ## Uninstall
 
@@ -317,6 +339,8 @@ The default **Rotate** mode makes no network requests.
 ```
 
 It lists what it will remove and asks first (`--yes` skips the question).
+If you added the repository with `omarchy plugin add`, run `./uninstall.sh`
+in its folder first, then `omarchy plugin remove gleasonmt.overtake-mode`.
 
 ## Known limits
 
