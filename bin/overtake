@@ -595,6 +595,8 @@ turn_on() {
 turn_off() {
   # (also when only the bar says so: a switch that failed halfway)
   [[ -f $FLAG ]] || overtake_bar_showing || { echo "Overtake Mode is already off"; return; }
+  local view
+  view=$(current_view)
   [[ $(style) == classic ]] && save_taskbar_settings
   save_look "$(style)"
   if [[ -s $SAVED_BAR ]]; then
@@ -620,7 +622,30 @@ turn_off() {
     omarchy-theme-bg-set "$(<"$SAVED_BG")" >/dev/null 2>&1 || true
   fi
   hyprctl reload >/dev/null
+  # Tiling the windows again moves focus from workspace to workspace: end
+  # where you were.
+  [[ -z $view ]] || hyprctl --batch "$view" >/dev/null 2>&1 || true
   notify $'\uf0ec' "Omarchy (Super+Ctrl+Shift+W: next mode)"
+}
+
+# The workspace each screen shows and the focused window, as hyprctl --batch
+# commands that bring them back (the focused screen's workspace last).
+current_view() {
+  local mon ws focused last="" cmds="" active
+  while IFS=$'\t' read -r mon ws focused; do
+    [[ $ws == special:* ]] || ! lua_safe "$ws" && continue
+    if [[ $focused == true ]]; then
+      last="dispatch hl.dsp.focus({ workspace = \"$ws\" })"
+    else
+      cmds+="dispatch hl.dsp.focus({ workspace = \"$ws\" }) ; "
+    fi
+  done < <(hyprctl monitors -j | jq -r '.[] | [.name, .activeWorkspace.name, (.focused | tostring)] | @tsv')
+  active=$(hyprctl activewindow -j 2>/dev/null | jq -r '.address // empty')
+  [[ $active =~ ^0x[0-9a-f]+$ ]] || active=""
+  cmds+=$last
+  [[ -n $active ]] && cmds+=" ; dispatch hl.dsp.focus({ window = \"address:$active\" })"
+  [[ -n $cmds ]] && echo "eval hl.config({ cursor = { no_warps = true } }) ; $cmds ; eval hl.config({ cursor = { no_warps = false } })"
+  return 0
 }
 
 # Super+Ctrl+Shift+W: the next desktop mode, round and round:

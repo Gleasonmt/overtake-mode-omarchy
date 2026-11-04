@@ -2,7 +2,7 @@
 
 Notes for marketplace reviewers: what the automated baseline will report, where
 to find each thing it points at, and how to check the rest quickly. Line numbers
-are for release v0.1.3.
+are for release v0.1.4.
 
 ## Shape
 
@@ -65,25 +65,25 @@ Precedents: [macOS Dock #13499](https://github.com/omacom/omarchy-plugin-marketp
 - **Process arguments:** window titles, window names, Claude Code session ids
   and notification text never go into another process's argv:
   - jq gets them through `--slurpfile`/`--rawfile` from `<(printf …)`
-    (`remember_layout` :748, `relayout` :770, `claude_windows` :1118,
-    `sync_session_names` :1137, `set_name` :1173);
-  - names and notification text reach `overtake` on stdin (`name … -` :1698,
-    `notification-open … -` :1671; QML: `session-names/Service.qml:222`,
+    (`remember_layout` :773, `relayout` :795, `claude_windows` :1143,
+    `sync_session_names` :1162, `set_name` :1198);
+  - names and notification text reach `overtake` on stdin (`name … -` :1723,
+    `notification-open … -` :1696; QML: `session-names/Service.qml:222`,
     `notification-center/Panel.qml:204`);
-  - Copy URL passes the page title in the environment (`copy_url` :1045) and
+  - Copy URL passes the page title in the environment (`copy_url` :1070) and
     reads browser history read-only in place;
   - Spotlight lists the home folder once per opening and matches typed text
     in-process (`Spotlight.qml:178`); its calculator is a small parser
     (`Spotlight.qml:104`), no eval.
 - **Shell and Lua:** window addresses must match `^0x[0-9a-f]+$` before any
-  command runs (`bin/overtake:1630`); workspace names with quotes or
-  backslashes are refused before reaching Hyprland's Lua (`lua_safe` :648);
+  command runs (`bin/overtake:1655`); workspace names with quotes or
+  backslashes are refused before reaching Hyprland's Lua (`lua_safe` :673);
   Settings shell-quotes font and theme names (`Settings.qml:47`).
 - **Opening things from other apps' text:** a clicked notification opens a file
   it names only if it's under `$HOME`, not executable, and both its extension
   and its content are a picture, video, sound, PDF or plain text
-  (`notification_open` :918); app names are matched only as plain desktop-file
-  names. `open-url` (:884) drops option-like arguments.
+  (`notification_open` :943); app names are matched only as plain desktop-file
+  names. `open-url` (:909) drops option-like arguments.
 - **Images:** notification icons and album art load local files only
   (`Panel.qml:261`, `ControlCenter.qml:256`).
 - **Network:** one request, `wttr.in` for sunrise/sunset, only in the optional
