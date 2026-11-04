@@ -53,10 +53,11 @@ are never overwritten.
 
 ## See it in action
 
-**One shortcut between Omarchy and Overtake Mode.** Your windows come back
-exactly where they were.
+**One shortcut through all three:** Omarchy → Classic → Studio → back to
+Omarchy. Each mode keeps its own theme and wallpaper, and your windows come
+back exactly where they were.
 
-![Switching between Omarchy and Overtake Mode](media/switch-modes.webp)
+![Switching from Omarchy to Classic, Studio and back to Omarchy](media/switch-modes.webp)
 
 **Snap windows** to halves, quarters or full screen, and back.
 
