@@ -82,6 +82,9 @@ Overtake Mode will add (./uninstall.sh removes all of it):
   ~/.local/share/applications/overtake-trash.desktop
   ~/.config/overtake/                     settings (only ones you don't have yet)
   ~/Pictures/overtake/                    wallpapers
+  ~/.local/share/overtake/uninstall.sh    a copy of the uninstaller (`overtake uninstall`)
+  ~/.local/state/overtake/, ~/.cache/overtake/
+                                          its state (yours only) and picture previews
 EOF
   [[ $CHANGE_IMAGES ]] && echo "  ~/.local/share/applications/overtake-image-viewer.desktop"
   cat <<'EOF'
@@ -101,7 +104,8 @@ and change files you already have (./uninstall.sh undoes each one):
                                           Omarchy's themes from yours)
   ~/.config/omarchy/shell.json            enables overtake.notifications and
                                           overtake.battery (they act exactly like
-                                          Omarchy's own while the mode is off)
+                                          Omarchy's own while the mode is off) and
+                                          overtake.session-names (the name tags)
 EOF
   [[ $CHANGE_LINKS ]] && cat <<'EOF'
   ~/.local/share/applications/omarchy-browser.desktop
@@ -161,9 +165,13 @@ PY
 # alone: an older install made the folder readable by others.
 mkdir -p -m 700 "$HOME/.local/state/overtake"
 chmod 700 "$HOME/.local/state/overtake"
+# on or off, for the plugins to watch (`overtake on|off` keeps it current)
+if [[ -f $HOME/.local/state/overtake/enabled ]]; then echo on; else echo off; fi >"$HOME/.local/state/overtake/mode"
 
 # 1. The command.
 install -Dm755 "$REPO/bin/overtake" "$HOME/.local/bin/overtake"
+# and the uninstaller, so `overtake uninstall` works without this folder
+install -Dm755 "$REPO/uninstall.sh" "$HOME/.local/share/overtake/uninstall.sh"
 say "command: ~/.local/bin/overtake"
 
 # 2. Hyprland: the Overtake shortcuts file, the switch shortcut, and the login hook.
@@ -215,6 +223,7 @@ build_widget() {  # build_widget <name> <source dir> <manifest> <files or dirs..
     | .omarchy = ((if (.omarchy | type) == "object" then .omarchy else {} end) + { clonedFrom: $from })
     | del(.omarchy.clonePaths)' "$target/manifest.json" >"$target/manifest.json.tmp"
   mv "$target/manifest.json.tmp" "$target/manifest.json"
+  cp "$REPO/NOTICE.md" "$target/NOTICE.md"   # Omarchy's license travels with its code
   if python3 "$REPO/patches/apply.py" "$name" "$target"; then
     say "widget: overtake.$name"
   else
@@ -232,6 +241,12 @@ build_widget battery "$OMARCHY_PLUGINS/services/battery" manifest.json Service.q
 # Both stay enabled in either mode (they check it themselves), so switching
 # modes needs no shell restart. The reload below picks them up. So do the
 # name tags on Claude Code windows (overtake.session-names).
+# Which of Omarchy's own you had turned off yourself, so ./uninstall.sh leaves
+# those off instead of turning them back on.
+if [[ ! -e $HOME/.local/state/overtake/disabled-before ]]; then
+  jq -r '(.disabledPlugins // [])[] | select(. == "omarchy.notifications" or . == "omarchy.battery")' \
+    "$HOME/.config/omarchy/shell.json" >"$HOME/.local/state/overtake/disabled-before" 2>/dev/null || true
+fi
 if [[ -z ${OVERTAKE_NO_RELOAD:-} ]]; then
   for id in notifications battery session-names; do
     [[ -d $PLUGINS/overtake.$id ]] && { omarchy plugin enable "overtake.$id" >/dev/null 2>&1 || true; }
@@ -252,10 +267,8 @@ close = text.rstrip().rfind("}")
 if close == -1:
     sys.exit("overtake install: can't find the closing } in " + path)
 head = text[:close].rstrip()
-# Drop commas an older install left after a comment (on its own line or on
-# a marker line), then add one only if the last real entry lacks it.
-head = re.sub(r"^\s*,\s*$\n?", "", head, flags=re.M)
-head = re.sub(r"^(\s*//.*?),+\s*$", r"\1", head, flags=re.M).rstrip()
+# Add a comma after your last entry only if it lacks one; nothing else of
+# yours is touched.
 entries = [l for l in head.split("\n") if l.strip() and not l.strip().startswith("//")]
 if entries and not entries[-1].rstrip().endswith(("{", ",")):
     head += ","

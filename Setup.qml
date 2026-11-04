@@ -7,7 +7,8 @@ import Quickshell.Io
 // ~/.config/omarchy/plugins, patches copies of a few of Omarchy's own widgets
 // and adds its command and Hyprland settings, so `omarchy plugin add` on its
 // own can't set it up. If this repository was added that way and the installer
-// hasn't run yet, say once where to run it. Otherwise this does nothing.
+// hasn't run yet, a notification says where to run it (each time the shell
+// starts, until it has). Otherwise this does nothing.
 Item {
   id: root
 
