@@ -33,7 +33,7 @@
 #   overtake taskbar-position <left|center>  # right-click Start: where the taskbar sits on the bar
 #   overtake copy-url <address>  # title bar menu: copy a browser window's page address
 #   overtake rename [address]    # taskbar menu, SUPER+ALT+N: bring a window up with its name ready to edit
-#   overtake name <address|here> [name]  # name a window (a Claude Code window: its session too); no name clears it
+#   overtake name <address|here> [name|-]  # name a window (a Claude Code window: its session too); no name clears it, - reads it from stdin
 #                             # "here": the window this runs in (a Claude Code session renaming its own tag)
 #   overtake sessions         # name tags: {"<address>": "<session id>"} for windows running Claude Code
 #   overtake fill-gap <address>  # a window opened: snap it into a spot snapped windows leave free
@@ -164,18 +164,19 @@ add_bar_size() {
 remove_bar_size() {
   [[ -f $SHELL_TOML ]] || return 0
   local tmp
-  tmp=$(mktemp)
-  awk -v b="$TOML_BEGIN" -v e="$TOML_END" '$0 == b { skip = 1 } !skip { print } $0 == e { skip = 0 }' "$SHELL_TOML" >"$tmp"
-  cat "$tmp" >"$SHELL_TOML"
+  # (next to the file, not in /tmp, and copied over only once fully written:
+  # a full /tmp mustn't leave the settings empty)
+  tmp=$(mktemp "$SHELL_TOML.XXXXXX") || return 1
+  awk -v b="$TOML_BEGIN" -v e="$TOML_END" '$0 == b { skip = 1 } !skip { print } $0 == e { skip = 0 }' "$SHELL_TOML" >"$tmp" &&
+    cat "$tmp" >"$SHELL_TOML"
   rm -f "$tmp"
 }
 
 # Rewrite shell.json in place (not a rename) so the shell's file watcher sees it.
 set_bar() {
   local tmp
-  tmp=$(mktemp)
-  jq --argjson bar "$1" '.bar = $bar' "$SHELL_JSON" >"$tmp"
-  cat "$tmp" >"$SHELL_JSON"
+  tmp=$(mktemp "$SHELL_JSON.XXXXXX") || return 1
+  jq --argjson bar "$1" '.bar = $bar' "$SHELL_JSON" >"$tmp" && [[ -s $tmp ]] && cat "$tmp" >"$SHELL_JSON"
   rm -f "$tmp"
 }
 
@@ -186,6 +187,7 @@ next_wallpaper() {
   shopt -u nullglob
   (( ${#slides[@]} )) || return 0
   [[ -s $SLIDE_INDEX ]] && index=$(<"$SLIDE_INDEX")
+  [[ $index =~ ^-?[0-9]+$ ]] || index=-1
   index=$(( (index + 1) % ${#slides[@]} ))
   echo "$index" >"$SLIDE_INDEX"
   show_slide "${slides[$index]}"
@@ -244,7 +246,7 @@ apply_look() {  # apply_look <mode>
 # one it showed last; then picked_wallpaper would take it for the slideshow's
 # and the mode would drop it. Clear what the slideshow showed, so it can't.
 mark_picked() {
-  mkdir -p "$STATE_DIR"
+  mkdir -p -m 700 "$STATE_DIR"
   echo picked >"$SLIDE_SHOWN"
 }
 
@@ -274,6 +276,7 @@ sun_times() {
 apply_day_night() {
   local sunrise sunset now image
   read -r sunrise sunset < <(sun_times)
+  [[ $sunrise =~ ^[0-9]{4}$ && $sunset =~ ^[0-9]{4}$ ]] || { sunrise=0700 sunset=1900; }
   now=$(date +%H%M)
   if (( 10#$now >= 10#$sunrise && 10#$now < 10#$sunset )); then image=$DAY_IMAGE; else image=$NIGHT_IMAGE; fi
   # (recorded even when it's already up, so it isn't taken for one you picked)
@@ -289,7 +292,7 @@ set_wallpaper_mode() {
     rotate | day-night) ;;
     *) echo "Usage: overtake wallpaper-mode [rotate|day-night]" >&2; exit 1 ;;
   esac
-  mkdir -p "$STATE_DIR"
+  mkdir -p -m 700 "$STATE_DIR"
   echo "$1" >"$WALLPAPER_MODE_FILE"
   if [[ -f $FLAG ]]; then
     refresh_wallpaper
@@ -301,9 +304,12 @@ set_wallpaper_mode() {
 
 stop_slideshow() {
   # the loop runs in its own session (setsid), so its group is the loop and
-  # its sleep: stop both
-  if [[ -s $SLIDESHOW_PID ]] && kill -0 "$(<"$SLIDESHOW_PID")" 2>/dev/null; then
-    kill -- "-$(<"$SLIDESHOW_PID")" 2>/dev/null || kill "$(<"$SLIDESHOW_PID")" 2>/dev/null || true
+  # its sleep: stop both. Only if that pid is still the loop: the file outlives
+  # a reboot, and by then the number can belong to any other process.
+  local pid
+  pid=$(cat "$SLIDESHOW_PID" 2>/dev/null || true)
+  if [[ $pid =~ ^[0-9]+$ ]] && tr '\0' ' ' <"/proc/$pid/cmdline" 2>/dev/null | grep -q 'overtake slideshow-loop'; then
+    kill -- "-$pid" 2>/dev/null || kill "$pid" 2>/dev/null || true
   fi
   rm -f "$SLIDESHOW_PID"
 }
@@ -383,7 +389,7 @@ switch_services() {  # switch_services on|off
 MODE_LOCK="$STATE_DIR/.mode.lock.d"
 mode_lock() {
   local i
-  mkdir -p "$STATE_DIR"
+  mkdir -p -m 700 "$STATE_DIR"
   for i in $(seq 120); do
     if mkdir "$MODE_LOCK" 2>/dev/null; then
       trap 'rmdir "$MODE_LOCK" 2>/dev/null' EXIT
@@ -444,6 +450,8 @@ fix_bar_widgets() {
     set_bar "$bar"
     omarchy-shell shell reloadConfig >/dev/null 2>&1 || true
     echo "$(date '+%F %T') put back Overtake's ${fixed[*]} (the bar had Omarchy's)" >>"$STATE_DIR/bar-fixes.log"
+    # the last 200 are plenty
+    (( $(wc -l <"$STATE_DIR/bar-fixes.log") > 400 )) && sed -i '1,200d' "$STATE_DIR/bar-fixes.log" || true
   fi
   # Said once, not on every bar change: a copy the installer couldn't build
   # stays missing until Overtake is updated and installed again.
@@ -486,8 +494,8 @@ studio_set() {
   mkdir -p "$(dirname "$STUDIO_JSON")"
   [[ -s $STUDIO_JSON ]] || echo '{}' >"$STUDIO_JSON"
   local tmp
-  tmp=$(mktemp)
-  jq --arg k "$key" --argjson v "$value" '.[$k] = $v' "$STUDIO_JSON" >"$tmp" && cat "$tmp" >"$STUDIO_JSON"
+  tmp=$(mktemp "$STUDIO_JSON.XXXXXX") || return 1
+  jq --arg k "$key" --argjson v "$value" '.[$k] = $v' "$STUDIO_JSON" >"$tmp" && [[ -s $tmp ]] && cat "$tmp" >"$STUDIO_JSON"
   rm -f "$tmp"
 }
 
@@ -525,7 +533,7 @@ set_style() {
 
 turn_on() {
   [[ -f $FLAG ]] && { echo "Overtake Mode is already on"; fix_bar_widgets; return; }
-  mkdir -p "$STATE_DIR"
+  mkdir -p -m 700 "$STATE_DIR"
   if jq -e '[.bar | .. | .id? // empty] | (index("overtake.taskbar") or index("overtake.menubar"))' "$SHELL_JSON" >/dev/null 2>&1; then
     echo "the bar is already Overtake's; keeping the saved Omarchy bar" >&2
   else
@@ -608,6 +616,10 @@ cycle_mode() {
 
 # Window controls. Minimized windows wait on the hidden special:minimized
 # workspace; minimized.json remembers where each one came from.
+lua_safe() {  # a name that can sit inside a "..." Lua string as it is
+  [[ $1 != *[\"\\]* && $1 != *[[:cntrl:]]* ]]
+}
+
 window_address() {
   if [[ -n ${1:-} ]]; then echo "$1"; else hyprctl activewindow -j | jq -r '.address // empty'; fi
 }
@@ -635,9 +647,11 @@ restore_window() {
   [[ -n $ws || ! -s $LAYOUT ]] || ws=$(jq -r --arg a "$addr" '.[$a].ws // empty' "$LAYOUT")
   [[ -n $ws ]] || ws=$(hyprctl activeworkspace -j | jq -r '.name')
   if [[ $follow == follow ]]; then
+    lua_safe "$ws" || return 0
     hyprctl dispatch "hl.dsp.window.move({ workspace = \"$ws\", follow = true, window = \"address:$addr\" })" >/dev/null
     focus_raise "$addr"
   else
+    lua_safe "$ws" || return 0
     hyprctl dispatch "hl.dsp.window.move({ workspace = \"$ws\", follow = false, window = \"address:$addr\" })" >/dev/null
   fi
   [[ -s $MINIMIZED ]] && json_set "$MINIMIZED" 'del(.[$a])' --arg a "$addr"
@@ -674,7 +688,7 @@ bring_into_view() {
   [[ $(jq -r '.floating and .fullscreen == 0 and (.workspace.name | startswith("special:") | not)' <<<"$info") == true ]] || return 0
   monitors=$(hyprctl monitors -j)
   # Visible enough: at least 120x48 of it on some screen.
-  jq -e --argjson w "$info" 'any(.[];
+  jq -e --slurpfile w <(printf '%s' "$info") '$w[0] as $w | any(.[];
       ([$w.at[0] + $w.size[0], .x + .width / .scale] | min) - ([$w.at[0], .x] | max) >= 120 and
       ([$w.at[1] + $w.size[1], .y + .height / .scale] | min) - ([$w.at[1], .y] | max) >= 48)' \
     <<<"$monitors" >/dev/null && return 0
@@ -708,7 +722,8 @@ remember_layout() {
   # Only windows whose centre is on their own screen (skips ones a screen change
   # has just stranded), merged over the old records; closed windows dropped.
   json_set "$LAYOUT" "$USABLE_JQ"'
-    ($monitors | map({key: (.id | tostring), value: usable}) | from_entries) as $m
+    $clients[0] as $clients | $monitors[0] as $monitors
+    | ($monitors | map({key: (.id | tostring), value: usable}) | from_entries) as $m
     | ([$clients[] | .address]) as $live
     | (with_entries(select(.key as $k | $live | index($k))))
       + ([$clients[] | select(.floating and .fullscreen == 0 and .workspace.id > 0)
@@ -718,7 +733,7 @@ remember_layout() {
           | {key: .address, value: {mon: $u.name, uw: $u.w, uh: $u.h, ws: $c.workspace.name,
               fx: (($c.at[0] - $u.x) / $u.w), fy: (($c.at[1] - $u.y) / $u.h),
               fw: ($c.size[0] / $u.w), fh: ($c.size[1] / $u.h)}}] | from_entries)
-  ' --argjson clients "$clients" --argjson monitors "$monitors"
+  ' --slurpfile clients <(printf '%s' "$clients") --slurpfile monitors <(printf '%s' "$monitors")
 }
 
 # relayout [all]: "all" puts every recorded window back (used by `on`, when
@@ -732,16 +747,17 @@ relayout() {
   if [[ -s $ZONES ]]; then
     while read -r addr zone; do
       [[ -n $addr ]] && SNAP_NO_FOCUS=1 snap_window "$zone" "$addr"
-    done < <(jq -r --argjson clients "$clients" '
-      to_entries[] | .key as $a | select(any($clients[]; .address == $a and .floating and .fullscreen == 0 and .workspace.id > 0))
+    done < <(jq -r --slurpfile clients <(printf '%s' "$clients") '
+      $clients[0] as $clients | to_entries[] | .key as $a | select(any($clients[]; .address == $a and .floating and .fullscreen == 0 and .workspace.id > 0))
       | "\(.key) \(.value.zone)"' "$ZONES")
   fi
   # Everything else: same fractions of its current screen, if that screen is a
   # different one (or a different size) from when it was recorded. Any window
   # is then kept inside its screen (shrunk if it's bigger).
   [[ -s $LAYOUT ]] || echo '{}' >"$LAYOUT"
-  cmds=$(jq -r --argjson all "$all" --argjson clients "$clients" --argjson monitors "$monitors" --slurpfile zones <(cat "$ZONES" 2>/dev/null || echo '{}') "$USABLE_JQ"'
-    ($monitors | map({key: (.id | tostring), value: usable}) | from_entries) as $m
+  cmds=$(jq -r --argjson all "$all" --slurpfile clients <(printf '%s' "$clients") --slurpfile monitors <(printf '%s' "$monitors") --slurpfile zones <(cat "$ZONES" 2>/dev/null || echo '{}') "$USABLE_JQ"'
+    $clients[0] as $clients | $monitors[0] as $monitors
+    | ($monitors | map({key: (.id | tostring), value: usable}) | from_entries) as $m
     | . as $rec
     | $clients[] | select(.floating and .fullscreen == 0 and .workspace.id > 0)
     | select(($zones[0] // {})[.address] == null)
@@ -826,7 +842,7 @@ focus_app() {
   if [[ $ws == special:minimized ]]; then
     restore_window "$addr" follow
   else
-    [[ $ws == special:* ]] || hyprctl dispatch "hl.dsp.focus({ workspace = \"$ws\" })" >/dev/null
+    [[ $ws == special:* ]] || ! lua_safe "$ws" || hyprctl dispatch "hl.dsp.focus({ workspace = \"$ws\" })" >/dev/null
     focus_raise "$addr"
   fi
 }
@@ -842,6 +858,12 @@ open_url() {
   entry=$(omarchy-cmd-default-browser 2>/dev/null || true)
   browser=$(sed -n 's/^Exec=\([^ ]*\).*/\1/p' {~/.local,~/.nix-profile,/usr}/share/applications/"$entry" 2>/dev/null | head -1 || true)
   [[ -n $entry && -n $browser ]] || exec omarchy-launch-browser "$@"
+  # Addresses only: anything else that looks like an option would reach the
+  # browser as one (when no window is open it starts a new browser process).
+  local url urls=()
+  for url in "$@"; do [[ $url == -* ]] || urls+=("$url"); done
+  (( ${#urls[@]} )) || return 0
+  set -- "${urls[@]}"
   ws=$(hyprctl activeworkspace -j | jq -r .name)
   addr=$(hyprctl clients -j | jq -r --arg p "^$(basename "$browser" -stable)" --arg ws "$ws" '
     sort_by(.focusHistoryID)
@@ -866,21 +888,37 @@ open_url() {
 # where it lives; else launch the app from its desktop entry (which also
 # reopens one closed to the tray). Exit 1 when none of that is possible.
 notification_open() {
-  local app=$1 icon=$2 body=$3 f name d entry
+  local app=$1 icon=$2 body=$3 f name d entry kind
   while IFS= read -r f; do
     f=${f%[.,;:)]}
     # only an ordinary file or folder in your home folder, never a launcher or
     # a program (the text comes from whichever app sent the notification)
     f=$(realpath -e -- "$f" 2>/dev/null) || continue
-    [[ $f == "$HOME"/* && ! -L $f && $f != *.desktop ]] || continue
-    [[ -d $f || ( -f $f && ! -x $f ) ]] || continue
+    [[ $f == "$HOME"/* ]] || continue
+    # and only kinds that open in a viewer: pictures, videos, sound, PDFs,
+    # plain text and folders (an archive or a .jar opens with something that
+    # can run it, executable bit or not). Both the name, which picks the app,
+    # and the content must say so.
+    if [[ ! -d $f ]]; then
+      [[ -f $f && ! -x $f ]] || continue
+      case ${f,,} in
+        *.png|*.jpg|*.jpeg|*.gif|*.webp|*.bmp|*.avif|*.heic|*.jxl) kind=image/ ;;
+        *.mp4|*.mkv|*.webm|*.mov) kind=video/ ;;
+        *.mp3|*.ogg|*.opus|*.flac|*.wav|*.m4a) kind=audio/ ;;
+        *.pdf) kind=application/pdf ;;
+        *.txt|*.log|*.md) kind=text/plain ;;
+        *) continue ;;
+      esac
+      [[ $(file --brief --mime-type -- "$f" 2>/dev/null) == "$kind"* ]] || continue
+    fi
     xdg-open "$f" >/dev/null 2>&1 &
     return 0
   done < <({ grep -oE "'/[^']+'" <<<"$body" | tr -d "'"; grep -oE '"/[^"]+"' <<<"$body" | tr -d '"'
              grep -oE "/[^'\"<> ]+" <<<"$body"; } || true)
   [[ -n $app ]] && focus_app "$app" && return 0
   for name in "$app" "$icon"; do
-    [[ -n $name ]] || continue
+    # a plain desktop file name only: it's matched as a pattern below
+    [[ $name =~ ^[A-Za-z0-9._-]+$ ]] || continue
     for d in "$HOME/.local/share/applications" /usr/share/applications; do
       entry=$(find "$d" -maxdepth 1 -iname "$name.desktop" -print -quit 2>/dev/null || true)
       [[ -n $entry ]] && { uwsm-app -- gtk-launch "$(basename "$entry")" >/dev/null 2>&1 & return 0; }
@@ -986,9 +1024,10 @@ copy_url() {
     brave*) dir="$HOME/.config/BraveSoftware/Brave-Browser" ;;
     *) notify $'\uf0c5' "Copy URL works with Chromium, Chrome, Brave and Omarchy's web apps"; return 0 ;;
   esac
-  url=$(python3 -I - "$dir" "$title" <<'PY'
+  # the page title through the environment, not the process list
+  url=$(OVERTAKE_TITLE=$title python3 -I - "$dir" <<'PY'
 import glob, os, shutil, sqlite3, sys, tempfile
-root, title = sys.argv[1], sys.argv[2]
+root, title = sys.argv[1], os.environ.get("OVERTAKE_TITLE", "")
 for suffix in (" - Chromium", " - Google Chrome", " - Brave"):
     if title.endswith(suffix): title = title[: -len(suffix)]
 best = None
@@ -1007,7 +1046,7 @@ PY
 )
   if [[ -n $url ]]; then
     printf '%s' "$url" | wl-copy
-    notify $'\uf0c5' "Copied $url"
+    notify $'\uf0c5' "Copied the page address"
   else
     notify $'\uf0c5' "Couldn't find this page's address yet (try again in a few seconds)"
   fi
@@ -1030,7 +1069,7 @@ taskbar_position() {
 json_set() {  # json_set <file> <jq filter> [jq args...]
   local file=$1 filter=$2
   shift 2
-  mkdir -p "$STATE_DIR"
+  mkdir -p -m 700 "$STATE_DIR"
   (
     flock 9
     [[ -s $file ]] || echo '{}' >"$file"
@@ -1053,8 +1092,9 @@ claude_windows() {  # {"<address>": "<session id>"}: the window each running Cla
   sessions=$(cat "$HOME"/.claude/sessions/*.json 2>/dev/null | jq -sc 'map(select(.pid and .sessionId) | {key: (.pid | tostring), value: .sessionId}) | from_entries' 2>/dev/null) || true
   windows=$(hyprctl clients -j | jq -c 'map({key: (.pid | tostring), value: .address}) | from_entries')
   # Walk up from each Claude process (foot -> shell -> claude) to its window.
-  ps -eo pid=,ppid= | jq -Rnc --argjson s "${sessions:-"{}"}" --argjson w "$windows" '
-    ([inputs | [splits(" +")] | map(select(length > 0)) | select(length == 2) | {key: .[0], value: .[1]}] | from_entries) as $parent
+  ps -eo pid=,ppid= | jq -Rnc --slurpfile s <(printf '%s' "${sessions:-"{}"}") --argjson w "$windows" '
+    $s[0] as $s
+    | ([inputs | [splits(" +")] | map(select(length > 0)) | select(length == 2) | {key: .[0], value: .[1]}] | from_entries) as $parent
     | [$s | to_entries[] | .value as $session
         | first(limit(30; .key | recurse(if $parent[.] and . != "1" then $parent[.] else empty end)) | select($w[.]))
         | {key: $w[.], value: $session}]
@@ -1069,15 +1109,20 @@ sync_session_names() {
   local map live
   map=$(claude_windows)
   live=$(hyprctl clients -j | jq -c 'map(.address)')
-  mkdir -p "$STATE_DIR"
+  mkdir -p -m 700 "$STATE_DIR"
   (
     flock 9
     names=$(jq -c . "$NAMES" 2>/dev/null) || names='{}'
     sessions=$(jq -c . "$SESSION_NAMES" 2>/dev/null) || sessions='{}'
-    new_sessions=$(jq -nc --argjson n "${names:-"{}"}" --argjson s "${sessions:-"{}"}" --argjson m "$map" '
-      $s + ($m | to_entries | map(select($n[.key] and ($s[.value] | not)) | {key: .value, value: $n[.key]}) | from_entries)')
-    new_names=$(jq -nc --argjson n "${names:-"{}"}" --argjson s "$new_sessions" --argjson m "$map" --argjson live "$live" '
-      ($n | with_entries(select(.key as $a | $live | any(. == $a))))
+    # (passed through pipes, not arguments: names and session ids stay out of ps)
+    new_sessions=$(jq -nc --slurpfile n <(printf '%s' "${names:-"{}"}") --slurpfile s <(printf '%s' "${sessions:-"{}"}") \
+        --slurpfile m <(printf '%s' "$map") '
+      $n[0] as $n | $s[0] as $s | $m[0] as $m
+      | $s + ($m | to_entries | map(select($n[.key] and ($s[.value] | not)) | {key: .value, value: $n[.key]}) | from_entries)')
+    new_names=$(jq -nc --slurpfile n <(printf '%s' "${names:-"{}"}") --slurpfile s <(printf '%s' "$new_sessions") \
+        --slurpfile m <(printf '%s' "$map") --argjson live "$live" '
+      $n[0] as $n | $s[0] as $s | $m[0] as $m
+      | ($n | with_entries(select(.key as $a | $live | any(. == $a))))
       + ($m | to_entries | map(select(($n[.key] | not) and $s[.value]) | {key: .key, value: $s[.value]}) | from_entries)')
     # Rewritten in place, only when something changed (the shell watches them).
     [[ $new_sessions == "$sessions" ]] || jq . <<<"$new_sessions" >"$SESSION_NAMES"
@@ -1105,8 +1150,9 @@ set_name() {  # set_name <address> [name]; an empty name clears it
   session=$(claude_windows | jq -r --arg a "$addr" '.[$a] // empty')
   live=$(hyprctl clients -j | jq -c 'map(.address)')
   json_set "$NAMES" 'with_entries(select(.key as $k | $live | any(. == $k))) | if $n == "" then del(.[$a]) else .[$a] = $n end' \
-    --arg a "$addr" --arg n "$name" --argjson live "$live"
-  [[ -z $session ]] || json_set "$SESSION_NAMES" 'if $n == "" then del(.[$s]) else .[$s] = $n end' --arg s "$session" --arg n "$name"
+    --arg a "$addr" --rawfile n <(printf '%s' "$name") --argjson live "$live"
+  [[ -z $session ]] || json_set "$SESSION_NAMES" 'if $n == "" then del(.[$s]) else .[$s] = $n end' \
+    --rawfile s <(printf '%s' "$session") --rawfile n <(printf '%s' "$name")
 }
 
 float_all() {
@@ -1143,12 +1189,13 @@ retile_saved() {  # retile_saved <kept-floating json>
   [[ -s $TILED ]] || return 0
   local active cmds
   active=$(hyprctl activewindow -j 2>/dev/null | jq -r '.address // empty')
-  cmds=$(python3 -I - "$TILED" "$1" "$(hyprctl clients -j)" <<'PY'
-import json, sys
+  cmds=$(python3 -I - "$TILED" "$1" <<'PY'
+import json, subprocess, sys
 
 saved = json.load(open(sys.argv[1]))
 keep = set(json.loads(sys.argv[2]))
-live = {c["address"]: c for c in json.loads(sys.argv[3])}
+# (read here rather than passed in: window titles stay out of the process list)
+live = {c["address"]: c for c in json.loads(subprocess.run(["hyprctl", "clients", "-j"], capture_output=True, text=True).stdout)}
 GAP = 30  # px: wider than any gap between tiles, narrower than a window
 
 def box(w):
@@ -1219,7 +1266,7 @@ PY
 # ignore movement for a moment, so our own arranging isn't taken for a drag
 # out of a zone (which would unsnap it).
 mark_arranging() {
-  mkdir -p "$STATE_DIR"
+  mkdir -p -m 700 "$STATE_DIR"
   date +%s%N >"$STATE_DIR/arranging"
 }
 
@@ -1231,7 +1278,7 @@ snap_window() {
   [[ -n $info ]] || return 0
   ws=$(jq -r .workspace.name <<<"$info")
   mon=$(jq -r .monitor <<<"$info")
-  mkdir -p "$STATE_DIR"
+  mkdir -p -m 700 "$STATE_DIR"
 
   # Forget windows that have closed, then respect the per-zone stack limit.
   json_set "$ZONES" 'with_entries(select(.key as $k | $live | index($k)))' \
@@ -1353,6 +1400,7 @@ unsnap_window() {
   read -r mw mh < <(hyprctl monitors -j | jq -r --argjson id "$(jq .monitor <<<"$info")" \
     '.[] | select(.id == $id) | "\((.width / .scale) | floor) \((.height / .scale) | floor)"')
   w=${size% *} h=${size#* }
+  [[ $w =~ ^[0-9]+$ && $h =~ ^[0-9]+$ ]] || return 0
   (( w > mw * 7 / 10 )) && w=$((mw * 7 / 10))
   (( h > mh * 7 / 10 )) && h=$((mh * 7 / 10))
   hyprctl dispatch "hl.dsp.window.resize({ x = $w, y = $h, relative = false, window = \"address:$addr\" })" >/dev/null
@@ -1401,11 +1449,12 @@ show_desktop() {
   current=$(hyprctl activeworkspace -j | jq -r '.id')
   windows=$(hyprctl activeworkspace -j | jq -r '.windows')
   if (( windows > 0 )); then
-    mkdir -p "$STATE_DIR"
+    mkdir -p -m 700 "$STATE_DIR"
     echo "$current" >"$DESKTOP_RETURN"
     hyprctl dispatch 'hl.dsp.focus({ workspace = "empty" })' >/dev/null
   elif [[ -f $DESKTOP_RETURN ]]; then
-    hyprctl dispatch "hl.dsp.focus({ workspace = \"$(cat "$DESKTOP_RETURN")\" })" >/dev/null
+    current=$(<"$DESKTOP_RETURN")
+    lua_safe "$current" && hyprctl dispatch "hl.dsp.focus({ workspace = \"$current\" })" >/dev/null
     rm -f "$DESKTOP_RETURN"
   fi
 }
@@ -1454,13 +1503,14 @@ theme_picker() {
 # Prints the picked file itself. `bg-picker cache` only makes the previews
 # (the installer runs it), so the first opening doesn't wait for them.
 pretty_name() {  # topside-mountain-view -> Topside Mountain View
-  local word out=()
-  for word in ${1//[-_]/ }; do out+=("${word^}"); done
+  local word words out=()
+  read -ra words <<<"${1//[-_]/ }"   # (not a bare expansion: a * in a name would match files)
+  for word in "${words[@]}"; do out+=("${word^}"); done
   echo "${out[*]}"
 }
 
 bg_link() {  # bg_link <group dir> <name> <file>: (re)point one entry
-  local link="$1/$2.${3##*.}"
+  local link="$1/${2//\//-}.${3##*.}"   # (a / in a theme's name stays in the folder)
   BG_WANT[$link]=1
   [[ $(readlink "$link" 2>/dev/null) == "$3" ]] || ln -sfn "$3" "$link"
   [[ $(readlink -f "$3") == "$BG_CURRENT" ]] && BG_SELECTED=$link
@@ -1547,6 +1597,15 @@ usage() {
   sed -n '2,/^$/p' "$0" | sed 's/^# \{0,1\}//'
 }
 
+# Window addresses and workspace names end up inside the Lua that
+# `hyprctl dispatch` runs: take addresses only in Hyprland's own form.
+case ${1:-} in
+  minimize|restore|show|make-room|maximize|close|unsnap|send|copy-url|fill-gap|rename|name|hide-app|hide-others|quit-app)
+    [[ -z ${2:-} || $2 == here || $2 =~ ^0x[0-9a-fA-F]+$ ]] || { echo "overtake $1: not a window address: $2" >&2; exit 1; } ;;
+  snap)
+    [[ -z ${3:-} || $3 =~ ^0x[0-9a-fA-F]+$ ]] || { echo "overtake snap: not a window address: $3" >&2; exit 1; } ;;
+esac
+
 case "${1:-help}" in
   help|-h|--help) usage ;;
   on) mode_lock; turn_on ;;
@@ -1575,7 +1634,9 @@ case "${1:-help}" in
   minimize-all) minimize_all "${2:-}" ;;
   services) switch_services "${2:-on}" ;;   # internal: install/uninstall
   focus-app) [[ -n ${2:-} ]] && focus_app "$2" ;;
-  notification-open) notification_open "${2:-}" "${3:-}" "${4:-}" ;;
+  notification-open)  # the message text as "-": one line on stdin
+    body=${4:-}; [[ $body == - ]] && { IFS= read -r -t 5 body || true; }
+    notification_open "${2:-}" "${3:-}" "$body" ;;
   screensaver) shift; screensaver_cmd "$@" ;;
   hide-minimized) hide_minimized ;;
   show) [[ -n ${2:-} ]] && show_window "$2" || true ;;
@@ -1590,21 +1651,22 @@ case "${1:-help}" in
   unsnap) [[ -n ${2:-} ]] && unsnap_window "$2" || true ;;
   unsnap-active) addr=$(window_address ""); [[ -n $addr ]] && unsnap_window "$addr" || true ;;
   send) [[ -n ${3:-} ]] && send_window "$2" "$3" "${4:-}" "${5:-}" || true ;;
-  snap-layouts) mkdir -p "$STATE_DIR"; date +%s%N >"$STATE_DIR/snap-request" ;;
+  snap-layouts) mkdir -p -m 700 "$STATE_DIR"; date +%s%N >"$STATE_DIR/snap-request" ;;
   taskbar-position) taskbar_position "${2:-}" ;;
   copy-url) [[ -n ${2:-} ]] && copy_url "$2" || true ;;
   open-url) shift; open_url "$@" ;;
   fill-gap) [[ -n ${2:-} ]] && fill_gap "$2" || true ;;
   rename)
     addr=$(window_address "${2:-}")
-    [[ -n $addr ]] && { show_window "$addr"; mkdir -p "$STATE_DIR"; echo "$addr $(date +%s%N)" >"$STATE_DIR/rename-request"; } || true ;;
+    [[ -n $addr ]] && { show_window "$addr"; mkdir -p -m 700 "$STATE_DIR"; echo "$addr $(date +%s%N)" >"$STATE_DIR/rename-request"; } || true ;;
   name)
     addr=${2:-}
     [[ $addr == here ]] && addr=$(window_here)
-    [[ -n $addr ]] && set_name "$addr" "${3:-}" || { [[ ${2:-} == here ]] && echo "overtake: no window found for this process" >&2; true; } ;;
+    name=${3:-}; [[ $name == - ]] && { IFS= read -r -t 5 name || true; }   # "-": one line on stdin
+    [[ -n $addr ]] && set_name "$addr" "$name" || { [[ ${2:-} == here ]] && echo "overtake: no window found for this process" >&2; true; } ;;
   sessions) sync_session_names ;;
   start)
-    mkdir -p "$STATE_DIR"
+    mkdir -p -m 700 "$STATE_DIR"
     # Studio has no Start menu: Spotlight (and its Apps view) stands in.
     if [[ $(style) == studio ]]; then
       case ${2:-start} in all) set -- ui apps ;; quick) set -- ui app-menu ;; *) set -- ui spotlight ;; esac
@@ -1613,7 +1675,7 @@ case "${1:-help}" in
       echo "${2:-start} $(date +%s%N)" >"$STATE_DIR/start-request"
     fi ;;
   ui)
-    mkdir -p "$STATE_DIR"
+    mkdir -p -m 700 "$STATE_DIR"
     what=${2:-spotlight}
     # A quick Super+Tab: Super comes up right after Tab, and the shell may
     # read the file only once both have been written. Say both in one.
@@ -1626,7 +1688,7 @@ case "${1:-help}" in
   hide-app) hide_app "${2:-}" ;;
   hide-others) hide_others "${2:-}" ;;
   quit-app) quit_app "${2:-}" ;;
-  settings) mkdir -p "$STATE_DIR"; echo "${2:-open} $(date +%s%N)" >"$STATE_DIR/settings-request" ;;
+  settings) mkdir -p -m 700 "$STATE_DIR"; echo "${2:-open} $(date +%s%N)" >"$STATE_DIR/settings-request" ;;
   slideshow-loop) slideshow_loop ;;   # internal: the slideshow's background loop
   *) echo "overtake: unknown command '$1' (overtake help lists them)" >&2; exit 1 ;;
 esac

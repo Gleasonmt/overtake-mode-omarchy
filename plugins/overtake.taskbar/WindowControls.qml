@@ -92,7 +92,30 @@ Item {
     if (name) next[address] = name
     else delete next[address]
     root.names = next
-    run(["name", address, name])
+    sendName(address, name)
+  }
+
+  // `overtake name <address> -` reads the name on stdin, so it never shows up
+  // in the process list (/proc/<pid>/cmdline is readable by other users).
+  property var nameQueue: []
+  function sendName(address, value) {
+    nameQueue = nameQueue.concat([[address, value]])
+    if (!namer.running) nextName()
+  }
+  function nextName() {
+    if (!nameQueue.length) return
+    var job = nameQueue[0]
+    nameQueue = nameQueue.slice(1)
+    namer.text = job[1]
+    namer.command = ["overtake", "name", job[0], "-"]
+    namer.running = true
+  }
+  Process {
+    id: namer
+    property string text: ""
+    stdinEnabled: true
+    onStarted: { write(text.replace(/\n/g, " ") + "\n"); text = "" }
+    onExited: root.nextName()
   }
 
   // ---------- Title bar menu (right-click) ----------

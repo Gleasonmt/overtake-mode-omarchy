@@ -42,6 +42,9 @@ Item {
   }
 
   function sh(command) { Quickshell.execDetached(["sh", "-c", command]) }
+  // A value for a shell command line, quoted: option lists come from other
+  // programs (font names, theme folders) and may hold any character.
+  function shq(value) { return "'" + String(value).replace(/'/g, "'\\''") + "'" }
 
   readonly property var pages: [
     { id: "system", name: "System", glyph: "", sections: [
@@ -149,7 +152,7 @@ Item {
         { type: "link", title: "Next wallpaper", run: "overtake next-wallpaper" }
       ]},
       { title: "Fonts", rows: [
-        { type: "choice", title: "Font", detail: "Used by the bar, menus and terminals", options: "omarchy-font-list", current: "omarchy-font-current", set: "omarchy-font-set '{}'" }
+        { type: "choice", title: "Font", detail: "Used by the bar, menus and terminals", options: "omarchy-font-list", current: "omarchy-font-current", set: "omarchy-font-set {}" }
       ]},
       { title: "Desktop", rows: [
         { type: "link", title: "Desktop icons", detail: "Choose which icons show on the desktop", run: "omarchy-launch-editor ~/.config/overtake/desktop-icons.txt" }
@@ -608,7 +611,7 @@ Item {
                 anchors.fill: parent
                 hoverEnabled: true
                 cursorShape: Qt.PointingHandCursor
-                onClicked: { card.act(card.row.set.replace("{}", modelData)); card.value = modelData }
+                onClicked: { card.act(card.row.set.replace("{}", root.shq(modelData))); card.value = modelData }
               }
             }
           }
@@ -871,7 +874,7 @@ Item {
                       anchors.fill: parent
                       hoverEnabled: true
                       cursorShape: Qt.PointingHandCursor
-                      onClicked: { card.act("omarchy-theme-set '" + modelData + "'"); card.value = modelData }
+                      onClicked: { card.act("omarchy-theme-set " + root.shq(modelData)); card.value = modelData }
                     }
                   }
                 }
