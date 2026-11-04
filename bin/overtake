@@ -251,15 +251,23 @@ save_look() {  # save_look <mode>
 # Omarchy look's always; Classic's or Studio's only if you picked it). Fails
 # when the wallpaper is left to the slideshow.
 apply_look() {  # apply_look <mode>
-  local theme bg
+  local theme bg keep=""
   theme=$(cat "$LOOKS_DIR/$1.theme" 2>/dev/null || true)
-  if [[ -n $theme && $theme != "$(cat "$CURRENT_THEME_NAME" 2>/dev/null)" ]]; then
-    omarchy-theme-set "$theme" >/dev/null 2>&1 || true
-  fi
-  [[ $1 == omarchy || -f $LOOKS_DIR/$1.picked ]] || return 1
   bg=$(cat "$LOOKS_DIR/$1.bg" 2>/dev/null || true)
+  # A wallpaper to put back: switch the theme without its own wallpaper
+  # (OMARCHY_THEME_SKIP_BACKGROUND, as omarchy-theme-refresh does), so the
+  # theme's default doesn't show for a moment before this one.
+  [[ ($1 == omarchy || -f $LOOKS_DIR/$1.picked) && -n $bg ]] && keep=1
+  if [[ -n $theme && $theme != "$(cat "$CURRENT_THEME_NAME" 2>/dev/null)" ]]; then
+    OMARCHY_THEME_SKIP_BACKGROUND=${keep:+1} omarchy-theme-set "$theme" >/dev/null 2>&1 || true
+  fi
+  [[ -n $keep ]] || return 1
   [[ $bg == theme:* ]] && bg="$HOME/.local/state/omarchy/current/theme/backgrounds/${bg#theme:}"
-  [[ -n $bg && -f $bg ]] || return 1
+  if [[ ! -f $bg ]]; then
+    # gone (theme removed or renamed): the theme's own wallpaper after all
+    [[ -n $theme ]] && omarchy-theme-set "$theme" >/dev/null 2>&1 || true
+    return 1
+  fi
   [[ $(readlink -f "$CURRENT_BG") == "$(readlink -f "$bg")" ]] || omarchy-theme-bg-set "$bg" >/dev/null 2>&1 || true
   mark_picked
 }
@@ -1241,9 +1249,11 @@ tile_all() {
 # set the ratio, and repeat inside each side.
 retile_saved() {  # retile_saved <kept-floating json>
   [[ -s $TILED ]] || return 0
-  local active cmds
+  local active cmds view here anim
   active=$(hyprctl activewindow -j 2>/dev/null | jq -r '.address // empty')
-  cmds=$(python3 -I - "$TILED" "$1" <<'PY'
+  view=$(current_view)
+  here=$(hyprctl activeworkspace -j 2>/dev/null | jq -r '.id // 0')
+  cmds=$(python3 -I - "$TILED" "$1" "$here" <<'PY'
 import json, subprocess, sys
 
 saved = json.load(open(sys.argv[1]))
@@ -1297,7 +1307,9 @@ def build(wins, leaf):  # leaf: the window of wins already tiled, filling their 
     build(a, leaf if leaf_in_a else new)
     build(b, new if leaf_in_a else leaf)
 
-for ws in sorted({w["ws"] for w in saved}):
+# the workspace on screen last, so focus ends where it started
+here = int(sys.argv[3]) if sys.argv[3].lstrip("-").isdigit() else 0
+for ws in sorted({w["ws"] for w in saved}, key=lambda ws: (ws == here, ws)):
     wins = [w for w in saved if w["ws"] == ws and w["address"] in live
             and live[w["address"]]["floating"] and live[w["address"]]["workspace"]["id"] == ws
             and w["address"] not in keep]
@@ -1312,7 +1324,11 @@ PY
 ) || return 0
   [[ -n $cmds ]] || return 0
   mark_arranging
-  hyprctl --batch "eval hl.config({ cursor = { no_warps = true } }) ; $cmds${active:+ ; dispatch hl.dsp.focus({ window = \"address:$active\" })} ; eval hl.config({ cursor = { no_warps = false } })" >/dev/null 2>&1 || true
+  # One batch, with animations paused and your view put back at its end, so
+  # the visits to other workspaces don't show.
+  anim=$(hyprctl getoption animations:enabled -j 2>/dev/null | jq -r '.bool // .int // true')
+  [[ $anim == true || $anim == 1 ]] && anim=true || anim=false
+  hyprctl --batch "eval hl.config({ animations = { enabled = false } }) ; eval hl.config({ cursor = { no_warps = true } }) ; $cmds${view:+ ; $view}${active:+ ; dispatch hl.dsp.focus({ window = \"address:$active\" })} ; eval hl.config({ cursor = { no_warps = false } }) ; eval hl.config({ animations = { enabled = $anim } })" >/dev/null 2>&1 || true
 }
 
 # Overtake is about to move windows itself. The title-bar plugin watches the
