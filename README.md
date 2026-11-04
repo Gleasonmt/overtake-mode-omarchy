@@ -392,3 +392,5 @@ Some pictures include the Omarchy logo.
 Overtake Mode is an independent project, not affiliated with or endorsed by
 Omarchy, 37signals, Apple or Microsoft. Names like Start menu, Dock and
 Spotlight describe familiar behaviour.
+
+Reviewing it for the plugin marketplace? See [REVIEWING.md](REVIEWING.md).

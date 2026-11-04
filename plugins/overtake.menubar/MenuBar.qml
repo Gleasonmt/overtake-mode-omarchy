@@ -112,7 +112,7 @@ Panel {
         { label: "Mode: Classic", run: function() { overtake(["style", "classic"]) } },
         { label: "Omarchy Desktop", run: function() { overtake(["off"]) } },
         { separator: true },
-        { label: "Sleep", run: function() { overtake(["suspend"]) } },
+        { label: "Sleep…", run: function() { sh("omarchy-menu toggle system") } },
         { label: "Restart…", run: function() { sh("omarchy-menu toggle system") } },
         { label: "Shut Down…", run: function() { sh("omarchy-menu toggle system") } },
         { separator: true },

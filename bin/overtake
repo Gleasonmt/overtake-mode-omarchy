@@ -30,7 +30,6 @@
 #   overtake start [quick]    # Super+S / Super+X: open the Start menu or its quick-link menu
 #   overtake settings [page]  # Super+I: the Settings window (system, bluetooth, network, ...)
 #   overtake snap-layouts     # SUPER+Z: show the snap layouts for the focused window
-#   overtake suspend          # Sleep in Start, Spotlight and the menu bar (unless Omarchy's Suspend is toggled off)
 #   overtake uninstall [--purge] [--dry-run] [--yes]  # remove Overtake Mode (runs its uninstall.sh)
 #   overtake taskbar-position <left|center>  # right-click Start: where the taskbar sits on the bar
 #   overtake copy-url <address>  # title bar menu: copy a browser window's page address
@@ -1642,12 +1641,6 @@ case "${1:-help}" in
     shift
     [[ -x $HOME/.local/share/overtake/uninstall.sh ]] || { echo "overtake: the uninstaller isn't installed; run ./uninstall.sh from the repository" >&2; exit 1; }
     exec "$HOME/.local/share/overtake/uninstall.sh" "$@" ;;
-  suspend)  # what Omarchy's own Suspend entry runs; it can be removed in Omarchy's menu (Toggle > Suspend)
-    if omarchy-toggle-enabled suspend-off 2>/dev/null; then
-      notify $'\U000f04b2' "Suspend is turned off in the Omarchy menu (Toggle > Suspend)"
-    else
-      systemctl suspend
-    fi ;;
   on) mode_lock; turn_on ;;
   off) mode_lock; turn_off ;;
   toggle) mode_lock; if [[ -f $FLAG ]]; then turn_off; else turn_on; fi ;;
