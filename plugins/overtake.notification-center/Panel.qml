@@ -189,13 +189,17 @@ Panel {
     }
     if (openProc.running) return
     openProc.entry = entry
-    openProc.command = ["overtake", "notification-open", String(entry.app || ""), String(entry.appIcon || ""),
-                        String(entry.body || "").replace(/<[^>]*>/g, "")]
+    // the message text goes on stdin ("-"), not in the process list
+    openProc.body = String(entry.body || "").replace(/<[^>]*>/g, "").replace(/\n/g, " ")
+    openProc.command = ["overtake", "notification-open", String(entry.app || ""), String(entry.appIcon || ""), "-"]
     openProc.running = true
   }
   Process {
     id: openProc
     property var entry: null
+    property string body: ""
+    stdinEnabled: true
+    onStarted: { write(body + "\n"); body = "" }
     onExited: function(code) {
       if (code === 0) { root.remove(entry); root.close() }
       else root.showNotice("Nothing to open for this one: its app isn't installed and it doesn't name a file.")
@@ -243,14 +247,18 @@ Panel {
   }
 
   // The app's own icon for its group (a message's picture, like a sender's
-  // avatar, only when the app has no icon).
+  // avatar, only when the app has no icon). Local files and theme icons only:
+  // the sending app picks these strings, and a web address here would make the
+  // panel fetch it.
   function iconFor(entry) {
     var icon = String(entry.appIcon || "")
-    if (icon.charAt(0) === "/") return "file://" + icon
-    if (icon.indexOf("://") !== -1) return icon
-    if (icon) return Quickshell.iconPath(icon, true)
-    var picture = String(entry.image || "")
-    return picture ? (picture.charAt(0) === "/" ? "file://" + picture : picture) : ""
+    if (icon) return localPicture(icon) || Quickshell.iconPath(icon, true)
+    return localPicture(String(entry.image || ""))
+  }
+  function localPicture(path) {
+    if (path.charAt(0) === "/") return "file://" + path
+    if (path.indexOf("file:///") === 0 || path.indexOf("image://") === 0) return path
+    return ""
   }
 
   // ---------- The bell ----------

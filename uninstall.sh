@@ -120,9 +120,26 @@ if [[ -z $PURGE && -f $HOME/.local/state/overtake/taskbar-settings.json ]]; then
   mkdir -p "$HOME/.config/overtake"
   cp "$HOME/.local/state/overtake/taskbar-settings.json" "$HOME/.config/overtake/taskbar-settings.json"
 fi
-# Images back to Omarchy's own viewer entry
+# Images back to what opened them before: Overtake's line out of
+# mimeapps.list, and your own setting back if you had one (the installer
+# recorded it; an older install didn't, and those go back to imv)
+IMAGE_DEFAULTS="$HOME/.local/state/overtake/image-defaults"
+MIMEAPPS="${XDG_CONFIG_HOME:-$HOME/.config}/mimeapps.list"
 for t in image/png image/jpeg image/jpg image/gif image/bmp image/webp image/tiff image/avif image/heif image/jxl image/svg+xml; do
-  [[ $(xdg-mime query default "$t" 2>/dev/null) == overtake-image-viewer.desktop ]] && xdg-mime default imv.desktop "$t"
+  [[ $(xdg-mime query default "$t" 2>/dev/null) == overtake-image-viewer.desktop ]] || continue
+  if [[ -f $IMAGE_DEFAULTS ]] && grep -q "^$t	" "$IMAGE_DEFAULTS"; then
+    before=$(awk -F'\t' -v t="$t" '$1 == t { print $2; exit }' "$IMAGE_DEFAULTS")
+    tmp=$(mktemp "$MIMEAPPS.XXXXXX")
+    awk -v t="$t" '/^\[/ { s = ($0 == "[Default Applications]") } !(s && index($0, t "=overtake-image-viewer.desktop") == 1)' "$MIMEAPPS" >"$tmp" &&
+      cat "$tmp" >"$MIMEAPPS"
+    rm -f "$tmp"
+    if [[ -n $before ]]; then
+      IFS=';' read -ra apps <<<"$before"
+      xdg-mime default "${apps[@]}" "$t"
+    fi
+  else
+    xdg-mime default imv.desktop "$t"
+  fi
 done
 # Links back to Omarchy's own handler
 sed -i 's|^Exec=.*/overtake open-url |Exec=omarchy-launch-browser |' "$HOME/.local/share/applications/omarchy-browser.desktop" 2>/dev/null || true
