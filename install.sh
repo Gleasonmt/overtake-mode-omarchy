@@ -157,6 +157,11 @@ open(path, "w").write(text)
 PY
 }
 
+# Overtake's state (window names, Claude Code session ids, layouts) is yours
+# alone: an older install made the folder readable by others.
+mkdir -p -m 700 "$HOME/.local/state/overtake"
+chmod 700 "$HOME/.local/state/overtake"
+
 # 1. The command.
 install -Dm755 "$REPO/bin/overtake" "$HOME/.local/bin/overtake"
 say "command: ~/.local/bin/overtake"
@@ -305,6 +310,8 @@ fi
 # Images open with their whole folder, so the arrow keys step through the
 # others (imv-dir, which ships with imv). Only while images still open with
 # Omarchy's imv; your own choice of viewer is left alone. --no-image-viewer skips it.
+IMAGE_DEFAULTS="$HOME/.local/state/overtake/image-defaults"
+MIMEAPPS="${XDG_CONFIG_HOME:-$HOME/.config}/mimeapps.list"
 IMAGE_TYPES="image/png image/jpeg image/jpg image/gif image/bmp image/webp image/tiff image/avif image/heif image/jxl image/svg+xml"
 if [[ $CHANGE_IMAGES ]]; then
   mkdir -p "$APPS"
@@ -322,7 +329,12 @@ MimeType=image/png;image/jpeg;image/jpg;image/gif;image/bmp;image/webp;image/tif
 DESKTOP
   for t in $IMAGE_TYPES; do
     current=$(xdg-mime query default "$t" 2>/dev/null || true)
-    [[ -z $current || $current == imv.desktop ]] && xdg-mime default overtake-image-viewer.desktop "$t"
+    [[ -z $current || $current == imv.desktop ]] || continue
+    # your own setting for it in mimeapps.list (often none: imv is the
+    # system's), so ./uninstall.sh can put exactly that back
+    grep -q "^$t	" "$IMAGE_DEFAULTS" 2>/dev/null ||
+      printf '%s\t%s\n' "$t" "$(awk -v t="$t" '/^\[/ { s = ($0 == "[Default Applications]") } s && index($0, t "=") == 1 { print substr($0, length(t) + 2); exit }' "$MIMEAPPS" 2>/dev/null)" >>"$IMAGE_DEFAULTS"
+    xdg-mime default overtake-image-viewer.desktop "$t"
   done
   say "images: open with their folder (arrow keys step through them)"
 fi
