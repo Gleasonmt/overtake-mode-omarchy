@@ -62,7 +62,7 @@ Item {
   readonly property var actions: [
     { name: "System Settings", detail: "Overtake Settings", glyph: "", command: ["overtake", "settings"], extra: "preferences control panel" },
     { name: "Lock Screen", detail: "Action", glyph: "", command: ["omarchy-system-lock"], extra: "lock" },
-    { name: "Sleep", detail: "Action", glyph: "", command: ["overtake", "suspend"], extra: "suspend" },
+    { name: "Sleep…", detail: "Action", glyph: "", command: ["omarchy-menu", "toggle", "system"], extra: "suspend" },
     { name: "Restart…", detail: "Action", glyph: "", command: ["omarchy-menu", "toggle", "system"], extra: "reboot" },
     { name: "Shut Down…", detail: "Action", glyph: "", command: ["omarchy-menu", "toggle", "system"], extra: "power off" },
     { name: "Take Screenshot", detail: "Action", glyph: "", command: ["omarchy-capture-screenshot", "region"], extra: "capture screen shot" },
