@@ -40,6 +40,9 @@ for c in omarchy omarchy-shell omarchy-notification-send omarchy-theme-set omarc
          notify-send gsettings xdg-mime xdg-open setsid uwsm-app gtk-launch wl-copy busctl curl magick; do
   stub "$c"
 done
+# and every other omarchy-* command this machine has, so a test can never
+# reach a live session
+for c in $(compgen -c omarchy- 2>/dev/null | sort -u); do [[ -e $STUB/$c ]] || stub "$c"; done
 stub omarchy-version 'echo 4.5.0-test'
 stub hyprctl "$(cat <<EOF
 case "\$*" in

@@ -1,13 +1,12 @@
 #!/bin/bash
 # Install (or update) Overtake Mode into the current user's Omarchy setup.
 #
-#   ./install.sh             # asks about the optional extras, lists what it will change, then asks
+#   ./install.sh             # lists what it will change, then asks
 #   ./install.sh --dry-run   # only lists what it would change
-#   ./install.sh --yes       # doesn't ask (scripts, updates); extras stay as they are
+#   ./install.sh --yes       # doesn't ask (scripts, updates)
 #
-# Nothing is written before you say yes (or pass --yes). The optional extras
-# (link handler, image viewer, Style menus, name tags) are off unless you
-# choose them; an update keeps your earlier choices.
+# Nothing is written before you say yes (or pass --yes). In Omarchy mode
+# Omarchy runs as it ships: Overtake's changes apply in Classic and Studio.
 #
 # Safe to run again: files are replaced, the lines it adds to your Hyprland
 # and menu config sit between ">>> overtake" / "<<< overtake" markers and are
@@ -34,38 +33,16 @@ usage() {
 Usage: ./install.sh [options]
 
   -n, --dry-run          list what would change; change nothing
-  -y, --yes              don't ask (the extras stay as they are; off on a
-                         first install)
-
-Optional extras, each off unless chosen (asked when run in a terminal):
-      --link-handler     links clicked in other apps open on the workspace
-                         you're on (changes omarchy-browser.desktop)
-      --image-viewer     images open with their whole folder in imv-dir
-                         (changes your default image viewer)
-      --style-menus      Overtake's Appearance > Background (every theme's
-                         wallpapers) and Appearance > Theme in the Omarchy menu,
-                         in every mode
-      --name-tags        name tags on Claude Code windows, in every mode
-                         (reads ~/.claude/sessions), and Super+Alt+N
-      --no-link-handler, --no-image-viewer, --no-style-menus, --no-name-tags
-                         turn one off (an update removes it)
+  -y, --yes              don't ask
   -h, --help             show this
 EOF
 }
 
-ASSUME_YES='' DRY_RUN='' LINKS='' IMAGES='' STYLE_MENUS='' NAME_TAGS=''
+ASSUME_YES='' DRY_RUN=''
 for arg in "$@"; do
   case $arg in
     -y|--yes) ASSUME_YES=1 ;;
     -n|--dry-run) DRY_RUN=1 ;;
-    --link-handler) LINKS=yes ;;
-    --no-link-handler) LINKS=no ;;
-    --image-viewer) IMAGES=yes ;;
-    --no-image-viewer) IMAGES=no ;;
-    --style-menus) STYLE_MENUS=yes ;;
-    --no-style-menus) STYLE_MENUS=no ;;
-    --name-tags) NAME_TAGS=yes ;;
-    --no-name-tags) NAME_TAGS=no ;;
     -h|--help) usage; exit 0 ;;
     *) usage >&2; die "unknown option: $arg" ;;
   esac
@@ -87,41 +64,12 @@ if [[ -n $MENU_FIRST && ! $MENU_FIRST =~ ^[[:space:]]*\{ ]]; then
   die "$MENU_CHECK doesn't start with { ; fix it first (Overtake adds its menu entry there)."
 fi
 
-# The optional extras. Each is off unless chosen; an update keeps what's
-# installed now. Choosing one off that's on now takes it back out.
+# What earlier versions could add and this one no longer does (the optional
+# link handler, image viewer, Appearance menus and Claude Code name tags, now
+# separate): an update takes each one back out, exactly.
 have_links() { [[ -f $BROWSER_ENTRY ]] && grep -q '^Exec=.*/overtake"\? open-url ' "$BROWSER_ENTRY"; }
 have_images() { [[ -s $HOME/.local/state/overtake/image-defaults || -f $APPS/overtake-image-viewer.desktop ]]; }
-have_style_menus() { [[ -f $MENU ]] && grep -q '"\(style\|appearance\)\.background".*overtake bg-picker' "$MENU"; }
 have_name_tags() { [[ -d $PLUGINS/overtake.session-names ]]; }
-ask_extra() {  # ask_extra <current yes|no> <question>
-  local reply hint="[y/N]"
-  [[ $1 == yes ]] && hint="[Y/n]"
-  read -r -p "$2 $hint " reply
-  if [[ -z $reply ]]; then echo "$1"; elif [[ $reply == [yY]* ]]; then echo yes; else echo no; fi
-}
-choose() {  # choose <flag value> <have function> <question>: yes or no
-  local now=no
-  "$2" && now=yes
-  if [[ -n $1 ]]; then echo "$1"
-  elif [[ -z $ASSUME_YES && -z $DRY_RUN && -t 0 ]]; then ask_extra "$now" "$3"
-  else echo "$now"
-  fi
-}
-[[ -n $ASSUME_YES || -n $DRY_RUN || ! -t 0 ]] || echo "Optional extras (each is off unless you say yes):"
-LINKS=$(choose "$LINKS" have_links "  Open links from other apps on the workspace you're on (changes omarchy-browser.desktop)?")
-IMAGES=$(choose "$IMAGES" have_images "  Open images with their whole folder in imv-dir (changes your default image viewer)?")
-STYLE_MENUS=$(choose "$STYLE_MENUS" have_style_menus "  Use Overtake's Appearance > Background and Appearance > Theme in the Omarchy menu, in every mode?")
-NAME_TAGS=$(choose "$NAME_TAGS" have_name_tags "  Name tags on Claude Code windows in every mode (reads ~/.claude/sessions), and Super+Alt+N?")
-[[ -n $ASSUME_YES || -n $DRY_RUN || ! -t 0 ]] || echo
-
-# Which of them change something on this machine.
-CHANGE_LINKS='' CHANGE_IMAGES=''
-if [[ $LINKS == yes && -f $BROWSER_ENTRY ]] && grep -q '^Exec=omarchy-launch-browser ' "$BROWSER_ENTRY"; then
-  CHANGE_LINKS=1
-fi
-if [[ $IMAGES == yes ]] && command -v imv-dir >/dev/null; then
-  CHANGE_IMAGES=1
-fi
 
 # Everything below is listed here first, before anything is written.
 plan() {
@@ -147,8 +95,6 @@ Overtake Mode will add (./uninstall.sh removes all of it):
   ~/.cache/omarchy/image-selector/        Background previews, made by Omarchy's own
                                           picker (left for Omarchy to manage)
 EOF
-  [[ $NAME_TAGS == yes ]] && echo "  ~/.config/omarchy/plugins/overtake.session-names   name tags on Claude Code windows"
-  [[ $CHANGE_IMAGES ]] && echo "  ~/.local/share/applications/overtake-image-viewer.desktop"
   cat <<'EOF'
 
 and change (or create, if missing) these files (./uninstall.sh undoes each one):
@@ -160,37 +106,21 @@ and change (or create, if missing) these files (./uninstall.sh undoes each one):
                                           slideshow at login if the mode is on
   ~/.config/omarchy/extensions/omarchy-menu.jsonc
                                           a marked block: the Overtake Mode entry
-  ~/.config/omarchy/shell.json            enables overtake.notifications and
-                                          overtake.battery in place of Omarchy's
-                                          own (Omarchy turns its own off while a
-                                          copy is on, in every mode; while the mode
-                                          is off they act like Omarchy's own)
-EOF
-  [[ $NAME_TAGS == yes ]] && echo "                                          and overtake.session-names; Super+Alt+N in bindings.lua"
-  [[ $STYLE_MENUS == yes ]] && cat <<'EOF'
-  omarchy-menu.jsonc (same marked block)  Appearance > Background and Appearance > Theme,
-                                          replaced in every mode
-EOF
-  [[ $CHANGE_LINKS ]] && cat <<'EOF'
-  ~/.local/share/applications/omarchy-browser.desktop
-                                          links clicked in other apps open on the
-                                          workspace you're on
-EOF
-  [[ $CHANGE_IMAGES ]] && cat <<'EOF'
-  default image viewer (xdg-mime)         only for image types that open with imv
-                                          or nothing: imv-dir, so the arrow keys
-                                          step through the folder
+  ~/.config/omarchy/shell.json            only while Classic or Studio is on: its
+                                          bar, and its notifications and battery
+                                          copies in place of Omarchy's own; all put
+                                          back when you switch to Omarchy
 EOF
   local off=()
-  [[ $LINKS == no ]] && have_links && off+=("the link handler")
-  [[ $IMAGES == no ]] && have_images && off+=("the image viewer")
-  [[ $STYLE_MENUS == no ]] && have_style_menus && off+=("the Appearance menus")
-  [[ $NAME_TAGS == no ]] && have_name_tags && off+=("the name tags")
+  have_links && off+=("the link handler")
+  have_images && off+=("the image viewer")
+  have_name_tags && off+=("the Claude Code name tags")
+  [[ -f $MENU ]] && grep -q '"\(style\|appearance\)\.background".*overtake bg-picker' "$MENU" && off+=("the Appearance menus")
   if (( ${#off[@]} )); then
     echo
     local list
     printf -v list '%s, ' "${off[@]}"
-    echo "and take back out, as you chose: ${list%, }"
+    echo "and take back out what an earlier version added: ${list%, }"
   fi
   cat <<'EOF'
 
@@ -257,13 +187,9 @@ say "command: ~/.local/bin/overtake"
 install -Dm644 "$REPO/hypr/overtake.lua" "$HYPR/overtake.lua"
 install -Dm644 "$REPO/hypr/overtake-classic.lua" "$HYPR/overtake-classic.lua"
 install -Dm644 "$REPO/hypr/overtake-studio.lua" "$HYPR/overtake-studio.lua"
-NAME_TAG_BIND=""
-[[ $NAME_TAGS == yes ]] && NAME_TAG_BIND='
--- Name tags: name the focused window (a Claude Code window keeps it with its session).
-o.bind("SUPER + ALT + N", "Name window", "overtake rename")'
 set_block "$HYPR/bindings.lua" "--" '-- Overtake Mode: SUPER+CTRL+SHIFT+W goes to the next mode, Omarchy -> Classic -> Studio (or `overtake cycle|on|off`).
 -- Its shortcuts load only while the mode is on.
-o.bind("SUPER + CTRL + SHIFT + W", "Next desktop mode", "overtake cycle")'"$NAME_TAG_BIND"'
+o.bind("SUPER + CTRL + SHIFT + W", "Next desktop mode", "overtake cycle")
 local overtake_flag = io.open((os.getenv("HOME") or "") .. "/.local/state/overtake/enabled", "r")
 if overtake_flag then
   overtake_flag:close()
@@ -279,10 +205,8 @@ say "Hyprland: ~/.config/hypr/overtake{,-classic,-studio}.lua, plus marked block
 #    applies is left out, and Overtake uses Omarchy's own one instead.
 mkdir -p "$PLUGINS"
 OWN_PLUGINS="overtake.taskbar overtake.notification-center overtake.menubar overtake.control-center"
-if [[ $NAME_TAGS == yes ]]; then
-  OWN_PLUGINS+=" overtake.session-names"
-elif [[ -d $PLUGINS/overtake.session-names ]]; then
-  # name tags chosen off: out again (not in a test install: `omarchy plugin` acts on the running shell)
+if [[ -d $PLUGINS/overtake.session-names ]]; then
+  # an earlier version's name tags: out again (not in a test install: `omarchy plugin` acts on the running shell)
   [[ -n ${OVERTAKE_NO_RELOAD:-} ]] || omarchy plugin disable overtake.session-names >/dev/null 2>&1 || true
   rm -rf "${PLUGINS:?}/overtake.session-names"
 fi
@@ -332,9 +256,16 @@ if [[ ! -e $HOME/.local/state/overtake/disabled-before ]]; then
     | select(("overtake." + ltrimstr("omarchy.")) as $c | $r | index($c) | not)' \
     "$HOME/.config/omarchy/shell.json" >"$HOME/.local/state/overtake/disabled-before" 2>/dev/null || true
 fi
+# Omarchy's own notifications and battery run in Omarchy mode; Overtake's
+# copies are switched in only while Classic or Studio is on (and out again
+# here if an earlier version left them on in Omarchy mode).
 if [[ -z ${OVERTAKE_NO_RELOAD:-} ]]; then
-  for id in notifications battery $([[ $NAME_TAGS == yes ]] && echo session-names || true); do
-    [[ -d $PLUGINS/overtake.$id ]] && enable_plugin "overtake.$id"
+  for id in notifications battery; do
+    if [[ -f $HOME/.local/state/overtake/enabled && -d $PLUGINS/overtake.$id ]]; then
+      enable_plugin "overtake.$id"
+    else
+      omarchy plugin disable "overtake.$id" >/dev/null 2>&1 || true
+    fi
   done
 fi
 say "plugins: ${OWN_PLUGINS// /, }"
@@ -345,8 +276,7 @@ if [[ ! -s $MENU ]]; then
   printf '{\n}\n' >"$MENU"
   touch "$HOME/.local/state/overtake/created-menu"   # so uninstall.sh removes it again
 fi
-MENU_BLOCK=$(cat "$REPO/menu/omarchy-menu.jsonc")
-[[ $STYLE_MENUS == yes ]] && MENU_BLOCK+=$'\n'$(cat "$REPO/menu/style-menus.jsonc")
+MENU_BLOCK=$(cat "$REPO/menu/omarchy-menu.jsonc")   # (an earlier version's Appearance menus go with the old block)
 python3 -I - "$MENU" "$MENU_BLOCK" <<'PY'
 import sys, re
 path, block = sys.argv[1:3]
@@ -411,59 +341,18 @@ Terminal=false
 Categories=System;FileTools;
 DESKTOP
 
-# Links clicked in other apps go through Omarchy's link handler, which hands
-# them to the browser window used last, wherever it is. Route them through
-# Overtake, which opens them on the workspace you're on (and, while the mode
-# is off, passes them straight back to Omarchy's handler). --no-link-handler skips it.
-# Quoted as a desktop file's Exec wants it (\ " ` $ escaped, % doubled),
-# then escaped for sed's replacement.
-bin_quoted="$HOME/.local/bin/overtake"
-bin_quoted=${bin_quoted//\\/\\\\}; bin_quoted=${bin_quoted//\"/\\\"}
-bin_quoted=${bin_quoted//\`/\\\`}; bin_quoted=${bin_quoted//\$/\\\$}; bin_quoted=${bin_quoted//%/%%}
-bin_escaped=$(printf '%s' "$bin_quoted" | sed 's/[\\|&]/\\&/g')
-if [[ $CHANGE_LINKS ]]; then
-  sed -i --follow-symlinks "s|^Exec=omarchy-launch-browser |Exec=\"$bin_escaped\" open-url |" "$BROWSER_ENTRY"   # (quoted: a home folder may have spaces)
-  say "links: open on the workspace you're on"
-elif [[ $LINKS == yes ]] && have_links; then
-  # an earlier install's line (unquoted before 0.1.10): written again as above
-  sed -i --follow-symlinks "s|^Exec=.*/overtake\"\\? open-url |Exec=\"$bin_escaped\" open-url |" "$BROWSER_ENTRY"
-elif [[ $LINKS == no ]] && have_links; then
+# An earlier version's link handler: Omarchy's own line back.
+if have_links; then
   sed -i --follow-symlinks 's|^Exec=.*/overtake"\? open-url |Exec=omarchy-launch-browser |' "$BROWSER_ENTRY"
   say "links: back to Omarchy's own handler"
 fi
 
-# Images open with their whole folder, so the arrow keys step through the
-# others (imv-dir, which ships with imv). Only while images still open with
-# Omarchy's imv; your own choice of viewer is left alone. --no-image-viewer skips it.
+# An earlier version's image viewer: each type back to what opened it before
+# (as ./uninstall.sh does).
 IMAGE_DEFAULTS="$HOME/.local/state/overtake/image-defaults"
 MIMEAPPS="${XDG_CONFIG_HOME:-$HOME/.config}/mimeapps.list"
 IMAGE_TYPES="image/png image/jpeg image/jpg image/gif image/bmp image/webp image/tiff image/avif image/heif image/jxl image/svg+xml"
-if [[ $CHANGE_IMAGES ]]; then
-  mkdir -p "$APPS"
-  cat >"$APPS/overtake-image-viewer.desktop" <<'DESKTOP'
-[Desktop Entry]
-Name=Image Viewer
-Comment=Opens the image with the rest of its folder (left/right arrows step through them)
-Exec=imv-dir %F
-Icon=imv
-Type=Application
-Terminal=false
-NoDisplay=true
-Categories=Graphics;Viewer;
-MimeType=image/png;image/jpeg;image/jpg;image/gif;image/bmp;image/webp;image/tiff;image/avif;image/heif;image/jxl;image/svg+xml;
-DESKTOP
-  for t in $IMAGE_TYPES; do
-    current=$(xdg-mime query default "$t" 2>/dev/null || true)
-    [[ -z $current || $current == imv.desktop ]] || continue
-    # your own setting for it in mimeapps.list (often none: imv is the
-    # system's), so ./uninstall.sh can put exactly that back
-    grep -q "^$t	" "$IMAGE_DEFAULTS" 2>/dev/null ||
-      printf '%s\t%s\n' "$t" "$(awk -v t="$t" '/^\[/ { s = ($0 == "[Default Applications]") } s && index($0, t "=") == 1 { print substr($0, length(t) + 2); exit }' "$MIMEAPPS" 2>/dev/null)" >>"$IMAGE_DEFAULTS"
-    xdg-mime default overtake-image-viewer.desktop "$t"
-  done
-  say "images: open with their folder (arrow keys step through them)"
-elif [[ $IMAGES == no ]] && have_images; then
-  # chosen off: each type back to what opened it before (as ./uninstall.sh does)
+if have_images; then
   for t in $IMAGE_TYPES; do
     [[ $(xdg-mime query default "$t" 2>/dev/null) == overtake-image-viewer.desktop ]] || continue
     before=""

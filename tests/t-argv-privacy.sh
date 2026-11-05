@@ -9,7 +9,7 @@ source "$(dirname "$0")/lib.sh"
 H="$T/home"
 make_home "$H"
 cd "$REPO"
-sbx "$H" ./install.sh --yes --name-tags >"$T/log" 2>&1 || { cat "$T/log"; fail "install"; }
+sbx "$H" ./install.sh --yes >"$T/log" 2>&1 || { cat "$T/log"; fail "install"; }
 O="$H/.local/bin/overtake"
 
 : >"$ARGV_LOG"   # from here on: the commands Overtake itself runs

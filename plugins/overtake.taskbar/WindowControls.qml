@@ -86,8 +86,7 @@ Item {
   }
 
   // Windows given a name of their own (title bar right-click > Rename tab):
-  // address -> name. The taskbar's window list and the name tags
-  // (overtake.session-names) show them too.
+  // address -> name. The taskbar's window list shows them too.
   property var names: ({})
   FileView {
     path: Quickshell.env("HOME") + "/.local/state/overtake/names.json"
@@ -102,8 +101,7 @@ Item {
   function titleOf(t) {
     return t ? (root.names[addressOf(t)] || t.title || "") : ""
   }
-  // `overtake name` writes names.json (and a Claude Code window's session
-  // name); show the new name straight away.
+  // `overtake name` writes names.json; show the new name straight away.
   function setName(address, name) {
     var next = Object.assign({}, root.names)
     name = String(name || "").trim()

@@ -24,6 +24,8 @@ run "qml logic" node tests/t-qml-logic.js
 run "patches" bash tests/t-patches.sh
 run "argv privacy" bash tests/t-argv-privacy.sh
 run "lifecycle" bash tests/t-lifecycle.sh
+run "omarchy mode" bash tests/t-omarchy-mode.sh
+run "upgrade from 0.1.12" bash tests/t-upgrade-extras.sh
 
 if (( failed )); then echo "SOME TESTS FAILED"; exit 1; fi
 echo "ALL TESTS PASSED"

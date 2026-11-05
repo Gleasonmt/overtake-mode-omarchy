@@ -9,8 +9,7 @@
 #   overtake style [classic|studio]  # pick or print the mode: Classic (taskbar, Start) or Studio (menu bar, Dock)
 #   overtake studio-get|studio-set <dockSize|dockMagnify|dockAutohide> [value]  # Studio's Dock options (Settings)
 #   overtake show-desktop     # SUPER+D: jump to an empty workspace and back
-#   overtake theme-picker [omarchy|custom|all]  # pick a theme from one folder; prints its name
-#   overtake bg-picker [cache]  # Style > Background: the theme's backgrounds plus Overtake's; prints the pick
+#   overtake bg-picker [cache]  # the desktop's Change background: the theme's backgrounds plus Overtake's; prints the pick
 #   overtake next-wallpaper   # SUPER+CTRL+ALT+SPACE: next slideshow wallpaper
 #   overtake wallpaper-mode [rotate|day-night]   # pick or print the slideshow mode
 #   overtake minimize|maximize|close [address]  # active window when no address
@@ -35,12 +34,10 @@
 #   overtake build-copies [all|update]  # (re)build the patched copies of Omarchy's plugins from the installed Omarchy
 #   overtake taskbar-position <left|center>  # right-click Start: where the taskbar sits on the bar
 #   overtake copy-url <address>  # title bar menu: copy a browser window's page address
-#   overtake rename [address]    # taskbar menu, SUPER+ALT+N: bring a window up with its name ready to edit
-#   overtake name <address|here> [name|-]  # name a window (a Claude Code window: its session too); no name clears it, - reads it from stdin
-#                             # "here": the window this runs in (a Claude Code session renaming its own tag)
-#   overtake sessions         # name tags: {"<address>": "<session id>"} for windows running Claude Code
+#   overtake rename [address]    # taskbar menu: bring a window up with its name ready to edit
+#   overtake name <address|here> [name|-]  # name a window (shown in the taskbar and title bar); no name clears it, - reads it from stdin
+#                             # "here": the window this runs in
 #   overtake fill-gap <address>  # a window opened: snap it into a spot snapped windows leave free
-#   overtake open-url <url>      # links from other apps: open on this workspace, not the browser's last window
 #   overtake ui <spotlight|apps|app-windows|switcher|switcher-back|switcher-commit|switcher-cancel|mission-control|force-quit|app-menu|control-center>
 #                             # Studio: open one of its panels (Super+Space, Super+Tab, Ctrl+Up, ...)
 #   overtake hide-app|hide-others|quit-app [address]  # Studio: Super+H, Super+Alt+H, Super+Q
@@ -707,6 +704,23 @@ resume_floating_layouts() {
   [[ -n $failed ]] || rm -rf "${PAUSED_LAYOUTS:?}"
 }
 
+# Overtake's copies of Omarchy's notifications and battery services run only
+# while Classic or Studio is on; in Omarchy mode Omarchy's own run. Switched
+# through the running shell (Omarchy turns its own off while a copy is on and
+# back on when the copy goes); not in a test install (OVERTAKE_NO_RELOAD).
+switch_copies() {  # switch_copies on|off
+  [[ -z ${OVERTAKE_NO_RELOAD:-} ]] || return 0
+  local id out i
+  for id in notifications battery; do
+    [[ $1 == off || -d $HOME/.config/omarchy/plugins/overtake.$id ]] || continue
+    for i in $(seq 20); do
+      out=$(omarchy plugin "$([[ $1 == on ]] && echo enable || echo disable)" "overtake.$id" 2>&1) && break
+      [[ $out == *"not known"* || $out == *"not responding"* ]] || break   # (or the shell is restarting)
+      sleep 0.3
+    done
+  done
+}
+
 turn_on() {
   [[ -f $FLAG ]] && { echo "Overtake Mode is already on"; fix_bar_widgets; return; }
   mkdir -p -m 700 "$STATE_DIR"
@@ -731,6 +745,7 @@ turn_on() {
     live_wallpaper_showing || refresh_wallpaper
   fi
   start_slideshow
+  switch_copies on
   pause_floating_layouts
   float_all
   # Back to their sections and places from last time, once the bar has moved.
@@ -772,6 +787,7 @@ turn_off() {
   fi
   remove_bar_size
   resume_floating_layouts
+  switch_copies off
   rm -f "$FLAG" "$DESKTOP_RETURN"
   echo off >"$STATE_DIR/mode"
   restore_all
@@ -1073,39 +1089,6 @@ focus_app() {  # focus_app <app> [exact]: its most recent window (class contains
   fi
 }
 
-# A link clicked in another app (Omarchy's link handler, omarchy-browser.desktop,
-# runs this once Overtake is installed). The browser would put it in the window
-# used last, which may be on another workspace or minimized, and focusing that
-# window pulls you away from where you clicked. Use the browser's window on this
-# workspace instead, or open a new window here.
-open_url() {
-  [[ -f $FLAG && $# -gt 0 && " $* " != *" --private "* ]] || exec omarchy-launch-browser "$@"
-  local entry browser ws addr args
-  entry=$(omarchy-cmd-default-browser 2>/dev/null || true)
-  browser=$(sed -n 's/^Exec=\([^ ]*\).*/\1/p' {~/.local,~/.nix-profile,/usr}/share/applications/"$entry" 2>/dev/null | head -1 || true)
-  [[ -n $entry && -n $browser ]] || exec omarchy-launch-browser "$@"
-  # Addresses only: anything else that looks like an option would reach the
-  # browser as one (when no window is open it starts a new browser process).
-  local url urls=()
-  for url in "$@"; do [[ $url == -* ]] || urls+=("$url"); done
-  (( ${#urls[@]} )) || return 0
-  set -- "${urls[@]}"
-  ws=$(hyprctl activeworkspace -j | jq -r .name)
-  addr=$(hyprctl clients -j | jq -r --arg p "^$(basename "$browser" -stable)" --arg ws "$ws" '
-    sort_by(.focusHistoryID)
-    | first(.[] | select(.workspace.name == $ws and ((.class // "") | test($p; "i")))).address // empty')
-  if [[ -n $addr ]]; then
-    # focused first, so the browser counts it as its last used window
-    focus_raise "$addr"
-    sleep 0.15
-    args=("$@")
-  else
-    args=(--new-window "$@")
-  fi
-  # Omarchy's own launcher does the rest: hands the link to a running browser,
-  # or starts one detached
-  omarchy-launch-browser "${args[@]}"
-}
 
 # A notification clicked in the notification center that carries no action of
 # its own: bring the sending app's open window forward, as Omarchy's own toasts
@@ -1277,66 +1260,11 @@ json_set() {  # json_set <file> <jq filter> [jq args...]
   ) 9>"$STATE_DIR/.lock"
 }
 
-# Window names (title bar Rename tab, taskbar Rename window, name tags) live in
-# names.json as address -> name. An address is gone once its window closes,
-# so a Claude Code window's name is also kept under its session id
-# (session-names.json) and given back to the window that resumes the session
-# (for example after a reboot, with `claude --resume`).
+# Window names (title bar Rename tab, taskbar Rename window) live in
+# names.json as address -> name; a name goes with its window.
 NAMES="$STATE_DIR/names.json"
-SESSION_NAMES="$STATE_DIR/session-names.json"
 
-claude_windows() {  # {"<address>": "<session id>"}: the window each running Claude Code is in
-  local sessions windows
-  # ~/.claude is read only when the name tags were chosen (--name-tags)
-  [[ -d $HOME/.config/omarchy/plugins/overtake.session-names ]] || { echo '{}'; return 0; }
-  # Claude Code registers each running session as ~/.claude/sessions/<pid>.json.
-  # (each file on its own: one being rewritten mustn't drop all the others)
-  local f
-  sessions=$(for f in "$HOME"/.claude/sessions/*.json; do [[ -f $f ]] && jq -c . "$f" 2>/dev/null; done |
-    jq -sc 'map(select(.pid and .sessionId) | {key: (.pid | tostring), value: .sessionId}) | from_entries' 2>/dev/null) || true
-  # Only windows with a process of their own: a terminal that runs all its
-  # windows in one process (single-instance Ghostty, kitty) can't say which
-  # window a session is in, so those get no guess.
-  windows=$(hyprctl clients -j | jq -c 'group_by(.pid) | map(select(length == 1) | .[0] | {key: (.pid | tostring), value: .address}) | from_entries')
-  # Walk up from each Claude process (foot -> shell -> claude) to its window.
-  ps -eo pid=,ppid= | jq -Rnc --slurpfile s <(printf '%s' "${sessions:-"{}"}") --argjson w "$windows" '
-    $s[0] as $s
-    | ([inputs | [splits(" +")] | map(select(length > 0)) | select(length == 2) | {key: .[0], value: .[1]}] | from_entries) as $parent
-    | [$s | to_entries[] | .value as $session
-        | first(limit(30; .key | recurse(if $parent[.] and . != "1" then $parent[.] else empty end)) | select($w[.]))
-        | {key: $w[.], value: $session}]
-    | from_entries'
-}
 
-# Keep both files in step and print claude_windows (the name tags poll this):
-# a named Claude window's session takes the name (/clear starts a new
-# session), a resumed session's window gets it back, closed windows' names go
-# (Hyprland hands their addresses to new windows).
-sync_session_names() {
-  local map live
-  map=$(claude_windows)
-  live=$(hyprctl clients -j | jq -c 'map(.address)')
-  mkdir -p -m 700 "$STATE_DIR"
-  (
-    flock 9
-    names=$(jq -c . "$NAMES" 2>/dev/null) || names='{}'
-    sessions=$(jq -c . "$SESSION_NAMES" 2>/dev/null) || sessions='{}'
-    # (passed through pipes, not arguments: names and session ids stay out of ps)
-    new_sessions=$(jq -nc --slurpfile n <(printf '%s' "${names:-"{}"}") --slurpfile s <(printf '%s' "${sessions:-"{}"}") \
-        --slurpfile m <(printf '%s' "$map") '
-      $n[0] as $n | $s[0] as $s | $m[0] as $m
-      | $s + ($m | to_entries | map(select($n[.key] and ($s[.value] | not)) | {key: .value, value: $n[.key]}) | from_entries)')
-    new_names=$(jq -nc --slurpfile n <(printf '%s' "${names:-"{}"}") --slurpfile s <(printf '%s' "$new_sessions") \
-        --slurpfile m <(printf '%s' "$map") --argjson live "$live" '
-      $n[0] as $n | $s[0] as $s | $m[0] as $m
-      | ($n | with_entries(select(.key as $a | $live | any(. == $a))))
-      + ($m | to_entries | map(select(($n[.key] | not) and $s[.value]) | {key: .key, value: $s[.value]}) | from_entries)')
-    # Rewritten in place, only when something changed (the shell watches them).
-    [[ $new_sessions == "$sessions" ]] || jq . <<<"$new_sessions" >"$SESSION_NAMES"
-    [[ $new_names == "$names" ]] || jq . <<<"$new_names" >"$NAMES"
-  ) 9>"$STATE_DIR/.lock"
-  echo "$map"
-}
 
 window_here() {  # the window this command runs in: walk up the process tree to a window's process
   local windows pid=$$ i
@@ -1349,17 +1277,14 @@ window_here() {  # the window this command runs in: walk up the process tree to 
 }
 
 set_name() {  # set_name <address> [name]; an empty name clears it
-  local addr=$1 name=${2:-} session live
+  local addr=$1 name=${2:-} live
   name=${name//$'\n'/ }
   name=${name#"${name%%[![:space:]]*}"}
   name=${name%"${name##*[![:space:]]}"}
   name=${name:0:80}
-  session=$(claude_windows | jq -r --arg a "$addr" '.[$a] // empty')
   live=$(hyprctl clients -j | jq -c 'map(.address)')
   json_set "$NAMES" 'with_entries(select(.key as $k | $live | any(. == $k))) | if $n == "" then del(.[$a]) else .[$a] = $n end' \
     --arg a "$addr" --rawfile n <(printf '%s' "$name") --argjson live "$live"
-  [[ -z $session ]] || json_set "$SESSION_NAMES" 'if $n == "" then del(.[$s]) else .[$s] = $n end' \
-    --rawfile s <(printf '%s' "$session") --rawfile n <(printf '%s' "$name")
 }
 
 float_all() {
@@ -1676,37 +1601,6 @@ show_desktop() {
   fi
 }
 
-# The theme picker by folder (Omarchy menu > Style > Theme): Omarchy's own
-# themes, the ones you added (~/.config/omarchy/themes that aren't Omarchy's),
-# or all of them. Same picker and output as omarchy-theme-switcher.
-theme_picker() {
-  local which=${1:-all}
-  [[ $which == omarchy || $which == custom || $which == all ]] || { echo "theme-picker takes omarchy, custom or all" >&2; return 1; }
-  shopt -s nullglob
-  [[ $which == all ]] && exec omarchy-theme-switcher
-  local builtin="${OMARCHY_PATH:-/usr/share/omarchy}/themes" user="$HOME/.config/omarchy/themes"
-  local cache="${XDG_CACHE_HOME:-$HOME/.cache}/overtake/theme-picker/$which"
-  local dirs=() dir name preview selected="" current
-  if [[ $which == omarchy ]]; then
-    for dir in "$builtin"/*/; do dirs+=("${dir%/}"); done
-  else
-    for dir in "$user"/*/; do
-      [[ -d $builtin/$(basename "$dir") ]] || dirs+=("${dir%/}")
-    done
-  fi
-  rm -rf "$cache"
-  mkdir -p "$cache"
-  current=$(cat "$HOME/.local/state/omarchy/current/theme.name" 2>/dev/null || true)
-  for dir in "${dirs[@]}"; do
-    name=$(basename "$dir")
-    preview=$(find -L "$dir" -maxdepth 1 -type f -iname 'preview.*' 2>/dev/null | sort | head -1 || true)
-    [[ -n $preview ]] || preview=$(find -L "$dir/backgrounds" -maxdepth 1 -type f \( -iname '*.png' -o -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.webp' \) 2>/dev/null | sort | head -1 || true)
-    [[ -n $preview ]] || continue
-    ln -s "$preview" "$cache/$name.${preview##*.}"
-    [[ $name == "$current" ]] && selected="$cache/$name.${preview##*.}"
-  done
-  exec omarchy-menu-images --print-name --show-labels --filterable --lazy-thumbnails --selected "$selected" "$cache"
-}
 
 # Style > Background: every wallpaper in one list, in groups, each named by
 # where it comes from (the picker labels a picture by its file name):
@@ -1843,7 +1737,6 @@ case "${1:-help}" in
   studio-set) studio_set "${2:-}" "${3:-}" ;;
   resume-wallpaper) [[ ${2:-} == refresh ]] && refresh_wallpaper; start_slideshow ;;   # internal: after a look change
   show-desktop) show_desktop ;;
-  theme-picker) theme_picker "${2:-all}" ;;
   bg-picker) bg_picker "${2:-}" ;;
   next-wallpaper)
     if [[ ! -f $FLAG ]]; then :
@@ -1893,7 +1786,6 @@ Gio.bus_get_sync(Gio.BusType.SESSION, None).call_sync(
   snap-layouts) mkdir -p -m 700 "$STATE_DIR"; date +%s%N >"$STATE_DIR/snap-request" ;;
   taskbar-position) taskbar_position "${2:-}" ;;
   copy-url) [[ -n ${2:-} ]] && copy_url "$2" || true ;;
-  open-url) shift; open_url "$@" ;;
   fill-gap) [[ -n ${2:-} ]] && fill_gap "$2" || true ;;
   rename)
     addr=$(window_address "${2:-}")
@@ -1903,7 +1795,6 @@ Gio.bus_get_sync(Gio.BusType.SESSION, None).call_sync(
     [[ $addr == here ]] && addr=$(window_here)
     name=${3:-}; [[ $name == - ]] && { IFS= read -r -t 5 name || true; }   # "-": one line on stdin
     [[ -n $addr ]] && set_name "$addr" "$name" || { [[ ${2:-} == here ]] && echo "overtake: no window found for this process" >&2; true; } ;;
-  sessions) sync_session_names ;;
   start)
     mkdir -p -m 700 "$STATE_DIR"
     # Studio has no Start menu: Spotlight (and its Apps view) stands in.

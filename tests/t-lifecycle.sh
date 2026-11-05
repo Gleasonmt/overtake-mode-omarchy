@@ -12,7 +12,7 @@ cp -a "$H" "$T/before"
 L="$H/.local/state/omarchy/workspace-layouts"
 
 cd "$REPO"
-sbx "$H" ./install.sh --yes --style-menus --name-tags --link-handler --image-viewer >"$T/log" 2>&1 || { cat "$T/log"; fail "install"; }
+sbx "$H" ./install.sh --yes >"$T/log" 2>&1 || { cat "$T/log"; fail "install"; }
 for d in .config/overtake .local/state/overtake .cache/overtake; do
   [[ $(stat -c %a "$H/$d") == 700 ]] || fail "$d is $(stat -c %a "$H/$d"), not 700"
 done
@@ -27,7 +27,6 @@ sbx "$H" "$H/.local/bin/overtake" off >>"$T/log" 2>&1 || { cat "$T/log"; fail "o
 grep -q '"floating"' "$L/3.lua" || fail "floating layout not restored after off"
 pass "on/off: Omarchy's floating layout paused, then restored"
 
-sbx "$H" ./install.sh --yes --no-style-menus --no-name-tags --no-link-handler --no-image-viewer >>"$T/log" 2>&1 || fail "options off"
 sbx "$H" ./uninstall.sh --yes >>"$T/log" 2>&1 || { cat "$T/log"; fail "uninstall"; }
 
 # Everything the user had is back byte for byte, except shell.json, which jq
