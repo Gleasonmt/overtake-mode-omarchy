@@ -41,7 +41,15 @@ Item {
     return !!d && d.type !== UPowerDeviceType.LinePower && (d.isLaptopBattery || d.percentage > 0)
   }
   function liveDevices() { return (UPower.devices.values || []).filter(isBattery) }
-  function keyOf(d) { return d.isLaptopBattery ? "laptop" : String(d.model || d.nativePath || "Battery") }
+  // A device names itself: a name a plain object already has ("__proto__",
+  // "constructor", ...) gets a suffix, so it can never reach the shared
+  // engine's built-in objects.
+  function keyOf(d) {
+    if (d.isLaptopBattery) return "laptop"
+    var key = String(d.model || d.nativePath || "Battery")
+    // ("laptop" is the laptop's own key: a device can't take it over)
+    return key === "laptop" || key === "__proto__" || key in Object.prototype ? key + " (device)" : key
+  }
   function kindOf(d) { return d.isLaptopBattery ? "Laptop" : String(UPowerDeviceType.toString(d.type) || "Battery") }
   function nameOf(d) { return d.isLaptopBattery ? "Laptop battery" : String(d.model || kindOf(d)) }
   function percentOf(d) { return Math.round(Number(d.percentage || 0) * 100) }
@@ -88,7 +96,7 @@ Item {
   // at least 5 below Low.
   function setLevel(key, field, value) {
     var next = JSON.parse(JSON.stringify(config))
-    var own = next.devices[key] || (next.devices[key] = {})
+    var own = ownOf(next.devices, key) || (next.devices[key] = {})
     var levels = levelsFor(key)
     if (field === "enabled") {
       own.enabled = !!value
@@ -118,7 +126,7 @@ Item {
       var known = ownOf(config.devices, key)
       if (known && known.name) return
       if (!next) next = JSON.parse(JSON.stringify(config))
-      var own = next.devices[key] || (next.devices[key] = {})
+      var own = ownOf(next.devices, key) || (next.devices[key] = {})
       own.name = nameOf(d)
       own.kind = kindOf(d)
     })
@@ -126,7 +134,7 @@ Item {
   }
 
   function refreshList() {
-    var seen = {}, rows = []
+    var seen = Object.create(null), rows = []
     liveDevices().forEach(function(d) {
       var key = keyOf(d)
       if (seen[key]) return
@@ -139,7 +147,7 @@ Item {
     var gone = []
     Object.keys(config.devices || {}).forEach(function(key) {
       if (seen[key]) return
-      var own = config.devices[key], lv = levelsFor(key)
+      var own = ownOf(config.devices, key), lv = levelsFor(key)
       gone.push({ key: key, name: own.name || key, kind: own.kind || "Battery", connected: false, percent: -1,
                   charging: false, low: lv.low, critical: lv.critical, enabled: lv.enabled })
     })
@@ -161,10 +169,29 @@ Item {
     var body = level === "critical"
       ? percent + "% left. " + (d.isLaptopBattery ? "Plug in now." : "Charge it now.")
       : percent + "% left. " + (d.isLaptopBattery ? "Plug in soon." : "Charge it soon.")
-    Quickshell.execDetached(["notify-send", "-a", "Battery", "-i", iconFor(kind, level),
-                             "-u", level === "critical" ? "critical" : "normal", "--", title, body])   // ("--": a device names itself)
+    // Device names (chosen by the device) go over stdin, never in a command line.
+    var note = { app: "Battery", icon: iconFor(kind, level), urgency: level === "critical" ? "critical" : "normal", summary: title, body: body }
+    notifier.queue = notifier.queue.concat([JSON.stringify(note)])
+    notifier.next()
     // Keep Omarchy's battery-low hook working, at the laptop's Critical level.
     if (d.isLaptopBattery && level === "critical") Quickshell.execDetached(["omarchy-hook", "battery-low", String(percent)])
+  }
+
+  Process {
+    id: notifier
+    property var queue: []
+    property string pending: ""
+    command: ["overtake", "notify-stdin"]
+    stdinEnabled: true
+    function next() {
+      if (running || !queue.length) return
+      pending = queue[0]
+      queue = queue.slice(1)
+      stdinEnabled = true
+      running = true
+    }
+    onStarted: { write(pending); stdinEnabled = false; pending = "" }
+    onExited: next()
   }
 
   function check() {

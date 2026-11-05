@@ -794,6 +794,7 @@ Item {
             readonly property bool editing: root.renaming !== "" && root.renaming === root.addressOf(tab.modelData)
 
             TextInput {
+              maximumLength: 80   // (a paste of any size stops here)
               id: nameEdit
               anchors.fill: parent
               anchors.leftMargin: Style.space(8)

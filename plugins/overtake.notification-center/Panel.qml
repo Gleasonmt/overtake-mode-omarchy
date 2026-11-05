@@ -167,7 +167,7 @@ Panel {
     return text
       .replace(/&#(\d{1,7});/g, function(m, n) { var c = parseInt(n, 10); return c > 0 && c < 0x110000 ? String.fromCodePoint(c) : m })
       .replace(/&#x([0-9a-f]{1,6});/gi, function(m, n) { var c = parseInt(n, 16); return c > 0 && c < 0x110000 ? String.fromCodePoint(c) : m })
-      .replace(/&([a-z]+);/gi, function(m, name) { var hit = root.entities[name.toLowerCase()]; return hit === undefined ? m : hit })
+      .replace(/&([a-z]+);/gi, function(m, name) { var key = name.toLowerCase(); return Object.prototype.hasOwnProperty.call(root.entities, key) ? root.entities[key] : m })
   }
   function plainBody(body, keepLines) {
     var text = String(body || "").slice(0, 32768)

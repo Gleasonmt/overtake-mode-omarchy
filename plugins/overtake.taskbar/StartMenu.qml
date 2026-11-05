@@ -101,7 +101,7 @@ Item {
     .sort(function(a, b) { return a.name.toLowerCase().localeCompare(b.name.toLowerCase()) })
 
   readonly property var appsById: {
-    var out = {}
+    var out = Object.create(null)
     apps.forEach(function(a) { out[a.id] = a })
     return out
   }
@@ -241,7 +241,8 @@ Item {
 
   function fileIcon(isDir, suffix) {
     if (isDir) return Quickshell.iconPath("folder", true)
-    var name = suffixIcons[String(suffix).toLowerCase()] || "text-x-generic"
+    var key = String(suffix).toLowerCase()
+    var name = Object.prototype.hasOwnProperty.call(suffixIcons, key) ? suffixIcons[key] : "text-x-generic"
     return Quickshell.iconPath(name, true) || Quickshell.iconPath("text-x-generic", true)
   }
 
@@ -270,7 +271,9 @@ Item {
       var out = []
       // One bookmark at a time (its own mime type, never the next one's).
       var re = /<bookmark href="([^"]+)"[^>]*modified="([^"]+)"[\s\S]*?<mime:mime-type type="([^"]+)"/
-      var pieces = text().split("</bookmark>")
+      var body = text()
+      if (body.length > 4000000) body = body.slice(-4000000)   // (parse only the newest end of a huge file)
+      var pieces = body.split("</bookmark>")
       for (var i = 0; i < pieces.length; i++) {
         var m = re.exec(pieces[i])
         if (!m) continue
@@ -359,6 +362,7 @@ Item {
       }
 
       TextField {
+        maximumLength: 256   // (a paste of any size stops here)
         id: search
         anchors.top: parent.top
         width: parent.width

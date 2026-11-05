@@ -138,7 +138,7 @@ fi
 
 # Taskbar pins live with the state; keep them unless purging.
 if [[ -z $PURGE && -f $HOME/.local/state/overtake/taskbar-settings.json ]]; then
-  mkdir -p "$HOME/.config/overtake"
+  mkdir -p -m 700 "$HOME/.config/overtake"
   cp "$HOME/.local/state/overtake/taskbar-settings.json" "$HOME/.config/overtake/taskbar-settings.json"
 fi
 # Images back to what opened them before: Overtake's line out of

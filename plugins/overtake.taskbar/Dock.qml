@@ -129,7 +129,8 @@ Item {
                 zip: "package-x-generic", gz: "package-x-generic", xz: "package-x-generic", tar: "package-x-generic", deb: "package-x-generic",
                 txt: "text-x-generic", md: "text-x-generic", doc: "x-office-document", docx: "x-office-document", odt: "x-office-document",
                 xls: "x-office-spreadsheet", xlsx: "x-office-spreadsheet", ods: "x-office-spreadsheet", iso: "media-optical" }
-    return Quickshell.iconPath(map[ext] || "text-x-generic", true)
+    var icon = Object.prototype.hasOwnProperty.call(map, ext) ? map[ext] : "text-x-generic"   // (a file name picks ext)
+    return Quickshell.iconPath(icon, true)
   }
 
   // ---------- Trash ----------

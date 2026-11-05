@@ -125,7 +125,8 @@ Item {
   function iconFor(entry, appId) {
     if (appId === "org.quickshell") return Quickshell.iconPath("preferences-system", true)  // Overtake Settings
     var source = entry && entry.icon ? Quickshell.iconPath(entry.icon, true) : ""
-    if (!source && appId) source = Quickshell.iconPath(appId.toLowerCase(), true)
+    // (an app picks its own window class: a theme icon name only, never a path)
+    if (!source && /^[A-Za-z0-9._-]{1,128}$/.test(appId)) source = Quickshell.iconPath(appId.toLowerCase(), true)
     return source || Quickshell.iconPath("application-x-executable", true)
   }
   function nameOf(group) { return group ? (group.entry ? group.entry.name : group.appId) : "" }
@@ -140,7 +141,7 @@ Item {
   // Pinned apps first (in pin order), then running apps in the order they
   // were opened. Each: { key, entry, appId, pinned, windows }.
   readonly property var groups: {
-    var order = [], byKey = {}
+    var order = [], byKey = Object.create(null)   // (keyed by app ids, which apps choose)
     for (var i = 0; i < root.pinned.length; i++) {
       var id = String(root.pinned[i])
       if (byKey[id]) continue

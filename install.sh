@@ -234,10 +234,13 @@ open(path, "w", encoding="utf-8", errors="surrogateescape", newline="").write(te
 PY
 }
 
-# Overtake's state (window names, Claude Code session ids, layouts) is yours
-# alone: an older install made the folder readable by others.
-mkdir -p -m 700 "$HOME/.local/state/overtake"
-chmod 700 "$HOME/.local/state/overtake"
+# Overtake's own folders are yours only (settings name your devices and apps;
+# state names windows): made 0700, and folders an older version made with the
+# default mode are tightened too. A symlinked folder is left as you set it up.
+for dir in "$HOME/.local/state/overtake" "$HOME/.config/overtake" "${XDG_CACHE_HOME:-$HOME/.cache}/overtake"; do
+  mkdir -p -m 700 "$dir"
+  [[ -L $dir ]] || chmod 700 "$dir"
+done
 # on or off, for the plugins to watch (`overtake on|off` keeps it current)
 if [[ -f $HOME/.local/state/overtake/enabled ]]; then echo on; else echo off; fi >"$HOME/.local/state/overtake/mode"
 
@@ -374,7 +377,7 @@ PY
 say "menu: Overtake Mode in the Omarchy menu"
 
 # 5. Your settings (only the ones you don't have yet) and the wallpapers.
-mkdir -p "$CONFIG"
+mkdir -p -m 700 "$CONFIG"
 for file in desktop-icons.txt no-controls.txt start-pinned.txt dock-pinned.txt; do
   [[ -e $CONFIG/$file ]] || cp "$REPO/config/$file" "$CONFIG/$file"
 done

@@ -142,7 +142,8 @@ Panel {
   function iconFor(entry, appId) {
     if (appId === "org.quickshell") return Quickshell.iconPath("preferences-system", true)  // Overtake Settings
     var source = entry && entry.icon ? Quickshell.iconPath(entry.icon, true) : ""
-    if (!source && appId) source = Quickshell.iconPath(appId.toLowerCase(), true)
+    // (an app picks its own window class: a theme icon name only, never a path)
+    if (!source && /^[A-Za-z0-9._-]{1,128}$/.test(appId)) source = Quickshell.iconPath(appId.toLowerCase(), true)
     return source || Quickshell.iconPath("application-x-executable", true)
   }
 
@@ -157,7 +158,7 @@ Panel {
   // order, across every workspace.
   readonly property var allGroups: {
     var order = []
-    var byKey = {}
+    var byKey = Object.create(null)   // (keyed by app ids, which apps choose)
 
     for (var i = 0; i < root.pinned.length; i++) {
       var id = String(root.pinned[i])
@@ -406,7 +407,7 @@ Panel {
     var to = root.dropIndex > from ? root.dropIndex - 1 : root.dropIndex
     keys.splice(from, 1)
     keys.splice(to, 0, root.dragKey)
-    var pins = {}
+    var pins = Object.create(null)
     root.pinned.forEach(function(id) { pins[String(id)] = true })
     var pinnedCount = Object.keys(pins).length
     if (!pins[root.dragKey] && to > pinnedCount) return   // an unpinned app among the unpinned: nothing to keep
