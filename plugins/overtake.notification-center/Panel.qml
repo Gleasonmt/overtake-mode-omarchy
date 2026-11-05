@@ -151,6 +151,7 @@ Panel {
     return mode === "quiet" || mode === "off" ? mode : "show"
   }
   function setMode(app, mode) {
+    if (app === "__proto__") return   // (an app name a plain object can't hold)
     var next = Object.assign({}, appModes)
     if (mode === "show") delete next[app]
     else next[app] = mode
@@ -170,7 +171,7 @@ Panel {
   }
   function plainBody(body, keepLines) {
     var text = String(body || "").slice(0, 32768)
-      .replace(/<\/?(?:b|i|u|a|img|br)\b[^>]*>/gi, function(tag) { return /^<br/i.test(tag) ? "\n" : "" })
+      .replace(/<\/?(?:b|i|u|s|em|strong|a|img|br)\b[^>]*>/gi, function(tag) { return /^<br/i.test(tag) ? "\n" : "" })
     for (var i = 0; i < 3; i++) { var once = decodeOnce(text); if (once === text) break; text = once }
     return keepLines ? text.trim() : text.replace(/\s+/g, " ").trim()
   }
@@ -222,9 +223,9 @@ Panel {
     onTriggered: if (historyProc.running || root.pendingKeys.length) restart(); else root.reload()
   }
 
-  // Like clicking the toast, in Omarchy's order: its own action; for a web
-  // notification, its site; otherwise the app that sent it, brought forward
-  // if it's open. Nothing is opened from the message text. If none of those
+  // Like clicking the toast, in Omarchy's order: its own action; the app that
+  // sent it, brought forward if it's open; for a browser's web notification,
+  // its site. Nothing is opened from the message text. If none of those
   // can happen the entry stays in the list rather than vanishing for nothing.
   function activate(entry) {
     // The toast's own action, checked and run exactly as Omarchy's own
@@ -242,16 +243,6 @@ Panel {
       close()
       return
     }
-    // A web notification names its site (Omarchy keeps it as `source`): open
-    // the site, as Omarchy's own toasts do (a plain hostname only).
-    var host = String(entry.source || "").toLowerCase().replace(/\.$/, "")
-    if (host.length <= 253 && /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/.test(host)
-        && !/^(?:0x[0-9a-f]*|[0-9]+)$/.test(host.split(".").pop())) {
-      Quickshell.execDetached(["omarchy-launch-browser", "https://" + host + "/"])
-      remove(entry)
-      close()
-      return
-    }
     if (openProc.running) return
     openProc.entry = entry
     // (the app's name, to find its window, as Omarchy's own toasts do)
@@ -262,9 +253,24 @@ Panel {
     id: openProc
     property var entry: null
     onExited: function(code) {
-      if (code === 0) { root.remove(entry); root.close() }
-      else root.showNotice("Nothing to open for this one: it has no action, and its app isn't open.")
+      if (code === 0) { root.remove(entry); root.close(); return }
+      // No window: a browser's web notification opens its site, as Omarchy's
+      // toasts do (Omarchy marks those "web:<host>"; a plain hostname only).
+      var host = root.webHost(entry)
+      if (host) {
+        Qt.openUrlExternally("https://" + host + "/")
+        root.remove(entry)
+        root.close()
+      } else root.showNotice("Nothing to open for this one: it has no action, and its app isn't open.")
     }
+  }
+
+  function webHost(entry) {
+    var key = String(entry && entry.groupKey || "")
+    if (key.indexOf("web:") !== 0) return ""
+    var host = key.slice(4).toLowerCase()
+    return host.length <= 253 && /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/.test(host)
+      && !/^(?:0x[0-9a-f]*|[0-9]+)$/.test(host.split(".").pop()) ? host : ""
   }
 
   // A short message shown in the panel itself (a toast would vanish, and
@@ -274,6 +280,7 @@ Panel {
   Timer { id: noticeTimer; interval: 6000; onTriggered: root.notice = "" }
 
   function toggleGroup(app) {
+    if (app === "__proto__") return
     var next = Object.assign({}, expanded)
     next[app] = !isOpen(app)
     expanded = next

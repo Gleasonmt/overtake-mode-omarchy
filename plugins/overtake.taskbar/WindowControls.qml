@@ -550,7 +550,7 @@ Item {
   // so the record is from before the change). Checked every 5 s, written only
   // when a window has moved, resized, opened or closed since the last record.
   property string rememberedLayout: ""
-  onModeOnChanged: rememberedLayout = ""   // (a fresh record each time the mode comes on)
+  onModeOnChanged: { rememberedLayout = ""; eventQueue = [] }   // (a fresh record each time; no leftover work)
   function layoutSignature() {
     return (Hyprland.toplevels.values || []).map(function(t) {
       var o = t.lastIpcObject || {}
@@ -620,7 +620,7 @@ Item {
 
   Timer {
     // quick only once the window has started moving
-    interval: root.movedTicks > 0 || root.selfMoving ? 80 : 500
+    interval: root.movedTicks > 0 || root.selfMoving ? 80 : 250
     running: root.watchingSelfMove
     repeat: true
     onTriggered: {

@@ -166,7 +166,7 @@ Item {
   // line (which other users can read).
   property var fileIndex: []
   property var fileNames: []   // each entry's name, lowercased once, for matching
-  onOpenChanged: if (!open) { fileList.running = false; fileIndex = []; fileNames = [] }
+  onOpenChanged: if (!open) { fileTimer.stop(); fileList.running = false; fileIndex = []; fileNames = [] }
   Timer {
     id: fileTimer
     interval: 220

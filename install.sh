@@ -223,14 +223,14 @@ set_block() {
 import sys, re
 path, prefix, block = sys.argv[1:4]
 start, end = f"{prefix} >>> overtake", f"{prefix} <<< overtake"
-text = open(path, encoding="utf-8", errors="surrogateescape").read()
+text = open(path, encoding="utf-8", errors="surrogateescape", newline="").read()
 new = f"{start} (managed by overtake-mode-omarchy/install.sh)\n{block.rstrip()}\n{end}\n"
 pattern = re.compile(re.escape(start) + r".*?" + re.escape(end) + r"\n?", re.S)
 if pattern.search(text):
     text = pattern.sub(lambda _: new, text, count=1)
 else:
     text = text.rstrip("\n") + ("\n\n" if text.strip() else "") + new
-open(path, "w", encoding="utf-8", errors="surrogateescape").write(text)
+open(path, "w", encoding="utf-8", errors="surrogateescape", newline="").write(text)
 PY
 }
 
@@ -348,7 +348,7 @@ python3 -I - "$MENU" "$MENU_BLOCK" <<'PY'
 import sys, re
 path, block = sys.argv[1:3]
 start, end = "  // >>> overtake", "  // <<< overtake"
-text = open(path, encoding="utf-8", errors="surrogateescape").read()
+text = open(path, encoding="utf-8", errors="surrogateescape", newline="").read()
 text = re.sub(re.escape(start) + r".*?" + re.escape(end) + r"\n?", "", text, flags=re.S)
 # Right after the opening { (yours stay below it, so an entry of yours with the
 # same id still wins), each line ending in a comma, which Omarchy's JSONC
@@ -369,7 +369,7 @@ opening = lines[first].strip()
 lines[first:first + 1] = ["{", start + " (managed by overtake-mode-omarchy/install.sh)", block, end] + \
     (["  " + opening[1:].strip()] if opening[1:].strip() else [])
 text = "\n".join(lines)
-open(path, "w", encoding="utf-8", errors="surrogateescape").write(text)
+open(path, "w", encoding="utf-8", errors="surrogateescape", newline="").write(text)
 PY
 say "menu: Overtake Mode in the Omarchy menu"
 
