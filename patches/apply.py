@@ -171,9 +171,10 @@ PATCHES = {
     }
 '''),
       # History past its day leaves on time (every minute), not only when the
-      # next notification arrives; and a failed history write is retried
-      # (Quickshell's FileView skips a later write of the same text it failed
-      # to write, so it's reloaded from disk first).
+      # next notification arrives; and every history write is checked
+      # against the file and written again until the file matches (Quickshell
+      # reports a write that fails at commit as saved, and skips writing the
+      # same text twice; a reload inside its save signals does nothing).
       ("Service.qml",
 '''  // Started, never restarted, so a flood still writes every quarter second.
   Timer {
@@ -197,12 +198,20 @@ PATCHES = {
     running: service.historyLoaded
     onTriggered: service.currentHistory()
   }
-  // Overtake Mode: a history write that failed (disk full, I/O error) is
-  // tried again: reloaded first, as FileView skips writing the same text
-  // twice, then saved from memory every 5 s until it sticks.
-  function overtakeSaveFailed() {
-    historyFile.reload()
-    overtakeSaveRetry.restart()
+  // Overtake Mode: a second after each history write the file is read back
+  // (from this timer: a reload inside FileView's save signals does nothing),
+  // because a write that fails at commit (disk full) is still reported as
+  // saved. If the file doesn't match what's in memory, memory is written
+  // again 5 s later, and checked again, until it does.
+  Timer {
+    id: overtakeVerify
+    interval: 1000
+    onTriggered: historyFile.reload()
+  }
+  function overtakeCheckFile(text) {
+    if (!historyLoaded) return
+    if (Store.serialise(historyEntries) === String(text)) overtakeSaveRetry.stop()
+    else overtakeSaveRetry.restart()
   }
   Timer {
     id: overtakeSaveRetry
@@ -219,8 +228,21 @@ PATCHES = {
     path: service.storeReady ? service.stateDir + "/history.json" : ""
     atomicWrites: true
     printErrors: false
-    onSaveFailed: service.overtakeSaveFailed()   // Overtake Mode: tried again
-    onLoaded: service.loadHistory(text())'''),
+    // Overtake Mode: each write checked against the file
+    onSaved: overtakeVerify.restart()
+    onSaveFailed: overtakeVerify.restart()
+    onLoaded: { service.overtakeCheckFile(text()); service.loadHistory(text()) }'''),
+      ("Service.qml",
+'''    onLoadFailed: service.loadHistory("")
+  }
+
+  FileView {
+    id: quietFile''',
+'''    onLoadFailed: { service.overtakeCheckFile(""); service.loadHistory("") }
+  }
+
+  FileView {
+    id: quietFile'''),
     ],
     # Overtake Mode's battery alerts (per device, levels you choose) replace
     # Omarchy's single 10% laptop warning; power profiles still switch here.

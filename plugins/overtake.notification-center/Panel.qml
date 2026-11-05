@@ -100,7 +100,7 @@ Panel {
       root.hiddenKeys = root.lastHiddenKeys
       // a removal the service couldn't write yet (it keeps trying): say so
       var stuck = root.entries.some(function(e) { return root.removedKeys.indexOf(e.key) !== -1 })
-      if (stuck) root.showNotice("Not removed yet: Omarchy couldn't save its history (is the disk full?). It keeps trying.")
+      if (stuck) root.showNotice("Not removed yet: Omarchy couldn't save its history (is the disk full?). Overtake writes it again every few seconds while Classic or Studio is on.")
       else root.removedKeys = []
     }
     onLoadFailed: root.entries = []
@@ -218,12 +218,14 @@ Panel {
   function sendPending() {
     if (historyProc.running || !pendingKeys.length) return
     var args = ["forget", pendingKeys.join(" ")]
+    historyProc.sent = pendingKeys
     pendingKeys = []
     historyProc.command = ["omarchy-shell", "notifications"].concat(args)
     historyProc.running = true
   }
   Process {
     id: historyProc
+    property var sent: []
     stdout: StdioCollector {
       onStreamFinished: {
         var reply = String(text || "").trim()
@@ -231,6 +233,9 @@ Panel {
         if (reply === "notready") root.showNotice("Notifications are still loading; try again in a moment.")
         else if (reply !== "ok" && reply !== "none")
           root.showNotice("Couldn't remove: Overtake's notifications aren't loaded (overtake build-copies all).")
+        // not taken by the service: not waiting on a write either
+        if (reply !== "ok" && reply !== "none")
+          root.removedKeys = root.removedKeys.filter(function(k) { return historyProc.sent.indexOf(k) === -1 })
         reloadSoon.restart()
       }
     }

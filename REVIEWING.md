@@ -167,7 +167,8 @@ Precedents: [macOS Dock #13499](https://github.com/omacom/omarchy-plugin-marketp
   (title changes are ignored). Process spawns that remain: `overtake
   remember` while Classic or
   Studio is on, only when a window has moved, resized, opened or closed
-  (checked in-process every 5 s), an in-process expiry check of notification history every minute (in Overtake's
+  (checked in-process every 5 s), an in-process expiry check of notification history every minute and a read-back of
+  the history file a second after each write, rewritten every 5 s only while it doesn't match (in Overtake's
   notifications copy, so only in Classic and Studio), and one status probe (Wi-Fi, Bluetooth, night
   light…) every 2 s only while the Control Center is open. Battery alerts
   read UPower in-process (on its change events, and every 30 s). In-process Hyprland IPC polling
@@ -198,7 +199,7 @@ plugins (pinned commit; see the Actions tab for the run on this release).
 | Upgrades from v0.1.11 | the four optional extras that release offered are taken back out exactly (`mimeapps.list` and the link line byte for byte) | `t-upgrade-extras.sh` |
 | Startup repair | folders an older version left open are tightened at the next `overtake` start | `t-lifecycle.sh` |
 | A compromised wttr.in | at most 256 KB read; only real times reach `date` or the cache, else 07:00/19:00 | `t-sun-times.sh` (fails if the cap is removed) |
-| Notification history (the maintainer's notification-plugin checks) | Clear all and remove written at once (a shutdown right after can't lose them) and retried after a failed write until they stick; history past Omarchy's one day pruned every minute and never listed; nothing removed before history has loaded | `t-notifications.sh` (Omarchy's own Store.js with the patched functions; fails on v0.1.14) |
+| Notification history (the maintainer's notification-plugin checks) | Clear all and remove written at once (a shutdown right after can't lose them); every history write read back a second later and, if the file doesn't match, written again every 5 s until it does (while Classic or Studio stays on: switching to Omarchy mode before then hands over to Omarchy's own, which reads what is on disk); history past Omarchy's one day pruned every minute and never listed; nothing removed before history has loaded | `t-notifications.sh`: Omarchy's own Store.js and the copy's own functions, timers and history-file handlers, against a FileView that behaves as Quickshell 0.3 was measured to (a write refused at open emits saveFailed; one that fails at commit, e.g. disk full, only logs and emits saved; a reload inside a save signal does nothing; a repeat of the last attempted text is skipped). Both failure kinds, then room again. Fails on v0.1.14 and on a retry wired to saveFailed alone |
 
 Run them yourself (scratch homes, stubbed desktop commands, nothing touches
 your session): `tests/run.sh`.
