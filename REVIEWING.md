@@ -22,7 +22,7 @@ are for release v0.1.7.
 | Capability | Where | What it is |
 | --- | --- | --- |
 | `installer` | `install.sh`, `uninstall.sh`, `Setup.qml` (by file name) | The installer and uninstaller described below; `Setup.qml` is the reminder above. No sudo, no package installs, nothing downloaded. |
-| `remote-build` | `README.md:27` (and the same fenced block) | The README's install steps clone this repository and run its own `./install.sh`. Nothing outside the repository is fetched or built. |
+| `remote-build` | `README.md:29` (and the same fenced block) | The README's install steps clone this repository and run its own `./install.sh`. Nothing outside the repository is fetched or built. |
 
 There is no `systemctl`, `systemd-run`, `sudo` or `pkexec` anywhere. Sleep runs
 Omarchy's own Suspend menu entry by its route (`omarchy-menu summon
