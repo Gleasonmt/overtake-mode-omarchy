@@ -59,6 +59,10 @@ ShellRoot {
         r = card ? String(card.key) : "none"
         if (card) svc.finishClose(card.key, "expired")
       }
+      else if (c === "forgetoldest") {
+        var all = svc.historyEntries
+        r = IpcRegistry.call("notifications", "forget", [String(all[all.length - 1].key)]).output
+      }
       else if (c === "copycode") {
         var row = svc.testToasts.get(0)
         r = "codes=" + row.codes
@@ -87,11 +91,14 @@ export HOME=$E/home-$SCEN QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=none PA
 unset WAYLAND_DISPLAY HYPRLAND_INSTANCE_SIGNATURE DISPLAY
 N=$HOME/.local/state/omarchy/notifications; H=$N/history.json
 mkdir -p "$N" "$HOME/.local/state/overtake" "$HOME/.config/overtake"; echo on > "$HOME/.local/state/overtake/mode"; : > "$HOME/ctl"
-[[ $SCEN == full ]] && mount -t tmpfs -o size=256k tmpfs "$N"
+[[ $SCEN == full* || $SCEN == stop || $SCEN == stale ]] && mount -t tmpfs -o size=256k tmpfs "$N"
 ctl() { echo "$1 $(date +%s%N)" > "$HOME/ctl"; sleep "${2:-0.5}"; }
 start() { ( exec qs -p "$E/root/shell.qml" ) >>"$E/qs-$SCEN.log" 2>&1 & QS=$!; sleep 4; }
 stop() { kill -TERM "$QS"; wait "$QS" 2>/dev/null; }
 secrets() { grep -o 'SECRET-[0-9]' "$H" 2>/dev/null | sort -u | tr '\n' ' '; }
+live() { grep -o 'SECRET-[0-9]' "$N/live.json" 2>/dev/null | sort -u | tr '\n' ' '; }
+pad() { head -c 2000 /dev/zero | tr '\0' x; }
+fill() { dd if=/dev/zero of="$N/filler" bs=4k 2>/dev/null; sync; }
 start
 case $SCEN in
   code)
@@ -109,6 +116,35 @@ case $SCEN in
     echo "restart=[$(secrets)]"
     rm -f "$N/filler"; sleep 8
     echo "room=[$(secrets)]"
+    ;;
+  stop)    # shut down within 0.3 s of Clear all, disk full
+    ctl dnd
+    for i in 1 2 3 4 5; do notify-send -a Signal "Alice $i" "SECRET-$i $(pad)"; done; sleep 1.5
+    fill
+    ctl forgetall 0.3
+    stop; start
+    echo "restart=[$(secrets)]"
+    ;;
+  stale)   # rows filed since the last load survive a removal on a full disk
+    ctl dnd
+    for i in 1 2 3; do notify-send -a Signal "Alice $i" "SECRET-$i $(pad)"; done; sleep 1.5
+    stop; start; ctl dnd
+    for i in 7 8; do notify-send -a Signal "Bob $i" "SECRET-$i $(pad)"; done; sleep 1.5
+    fill
+    ctl forgetoldest 0.3
+    echo "after=[$(secrets)]"
+    stop; start
+    echo "restart=[$(secrets)]"
+    ;;
+  fullcard)  # a card on screen at Clear all, disk full
+    notify-send -a Signal "Bob" "SECRET-2 on screen $(pad)"; sleep 1.5
+    echo "before=[$(live)]"
+    fill
+    ctl forgetall 1
+    echo "live=[$(live)]"
+    stop; start
+    ctl closecard 1
+    echo "history=[$(secrets)]"
     ;;
   dnd)
     ctl dnd
@@ -155,6 +191,24 @@ has "$out" full "" || fail "Clear all on a full disk left entries in the file: $
 has "$out" restart "" || fail "a restart with the disk still full brought cleared entries back: $out"
 has "$out" room "" || fail "cleared entries came back once the disk had room: $out"
 pass "Clear all on a real full disk stays cleared across a restart"
+
+# ... also when the shell stops within 0.3 s of it.
+out=$(run_scen stop)
+has "$out" restart "" || fail "a stop 0.3 s after Clear all on a full disk brought entries back: $out"
+pass "Clear all on a full disk holds through a stop 0.3 s later"
+
+# A removal on a full disk keeps rows filed since the file was last loaded.
+out=$(run_scen stale)
+has "$out" after "SECRET-2 SECRET-3 SECRET-7 SECRET-8 " || fail "a removal on a full disk changed other rows: $out"
+has "$out" restart "SECRET-2 SECRET-3 SECRET-7 SECRET-8 " || fail "other rows were lost after a restart: $out"
+pass "a removal on a full disk takes that row only, also rows filed since the last load stay"
+
+# A card on screen at Clear all, disk full, doesn't come back.
+out=$(run_scen fullcard)
+has "$out" before "SECRET-2 " || fail "(setup) the card wasn't in live.json: $out"
+has "$out" live "" || fail "a card on screen at Clear all stayed in live.json on a full disk: $out"
+has "$out" history "" || fail "that card came back and filed itself after a restart: $out"
+pass "a card on screen at Clear all doesn't come back on a full disk"
 
 # A silenced copy filed a moment before Clear all goes with it.
 out=$(run_scen dnd)

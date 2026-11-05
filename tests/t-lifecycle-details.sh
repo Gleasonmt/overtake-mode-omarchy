@@ -50,7 +50,7 @@ node -e '
   for (const [a, b, want] of cases) if (f(a, b) !== want) { console.error("FAIL: versionToInstall", a, JSON.stringify(b), "gave", f(a, b)); process.exit(1) }
 ' || fail "Setup.qml's version check"
 grep -q 'Run ./install.sh again in' Setup.qml || fail "Setup.qml doesn't ask for the installer again"
-pass "Setup.qml asks for ./install.sh again when the installed version differs or wasn't recorded"
+pass "Setup.qml asks for ./install.sh again when this folder is newer than what was installed, or nothing was recorded"
 sbx "$H" "$O" off >>"$T/log" 2>&1
 sbx "$H" ./uninstall.sh --yes >>"$T/log" 2>&1 || { cat "$T/log"; fail "uninstall"; }
 [[ ! -e $H/.local/share/overtake/version ]] || fail "uninstall left the version file"

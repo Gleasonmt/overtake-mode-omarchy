@@ -7,9 +7,7 @@ a bottom taskbar with a Start menu, title bars with minimize / maximize / close,
 snap layouts, desktop icons, a Settings window, and familiar shortcuts. It's an
 on-ramp for people coming from other desktops: ease in with what you know, and
 switch to Omarchy's own keyboard-first tiling whenever you're ready. One
-shortcut switches either way. Omarchy's installed files aren't modified; the changes Overtake makes to your settings are listed under What it installs: the
-changes Overtake makes to your config are listed under
-[What it installs](#what-it-installs), and uninstalling reverses them.
+shortcut switches either way. Omarchy's installed files aren't modified; the changes Overtake makes to your settings are listed under [What it installs](#what-it-installs), and uninstalling reverses them.
 
 It comes in two modes, switchable any time (`overtake style classic|studio`,
 Settings → Overtake Mode, or the Omarchy menu):
@@ -287,7 +285,7 @@ All in `~/.config/overtake/`:
 | `~/.config/omarchy/plugins/overtake.taskbar` | taskbar, Start menu, title bars, desktop icons, Settings; Studio's Dock, Spotlight, App Switcher, Mission Control and Force Quit |
 | `~/.config/omarchy/plugins/overtake.menubar`, `overtake.control-center` | Studio's menu bar, and its Spotlight and Control Center buttons |
 | `~/.config/omarchy/plugins/overtake.{workspaces,bluetooth,audio}` | copies of Omarchy's own widgets, made from your installed Omarchy, with small changes (no gaps in the workspace list; right-click opens the Bluetooth and sound panels instead of turning Bluetooth off or muting) |
-| `~/.config/omarchy/plugins/overtake.notifications` | a copy of Omarchy's notifications (one file changed, `Service.qml`) where, while the mode is on, critical toasts leave after 15 s for the notification center instead of staying, normal ones after 10 s, each app's Show / Quiet / Off from Manage applies, and a critical battery alert gets through Do Not Disturb; it also answers the notification center's remove and Clear all (Omarchy's history is the service's own file), writing them at once, in place as well so they stick even on a full disk, also for what the center hasn't read yet and cards still on screen; each history write is read back and written again until the file matches, and prunes history past Omarchy's one day every minute rather than only when a notification arrives. Switched on only while Classic or Studio is on; in Omarchy mode Omarchy's own runs |
+| `~/.config/omarchy/plugins/overtake.notifications` | a copy of Omarchy's notifications (one file changed, `Service.qml`) where, while the mode is on, critical toasts leave after 15 s for the notification center instead of staying, normal ones after 10 s, each app's Show / Quiet / Off from Manage applies, and a critical battery alert gets through Do Not Disturb; it also answers the notification center's remove and Clear all (Omarchy's history is the service's own file), writing them at once and in place as well, so they stick on a full disk, and Clear all also takes what the center hasn't read yet and cards still on screen; each history write is read back and written again until the file matches; and it prunes history past Omarchy's one day every minute rather than only when a notification arrives. Switched on only while Classic or Studio is on; in Omarchy mode Omarchy's own runs |
 | `~/.config/omarchy/plugins/overtake.battery` | a copy of Omarchy's battery service whose fixed 10% warning gives way to Overtake's battery alerts; switched on only while Classic or Studio is on |
 | `~/.config/omarchy/plugins/overtake.notification-center` | the bell and its panel; it reads Omarchy's notification history (`~/.local/state/omarchy/notifications/history.json`) and Do Not Disturb (`quiet.json`), watched, not polled. `omarchy-shell overtake.notification-center toggle` opens it |
 | `~/.config/omarchy/extensions/omarchy-menu.jsonc` | between markers: the Overtake Mode menu entry (how you switch modes) |
@@ -311,7 +309,7 @@ button-layout`, since Overtake's title bars have them), tiles any workspace you 
 and wallpapers (`~/.config/overtake`, `~/Pictures/overtake`) unless you add
 `--purge` (which also deletes pictures you added to those folders); previews
 Omarchy's own picker made when you used Change background stay in Omarchy's
-cache for Omarchy to manage. A `shell.toml` with nothing but white space left in it is deleted, as are a `bindings.lua` or `autostart.lua` the installer created and that are left empty.
+cache for Omarchy to manage. A `bindings.lua` or `autostart.lua` the installer created is removed if it's left empty.
 
 If a future Omarchy changes one of those widgets so the change no longer
 applies, a notification says so and Overtake uses Omarchy's own one until an Overtake update supports that Omarchy.

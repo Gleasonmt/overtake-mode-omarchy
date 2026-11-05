@@ -148,7 +148,7 @@ Item {
       root.taskbarPins = (pins || ["chromium", "org.gnome.Nautilus", "foot"]).map(String)
     }
   }
-  FileView { id: pinRequestFile; path: Quickshell.env("HOME") + "/.local/state/overtake/taskbar-pin-request"; printErrors: false }
+  FileView { id: pinRequestFile; path: folders.ready ? Quickshell.env("HOME") + "/.local/state/overtake/taskbar-pin-request" : ""; printErrors: false }
   function setTaskbarPin(id, pin) {
     folders.write(pinRequestFile, (pin ? "pin " : "unpin ") + id + " " + Date.now() + "\n")
   }

@@ -72,7 +72,7 @@ function timers() {
 
 // A clock, and Timers running on it.
 function Clock() {
-  const c = { now: 0, list: [] }
+  const c = { now: 0, list: [], soon: [] }
   c.timer = (spec, S) => {
     const t = { running: false, due: 0, spec,
       start() { if (!this.running) this.restart() },
@@ -83,6 +83,7 @@ function Clock() {
   c.advance = ms => {
     const end = c.now + ms
     for (;;) {
+      while (c.soon.length) c.soon.shift()()
       const next = c.list.filter(t => t.running && t.due <= end).sort((a, b) => a.due - b.due)[0]
       if (!next) break
       c.now = next.due
@@ -156,9 +157,12 @@ function Service(disk) {
   S.historyFile = FileView(disk, S)
   // the second FileView: atomicWrites false, blockLoading true. On a full disk
   // a shrink truncates in place and succeeds (measured); refused at open it fails.
-  S.overtakeInPlace = S.overtakeInPlaceFile = {
-    reload() {}, text: () => disk.text === null ? "" : disk.text,
+  // reload() is asynchronous (measured): the file is read a moment later.
+  const inPlace = { path: null,
+    reload() { S.clock.soon.push(() => { if (S.historyLoaded && disk.text !== null) S.overtakeRemoveInPlace(disk.text) }) },
     setText(t) { if (S.historyFile.fail !== "open") disk.text = onDisk(t) } }
+  S.overtakeInPlace = S.overtakeInPlaceFile = inPlace
+  S.overtakeLiveInPlace = { reload() {} }   // (live.json: covered in real Quickshell)
   S.clock = clock
   S.start = () => S.historyFile.reload()        // the first load
   S.quit = () => {}                              // shell gone: no timer fires again
@@ -212,6 +216,7 @@ for (const how of ["open", "commit"]) {
   add("nF1", "SECRET-KEEP"); add("nF2", "SECRET-GONE"); settle(s); s.clock.advance(7000)
   s.historyFile.fail = "commit"
   s.forget("nF2")
+  s.clock.advance(1)   // the file read, a moment later
   const after = Service(disk); after.start()
   check("full disk: a removal survives a restart before there is room", !/SECRET-GONE/.test(disk.text) && after.historyEntries.length === 1 && /SECRET-KEEP/.test(disk.text))
 }
@@ -261,6 +266,27 @@ for (const how of ["open", "commit"]) {
   s.clock.advance(61000)
   check("the expiry check takes a day-old entry off the disk", !/SECRET-OLD/.test(disk.text))
 }
+// 4b. The center's Clear all is the service's forgetAll, and a click opens a
+//     web notification's site before looking for a window. (Their own code.)
+{
+  const panel = fs.readFileSync(path.join(repo, "plugins/overtake.notification-center/Panel.qml"), "utf8")
+  const P = { entries: [{ key: "a" }], hiddenKeys: ["b"], pendingKeys: [], pendingAll: false, removedKeys: [],
+              historyProc: { running: false, command: null, sent: [] } }
+  const pf = src => new Function("P", "with (P) { return (" + src + ") }")(P)
+  P.removeAll = () => {}   // (what an older Clear all called)
+  P.sendPending = pf(extract(panel, "sendPending")); P.clearAll = pf(extract(panel, "clearAll"))
+  P.clearAll()
+  check("the center's Clear all asks the service for forgetAll", P.historyProc.running && P.historyProc.command.join(" ") === "omarchy-shell notifications forgetAll" && P.entries.length === 0)
+  const calls = []
+  const Q = { execDetached: () => calls.push("exec"), openProc: { running: false, set command(v) { calls.push("window") } },
+              remove: () => calls.push("remove"), close: () => {}, Qt: { openUrlExternally: u => calls.push("site " + u) },
+              Quickshell: { execDetached: () => calls.push("exec") } }
+  Q.webHost = new Function("return (" + extract(panel, "webHost") + ")")()
+  new Function("Q", "with (Q) { return (" + extract(panel, "activate") + ") }")(Q)({ app: "Chromium", groupKey: "web:slack.com", execArgv: "" })
+  check("a web notification opens its site, not the browser's window", calls[0] === "site https://slack.com/" && !calls.includes("window"))
+}
+// 4c. The minute-later check reads at most a code's length of the clipboard.
+check("the clipboard check is capped at a code's length", /wl-paste --no-newline 2>\/dev\/null \| head -c 65/.test(svc) && !/command: \["wl-paste"/.test(svc))
 // 5. The center never lists an entry past its day, whatever the file holds.
 {
   const panel = fs.readFileSync(path.join(repo, "plugins/overtake.notification-center/Panel.qml"), "utf8")

@@ -196,8 +196,7 @@ PATCHES = {
       var kept = service.historyEntries.filter(function(e) { return drop.indexOf(String(e.key)) === -1 })
       if (kept.length === service.historyEntries.length) return "none"
       service.historyEntries = kept
-      service.overtakeInPlace.reload()
-      service.overtakeRemoveInPlace(service.overtakeInPlace.text())
+      service.overtakeInPlace.reload()   // onLoaded takes the rows out of what's on disk now
       service.saveSoon("history")
       service.flushStore()
       return "ok"
@@ -213,6 +212,7 @@ PATCHES = {
       if (!service.historyLoaded) return "notready"
       service.liveEntries.map(function(e) { return String(e.key) })
         .forEach(function(key) { service.storeDrop(key) })
+      service.overtakeLiveInPlace.reload()
       if (!service.historyEntries.length) return "none"
       return forget(service.historyEntries.map(function(e) { return String(e.key) }).join(" "))
     }
@@ -257,7 +257,7 @@ PATCHES = {
   }
   function overtakeCheckFile(text) {
     if (!historyLoaded) return
-    overtakeRemoveInPlace(text)
+    overtakeInPlaceFile.reload()
     var mine = Store.serialise(historyEntries), disk = String(text)
     // (the slow compare only for a text that has an unpaired half)
     var lone = /[\\ud800-\\udbff](?![\\udc00-\\udfff])|(?:^|[^\\ud800-\\udbff])[\\udc00-\\udfff]/
@@ -281,20 +281,39 @@ PATCHES = {
     interval: 5000
     onTriggered: service.saveSoon("history")
   }
-  // A row taken out (remove, Clear all, past its day) is also taken out of
-  // the file in place, at once and at each read-back: on a full disk the
-  // usual write (a new file renamed over it) gets no space, so a restart
-  // would read the row again. This write is the file as it stands less the
-  // rows no longer in memory, never longer than what it overwrites, so it
-  // reuses the file's own space; cut short, it is no JSON, which the loader
-  // reads as no history, never as a removed row.
+    // A row taken out (remove, Clear all, past its day) is also taken out of
+  // the file in place, right after the removal and at each read-back: on a
+  // full disk the usual write (a new file renamed over it) gets no space, so
+  // a restart would read the row again. reload() is asynchronous, so this
+  // happens when the file has been read: the file as it stands less the rows
+  // no longer in memory, never longer than what it overwrites, so it reuses
+  // the file's own space; cut short, it is no JSON, which the loader reads as
+  // no history, never as a removed row.
   property alias overtakeInPlace: overtakeInPlaceFile
   FileView {
     id: overtakeInPlaceFile
     path: historyFile.path
     atomicWrites: false
-    blockLoading: true
     printErrors: false
+    onLoaded: if (service.historyLoaded) service.overtakeRemoveInPlace(text())
+  }
+    // The same for the cards on screen (live.json), at Clear all: otherwise one
+  // comes back after a restart on a full disk and files itself as it closes.
+  property alias overtakeLiveInPlace: overtakeLiveInPlaceFile
+  FileView {
+    id: overtakeLiveInPlaceFile
+    path: liveFile.path
+    atomicWrites: false
+    printErrors: false
+    onLoaded: {
+      if (!service.liveLoaded) return
+      var rows, keep = Object.create(null)
+      try { rows = JSON.parse(String(text())) } catch (e) { return }
+      if (!Array.isArray(rows)) return
+      service.liveEntries.forEach(function(e) { keep[String(e.key)] = true })
+      var left = rows.filter(function(e) { return !!e && typeof e === "object" && keep[String(e.key)] === true })
+      if (left.length !== rows.length) setText(JSON.stringify(left) + "\\n")
+    }
   }
   function overtakeRemoveInPlace(diskText) {
     var rows, keep = Object.create(null)   // (a key may be "__proto__")

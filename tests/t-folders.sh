@@ -11,7 +11,7 @@ own = re.compile(r'/\.(local/state|config|cache)/overtake|root\.(pinsPath|config
 for p in glob.glob(f"{repo}/plugins/*/*.qml"):
     if os.path.basename(p) == "OvertakeFolders.qml": continue
     t = open(p).read()
-    for m in re.finditer(r'^\s+path: (.+)$', t, re.M):
+    for m in re.finditer(r"\bpath: (.+?)(?:;|$)", t, re.M):
         if own.search(m.group(1)) and not m.group(1).startswith("folders.ready ?"): bad.append(f"{p}: path {m.group(1)}")
     for m in re.finditer(r'\b\w+\.setText\(', t): bad.append(f"{p}: direct {m.group(0)}")
     if "folders." in t and "OvertakeFolders { id: folders }" not in t: bad.append(f"{p}: no gate")
