@@ -16,7 +16,7 @@
 #   overtake minimize|maximize|close [address]  # active window when no address
 #   overtake restore <address> [stay] | restore-all
 #   overtake focus-app <name>      # go to an app's window on its own workspace (restoring it if minimized)
-#   overtake notification-open <app> <app icon> <message>  # notification center click without its own action
+#   overtake notification-open <app> "" <message|->  # notification center click without its own action (- : message on stdin)
 #   overtake minimize-all [monitor]   # clicking the desktop: minimize this workspace's windows
 #   overtake screensaver <on|off|enabled|start|lock|show|showing|preview> [...]  # Settings > Screensaver
 #   overtake hide-minimized   # taskbar: hide the minimized windows' workspace if it gets shown
@@ -111,7 +111,7 @@ WINDOWS_BAR='{
       { "id": "overtake.audio" },
       { "id": "omarchy.power" },
       { "id": "omarchy.clock", "format": "h:mm AP   M/d/yyyy", "formatAlt": "dddd, MMMM d, yyyy", "verticalFormat": "h\n—\nmm" },
-      { "id": "omarchy.indicators", "items": ["ScreenRecording", "Reminder", "NightLight", "StayAwake"] },
+      { "id": "omarchy.indicators", "items": ["PasswordlessSudo", "RemoteSession", "ScreenRecording", "Reminder", "NightLight", "StayAwake"] },
       { "id": "overtake.notification-center" }
     ]
   }
@@ -133,7 +133,7 @@ STUDIO_BAR='{
       { "id": "omarchy.system-update" },
       { "id": "omarchy.tray" },
       { "id": "omarchy.agents" },
-      { "id": "omarchy.indicators", "items": ["ScreenRecording", "Reminder", "NightLight", "StayAwake"] },
+      { "id": "omarchy.indicators", "items": ["PasswordlessSudo", "RemoteSession", "ScreenRecording", "Reminder", "NightLight", "StayAwake"] },
       { "id": "omarchy.keyboard-layout" },
       { "id": "omarchy.power" },
       { "id": "overtake.bluetooth" },
@@ -185,18 +185,19 @@ copy_plugin_files() {  # copy_plugin_files <source-dir> <manifest-file> <target-
 build_copies() {  # build_copies all|update
   local mode=$1 share="$HOME/.local/share/overtake" plugins="$HOME/.config/omarchy/plugins"
   local source_root="${OVERTAKE_OMARCHY_PLUGINS:-${OMARCHY_PATH:-/usr/share/omarchy}/shell/plugins}"
-  local spec name src manifest files target tmp f built="" failed="" ok
+  local spec name src manifest files target tmp f built="" failed="" kept="" ok fits
   [[ -f $share/apply.py ]] || { echo "overtake: the patcher isn't installed; run ./install.sh again" >&2; return 1; }
   mkdir -p "$plugins"
   for spec in "${COPY_SPECS[@]}"; do
     IFS='|' read -r name src manifest files <<<"$spec"
     target="$plugins/overtake.$name"
     [[ $mode == all || -d $target ]] || continue
-    tmp=$(mktemp -d "$plugins/.overtake-build.XXXXXX")   # (a dot folder: the shell doesn't load it)
+    tmp=$(mktemp -d "$plugins/.overtake-build.XXXXXX") || { kept+=" $name"; continue; }   # (a dot folder: the shell doesn't load it)
     chmod 755 "$tmp"                                     # (mktemp makes it 0700; match the other plugin folders)
-    ok=1
+    ok=1 fits=1
+    [[ -e $source_root/$src/$manifest ]] || fits=""      # (Omarchy no longer has it)
     copy_plugin_files "$source_root/$src" "$manifest" "$tmp" 2>/dev/null || ok=""
-    for f in $files; do [[ -e $tmp/$f ]] || ok=""; done  # the files the patches need
+    for f in $files; do [[ -e $tmp/$f ]] || { ok="" fits=""; }; done  # the files the patches need (gone: Omarchy changed)
     if [[ $ok ]] && jq --arg id "overtake.$name" --arg name "Overtake ${name^}" --arg from "omarchy.$name" '
         .id = $id | .name = $name
         | .author = ((.author // "Omarchy") + ", patched by Overtake Mode")
@@ -205,7 +206,7 @@ build_copies() {  # build_copies all|update
         | del(.omarchy.clonePaths)' "$tmp/manifest.json" >"$tmp/manifest.json.new" 2>/dev/null &&
        mv "$tmp/manifest.json.new" "$tmp/manifest.json" &&
        cp "$share/NOTICE.md" "$tmp/NOTICE.md" 2>/dev/null &&
-       python3 -I "$share/apply.py" "$name" "$tmp" >/dev/null 2>&1; then
+       { python3 -I "$share/apply.py" "$name" "$tmp" >/dev/null 2>&1 || { [[ $? == 1 ]] && fits=""; false; }; }; then
       if [[ -d $target ]] && diff -rq "$tmp" "$target" >/dev/null 2>&1; then
         rm -rf "${tmp:?}"            # unchanged: leave the running copy alone
         chmod 755 "$target"          # (copies built by 0.1.8 are 0700)
@@ -214,15 +215,19 @@ build_copies() {  # build_copies all|update
       fi
     else
       rm -rf "${tmp:?}"
-      if [[ -d $target ]]; then     # Omarchy's own back in its place
+      # Only when Omarchy's code no longer fits the patch (apply.py exit 1, or
+      # files it needs are gone); a passing error (disk full, a missing tool)
+      # leaves the working copy as it is.
+      if [[ -z $fits && -d $target ]]; then     # Omarchy's own back in its place
         [[ -n ${OVERTAKE_NO_RELOAD:-} ]] || omarchy plugin disable "overtake.$name" >/dev/null 2>&1 || true
         rm -rf "${target:?}"
       fi
-      failed+=" $name"
+      if [[ -z $fits ]]; then failed+=" $name"; else kept+=" $name"; fi
     fi
   done
   echo "Overtake Mode: patched copies of Omarchy's plugins $([[ -n $built ]] && echo "built:$built" || echo unchanged)"
   [[ -z $failed ]] || echo "Overtake Mode: left out, Omarchy's own is used:$failed"
+  [[ -z $kept ]] || echo "Overtake Mode: couldn't rebuild (kept as it was):$kept" >&2
   if [[ $mode == update && -n $failed ]]; then
     notify $'\uf0ec' "Overtake Mode: Omarchy changed, so Omarchy's own $(sed 's/^ //; s/ /, /g' <<<"$failed") is used for now (Overtake's changes no longer fit it)"
   fi
@@ -967,12 +972,12 @@ hide_minimized() {
 # matched by class like omarchy-hyprland-focus-app, the most recently used
 # window first. A minimized one is restored to the workspace it came from and
 # followed there; any other is reached by switching to its workspace.
-focus_app() {
+focus_app() {  # focus_app <app> [exact]: its most recent window (class contains the name, or is it)
   local info addr ws
-  info=$(hyprctl clients -j | jq -c --arg p "$1" '
+  info=$(hyprctl clients -j | jq -c --arg p "$1" --arg exact "${2:-}" '
     ($p | ascii_downcase) as $q
     | sort_by(.focusHistoryID)
-    | first(.[] | select([(.class // ""), (.initialClass // "")] | any(ascii_downcase | contains($q)))) // empty')
+    | first(.[] | select([(.class // ""), (.initialClass // "")] | any(ascii_downcase | if $exact == "" then contains($q) else . == $q end))) // empty')
   [[ -n $info ]] || return 1
   addr=$(jq -r .address <<<"$info") ws=$(jq -r .workspace.name <<<"$info")
   if [[ $ws == special:minimized ]]; then
@@ -1026,7 +1031,7 @@ notification_open() {
   local app=$1 body=$3 f kind
   # Like Omarchy's own toasts: the app that sent it, brought forward if it's
   # open. Overtake never launches anything from a notification.
-  [[ -n $app ]] && focus_app "$app" && return 0
+  [[ -n $app ]] && focus_app "$app" exact && return 0
   # Otherwise a file or folder the message names (a screenshot tool's "saved
   # to '...png'"), picked out in-process (the message text never goes into
   # another process's arguments): only an ordinary file or folder in your home
@@ -1799,7 +1804,7 @@ case "${1:-help}" in
   wallpaper-mode) if [[ -n ${2:-} ]]; then set_wallpaper_mode "$2"; else wallpaper_mode; fi ;;
   resume)
     # The copies follow Omarchy even when it was updated without `omarchy
-    # update` (pacman -Syu): rebuilt at login if Omarchy's code changed.
+    # update` (a plain system upgrade): rebuilt at login if Omarchy's code changed.
     build_copies update >/dev/null 2>&1 || true
     if [[ -f $FLAG ]]; then fix_bar_widgets; [[ $(wallpaper_mode) == day-night ]] && ! picked_wallpaper && apply_day_night; start_slideshow; float_all; rescue_all; fi ;;
   minimize) minimize_window "${2:-}" ;;

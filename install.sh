@@ -82,7 +82,8 @@ OMARCHY_VERSION=$(omarchy-version 2>/dev/null || true)
 # A menu extension file of yours that isn't plain JSONC (starting with {) is
 # left alone: stop now, before anything is written.
 MENU_CHECK="$HOME/.config/omarchy/extensions/omarchy-menu.jsonc"
-if [[ -s $MENU_CHECK ]] && ! grep -v '^[[:space:]]*\(//.*\)\?$' "$MENU_CHECK" | head -1 | grep -q '^[[:space:]]*{'; then
+MENU_FIRST=$(grep -m1 -v '^[[:space:]]*\(//.*\)\?$' "$MENU_CHECK" 2>/dev/null || true)   # (comments only: as good as empty)
+if [[ -n $MENU_FIRST && ! $MENU_FIRST =~ ^[[:space:]]*\{ ]]; then
   die "$MENU_CHECK doesn't start with { ; fix it first (Overtake adds its menu entry there)."
 fi
 
@@ -349,7 +350,12 @@ text = re.sub(re.escape(start) + r".*?" + re.escape(end) + r"\n?", "", text, fla
 # reader allows before the }. Nothing of yours is touched.
 lines = text.split("\n")
 first = next((i for i, l in enumerate(lines) if l.strip() and not l.strip().startswith("//")), None)
-if first is None or not lines[first].strip().startswith("{"):
+if first is None:   # only comments (or nothing): an empty menu, as Omarchy reads it
+    while lines and lines[-1] == "":
+        lines.pop()
+    lines += ["{", "}", ""]
+    first = len(lines) - 3
+if not lines[first].strip().startswith("{"):
     sys.exit("overtake install: " + path + " doesn't start with {")
 block = block.rstrip()
 if not block.endswith(","):
@@ -402,7 +408,12 @@ DESKTOP
 # Overtake, which opens them on the workspace you're on (and, while the mode
 # is off, passes them straight back to Omarchy's handler). --no-link-handler skips it.
 if [[ $CHANGE_LINKS ]]; then
-  bin_escaped=$(printf '%s' "$HOME/.local/bin/overtake" | sed 's/[\\|&]/\\&/g')   # (for sed's replacement)
+  # Quoted as a desktop file's Exec wants it (\ " ` $ escaped, % doubled),
+  # then escaped for sed's replacement.
+  bin_quoted="$HOME/.local/bin/overtake"
+  bin_quoted=${bin_quoted//\\/\\\\}; bin_quoted=${bin_quoted//\"/\\\"}
+  bin_quoted=${bin_quoted//\`/\\\`}; bin_quoted=${bin_quoted//\$/\\\$}; bin_quoted=${bin_quoted//%/%%}
+  bin_escaped=$(printf '%s' "$bin_quoted" | sed 's/[\\|&]/\\&/g')
   sed -i "s|^Exec=omarchy-launch-browser |Exec=\"$bin_escaped\" open-url |" "$BROWSER_ENTRY"   # (quoted: a home folder may have spaces)
   say "links: open on the workspace you're on"
 elif [[ $LINKS == no ]] && have_links; then
