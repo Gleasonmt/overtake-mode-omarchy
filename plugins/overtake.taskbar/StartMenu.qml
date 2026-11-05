@@ -270,7 +270,9 @@ Item {
       var out = []
       // One bookmark at a time (its own mime type, never the next one's).
       var re = /<bookmark href="([^"]+)"[^>]*modified="([^"]+)"[\s\S]*?<mime:mime-type type="([^"]+)"/
-      var pieces = text().split("</bookmark>")
+      var body = text()
+      if (body.length > 4000000) body = body.slice(-4000000)   // (a bounded read: the newest end of a huge file)
+      var pieces = body.split("</bookmark>")
       for (var i = 0; i < pieces.length; i++) {
         var m = re.exec(pieces[i])
         if (!m) continue

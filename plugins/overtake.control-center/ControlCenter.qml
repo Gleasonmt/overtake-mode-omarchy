@@ -253,18 +253,10 @@ Panel {
             anchors.leftMargin: Style.space(10)
             anchors.verticalCenter: parent.verticalCenter
             width: Style.space(44); height: width
-            // local art only: a web address here comes from the player (or a
-            // website playing in the browser), and loading it would fetch it
-            source: {
-              var url = root.player && root.player.trackArtUrl ? String(root.player.trackArtUrl) : ""
-              // A file only in the places players keep art (home, /tmp, your
-              // runtime folder), spelled plainly: no escapes, "//", "." or ".."
-              // that could reach a device or kernel file and stall the loader.
-              if (/^image:\/\//.test(url)) return url
-              var path = url.indexOf("file:///") === 0 ? url.slice(7) : ""
-              if (!path || /%|\/\/|\/\.\.?(?:\/|$)/.test(path)) return ""
-              return /^\/(?:home\/|tmp\/|run\/user\/[0-9]+\/)/.test(path) ? url : ""
-            }
+            // No album art: the picture comes from whichever player (or website)
+            // is playing, and decoding it would happen inside the shell itself.
+            // A music note stands in.
+            source: ""
             sourceSize.width: 96
             sourceSize.height: 96
             fillMode: Image.PreserveAspectCrop

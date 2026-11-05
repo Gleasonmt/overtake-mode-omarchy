@@ -345,9 +345,10 @@ applies, the installer says so and Overtake uses Omarchy's own one.
 Overtake Mode sends nothing anywhere, with one exception: the **Day & Night**
 wallpaper mode looks up today's sunrise and sunset from
 [wttr.in](https://wttr.in), which estimates your location from your IP address.
-The default **Rotate** mode makes no network requests. Album art in the
-Control Center is shown only when the player gives a local file (art at a web
-address isn't fetched).
+The default **Rotate** mode makes no network requests. The Control Center
+shows no album art (the picture comes from whichever player is playing).
+Overtake's own folders (`~/.config/overtake`, `~/.local/state/overtake`,
+`~/.cache/overtake`) are readable only by you.
 
 What it reads on your machine, and keeps there:
 

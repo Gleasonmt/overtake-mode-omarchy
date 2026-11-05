@@ -108,6 +108,10 @@ Precedents: [macOS Dock #13499](https://github.com/omacom/omarchy-plugin-marketp
   - jq gets them through `--slurpfile`/`--rawfile` from `<(printf …)`
     (`remember_layout` :931, `relayout` :953, `claude_windows` :1275,
     `sync_session_names` :1302, `set_name` :1338);
+  - battery alerts (which name the device) go to `overtake notify-stdin` on
+    stdin and from there over D-Bus, never through `notify-send`'s arguments;
+  - the bar's settings (which can name your cities) reach jq through a file
+    descriptor, not the command line;
   - names reach `overtake` on stdin (`name … -` :1877; QML:
     `session-names/Service.qml:235`); notification text never leaves the
     shell (the notification center doesn't pass it to anything);
@@ -120,9 +124,8 @@ Precedents: [macOS Dock #13499](https://github.com/omacom/omarchy-plugin-marketp
   opens (`xdg-open` needs the path); a notification's app name
   (`overtake notification-open`, to find its window, as Omarchy's toasts do
   with `omarchy-hyprland-focus-app`); a web notification's site address
-  when it's opened (`https://<host>/`, as Omarchy's toasts open it); a
-  device's name in a battery alert (`notify-send`'s title, after `--`); and `overtake name here "<name>"` when a user types
-  it that way on purpose (the documented form, `echo name | overtake name here
+  when it's opened (`https://<host>/`, as Omarchy's toasts open it); and
+  `overtake name here "<name>"` when a user types it that way on purpose (the documented form, `echo name | overtake name here
   -`, keeps it out).
 - **Shell and Lua:** window addresses must match `^0x[0-9a-fA-F]+$` before any
   command runs (`bin/overtake:1808`); workspace names with quotes,
@@ -139,16 +142,20 @@ Precedents: [macOS Dock #13499](https://github.com/omacom/omarchy-plugin-marketp
   `https://<host>/` through `Qt.openUrlExternally`, as Omarchy does. Nothing is opened
   or launched from the message text. `open-url` (:1068) drops
   option-like arguments.
-- **Images:** notification icons are theme icons by plain name only (as
-  Omarchy keeps them in history), and album art loads only from home, /tmp or the runtime folder, spelled plainly
-  (`ControlCenter.qml:264`).
+- **Images:** notification icons, and icons looked up from an app's window
+  class, are theme icons by plain name only (never a path the app chose).
+  The Control Center shows no album art: decoding a player's picture would
+  happen inside the shell.
 - **Network:** one request, `wttr.in` for sunrise/sunset, only in the optional
   Day & Night wallpaper mode (`sun_times` :417); documented in the README.
 - **Local reads** (browser history for Copy URL, `~/.claude/sessions` for name
   tags, recent files, files under home for search) are listed in the README's
   Privacy section and never leave the machine.
-- **Files:** state lives in `~/.local/state/overtake`, created 0700; no `/tmp`
-  state; the slideshow's saved pid is checked against `/proc/<pid>/cmdline`
+- **Files:** Overtake's folders (`~/.local/state/overtake`,
+  `~/.config/overtake`, `~/.cache/overtake`) are 0700, created that way
+  before anything is written, and tightened at install and at every start if
+  an older version left them open; edits to existing files keep their mode
+  (temp file next to them, then a rename); no `/tmp` state; the slideshow's saved pid is checked against `/proc/<pid>/cmdline`
   before it's stopped (`stop_slideshow` :462).
 - **Background work:** the mode, Claude Code sessions, the Trash and Do Not
   Disturb (Omarchy's `notifications/history.json` and `quiet.json`) are watched, not polled

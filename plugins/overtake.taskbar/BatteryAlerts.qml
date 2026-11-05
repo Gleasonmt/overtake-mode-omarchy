@@ -161,10 +161,29 @@ Item {
     var body = level === "critical"
       ? percent + "% left. " + (d.isLaptopBattery ? "Plug in now." : "Charge it now.")
       : percent + "% left. " + (d.isLaptopBattery ? "Plug in soon." : "Charge it soon.")
-    Quickshell.execDetached(["notify-send", "-a", "Battery", "-i", iconFor(kind, level),
-                             "-u", level === "critical" ? "critical" : "normal", "--", title, body])   // ("--": a device names itself)
+    // Device names (chosen by the device) go over stdin, never in a command line.
+    var note = { app: "Battery", icon: iconFor(kind, level), urgency: level === "critical" ? "critical" : "normal", summary: title, body: body }
+    notifier.queue = notifier.queue.concat([JSON.stringify(note)])
+    notifier.next()
     // Keep Omarchy's battery-low hook working, at the laptop's Critical level.
     if (d.isLaptopBattery && level === "critical") Quickshell.execDetached(["omarchy-hook", "battery-low", String(percent)])
+  }
+
+  Process {
+    id: notifier
+    property var queue: []
+    property string pending: ""
+    command: ["overtake", "notify-stdin"]
+    stdinEnabled: true
+    function next() {
+      if (running || !queue.length) return
+      pending = queue[0]
+      queue = queue.slice(1)
+      stdinEnabled = true
+      running = true
+    }
+    onStarted: { write(pending); stdinEnabled = false; pending = "" }
+    onExited: next()
   }
 
   function check() {

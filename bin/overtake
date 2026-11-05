@@ -51,7 +51,14 @@ set -euo pipefail
 
 SHELL_JSON="$HOME/.config/omarchy/shell.json"
 STATE_DIR="$HOME/.local/state/overtake"
-[[ -d $STATE_DIR ]] || mkdir -p -m 700 "$STATE_DIR" 2>/dev/null || true   # (yours only, whichever command makes it first)
+# Overtake's folders are yours only, whichever command makes them first (and
+# tightened at startup if an older version left them open).
+for _dir in "$STATE_DIR" "$HOME/.config/overtake" "${XDG_CACHE_HOME:-$HOME/.cache}/overtake"; do
+  if [[ ! -e $_dir ]]; then mkdir -p -m 700 "$_dir" 2>/dev/null || true
+  elif [[ -d $_dir && ! -L $_dir && -O $_dir && $(stat -c %a "$_dir") != 700 ]]; then chmod 700 "$_dir" 2>/dev/null || true
+  fi
+done
+unset _dir
 FLAG="$STATE_DIR/enabled"
 SAVED_BAR="$STATE_DIR/omarchy-bar.json"
 DESKTOP_RETURN="$STATE_DIR/desktop-return"
@@ -306,8 +313,10 @@ remove_bar_size() {
 # The bar layout in shell.json (fails, leaving the file as it was, if the
 # layout isn't valid JSON).
 set_bar() {
-  jq -e --argjson bar "$1" '$bar | type == "object"' <<<'{}' >/dev/null 2>&1 || return 1
-  replace_with "$SHELL_JSON" jq --argjson bar "$1" '.bar = $bar' "$SHELL_JSON"
+  # (the bar's settings, which can name your cities or places, through a file
+  # descriptor rather than the command line)
+  jq -e 'type == "object"' <<<"$1" >/dev/null 2>&1 || return 1
+  replace_with "$SHELL_JSON" jq --slurpfile bar <(printf '%s' "$1") '.bar = $bar[0]' "$SHELL_JSON"
 }
 
 next_wallpaper() {
@@ -1849,6 +1858,20 @@ case "${1:-help}" in
   minimize-all) minimize_all "${2:-}" ;;
   focus-app) [[ -n ${2:-} ]] && focus_app "$2" ;;
   notification-open) notification_open "${2:-}" ;;
+  notify-stdin)   # one notification from JSON on stdin ({app, icon, urgency, summary, body}):
+    # its text never goes into a command line; sent over D-Bus from here
+    python3 -I -c '
+import json, sys
+from gi.repository import Gio, GLib
+n = json.loads(sys.stdin.read(65536) or "{}")
+urgency = {"low": 0, "normal": 1, "critical": 2}.get(str(n.get("urgency", "normal")), 1)
+Gio.bus_get_sync(Gio.BusType.SESSION, None).call_sync(
+    "org.freedesktop.Notifications", "/org/freedesktop/Notifications", "org.freedesktop.Notifications", "Notify",
+    GLib.Variant("(susssasa{sv}i)", (str(n.get("app", ""))[:64], 0, str(n.get("icon", ""))[:256],
+                 str(n.get("summary", ""))[:512], str(n.get("body", ""))[:2048], [],
+                 {"urgency": GLib.Variant("y", urgency)}, -1)),
+    None, Gio.DBusCallFlags.NONE, 5000, None)
+' ;;
   screensaver) shift; screensaver_cmd "$@" ;;
   hide-minimized) hide_minimized ;;
   show) [[ -n ${2:-} ]] && show_window "$2" || true ;;
