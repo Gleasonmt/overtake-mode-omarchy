@@ -109,16 +109,16 @@ Precedents: [macOS Dock #13499](https://github.com/omacom/omarchy-plugin-marketp
 - **Process arguments:** window titles, window names, Claude Code session ids
   and notification text never go into another process's argv:
   - jq gets them through `--slurpfile`/`--rawfile` from `<(printf …)`
-    (`remember_layout` :942, `relayout` :964, `claude_windows` :1286,
-    `sync_session_names` :1313, `set_name` :1349);
+    (`remember_layout` :944, `relayout` :966, `claude_windows` :1288,
+    `sync_session_names` :1315, `set_name` :1351);
   - battery alerts (which name the device) go to `overtake notify-stdin` on
     stdin and from there over D-Bus, never through `notify-send`'s arguments;
   - the bar's settings (which can name your cities) reach jq through a file
     descriptor, not the command line;
-  - names reach `overtake` on stdin (`name … -` :1902; QML:
+  - names reach `overtake` on stdin (`name … -` :1904; QML:
     `session-names/Service.qml:235`); notification text never leaves the
     shell (the notification center doesn't pass it to anything);
-  - Copy URL passes the page title in the environment (`copy_url` :1213) and
+  - Copy URL passes the page title in the environment (`copy_url` :1215) and
     reads browser history read-only in place;
   - Spotlight lists the home folder once per opening and matches typed text
     in-process (`Spotlight.qml:180`); its calculator is a small parser
@@ -131,19 +131,19 @@ Precedents: [macOS Dock #13499](https://github.com/omacom/omarchy-plugin-marketp
   `overtake name here "<name>"` when a user types it that way on purpose (the documented form, `echo name | overtake name here
   -`, keeps it out).
 - **Shell and Lua:** window addresses must match `^0x[0-9a-fA-F]+$` before any
-  command runs (`bin/overtake:1819`); workspace names with quotes,
+  command runs (`bin/overtake:1821`); workspace names with quotes,
   backslashes, `;` (which `hyprctl --batch` splits on) or control characters
-  are refused before reaching Hyprland's Lua (`lua_safe` :840);
+  are refused before reaching Hyprland's Lua (`lua_safe` :842);
   Settings shell-quotes font and theme names (`Settings.qml:47`).
 - **Opening things from other apps' text:** clicking a notification in the
   notification center runs the notification's own action exactly as Omarchy's
   toasts do (`notification-center/Panel.qml`, the same checks as Omarchy's
   `parseExecArgv`, run through `bash -lc 'exec "$@"'`). Without one, it
   does what Omarchy's own toasts do: the sender's open window comes forward
-  (`notification_open` :1112); failing that, a browser's web notification
+  (`notification_open` :1114); failing that, a browser's web notification
   (Omarchy's `web:<host>` group, a plain hostname only) opens
   `https://<host>/` through `Qt.openUrlExternally`, as Omarchy does. Nothing is opened
-  or launched from the message text. `open-url` (:1079) drops
+  or launched from the message text. `open-url` (:1081) drops
   option-like arguments.
 - **Images:** notification icons, and icons looked up from an app's window
   class, are theme icons by plain name only (never a path the app chose).
@@ -159,7 +159,7 @@ Precedents: [macOS Dock #13499](https://github.com/omacom/omarchy-plugin-marketp
   before anything is written, and tightened at install and at every start if
   an older version left them open; edits to existing files keep their mode
   (temp file next to them, then a rename); no `/tmp` state; the slideshow's saved pid is checked against `/proc/<pid>/cmdline`
-  before it's stopped (`stop_slideshow` :473).
+  before it's stopped (`stop_slideshow` :475).
 - **Background work:** the mode, Claude Code sessions, the Trash and Do Not
   Disturb (Omarchy's `notifications/history.json` and `quiet.json`) are watched, not polled
   (`session-names/Service.qml:82`), and Hyprland window events trigger at

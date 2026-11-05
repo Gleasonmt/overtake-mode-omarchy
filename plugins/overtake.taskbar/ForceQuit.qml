@@ -27,9 +27,17 @@ Item {
   readonly property color fg: Commons.Color.foreground
   readonly property color bg: Commons.Color.background
 
-  // The list changing while you confirm (an app opening or closing) cancels
-  // the confirmation, so Force Quit always ends the app you were shown.
-  onItemsChanged: if (confirming) confirming = false
+  // The app being confirmed is fixed when you ask (its key and processes), so
+  // the list refreshing or reordering meanwhile can't change what is ended.
+  property string confirmKey: ""
+  property var confirmPids: []
+  function startConfirm() {
+    var group = items[index]
+    if (!group) return
+    confirmKey = String(group.key)
+    confirmPids = pidsOf(group)
+    confirming = true
+  }
 
   function show() {
     if (open) { open = false; return }
@@ -62,12 +70,19 @@ Item {
     return names
   }
 
+  function confirmedGroup() {
+    for (var i = 0; i < items.length; i++) if (String(items[i].key) === confirmKey) return items[i]
+    return null
+  }
   function forceQuit() {
-    var group = items[index]
-    if (!group) return
-    var pids = pidsOf(group)
+    // the app you confirmed, if it's still running, and only its processes
+    // that were shown then
+    var group = confirmedGroup()
+    var pids = group ? pidsOf(group).filter(function(p) { return confirmPids.indexOf(p) !== -1 }) : []
     if (pids.length) Quickshell.execDetached(["kill", "-KILL"].concat(pids.map(String)))
     confirming = false
+    confirmKey = ""
+    confirmPids = []
     index = Math.max(0, index - 1)
   }
 
@@ -97,7 +112,7 @@ Item {
       Keys.onEscapePressed: { if (root.confirming) root.confirming = false; else root.open = false }
       Keys.onUpPressed: { root.confirming = false; root.index = Math.max(0, root.index - 1) }
       Keys.onDownPressed: { root.confirming = false; root.index = Math.min(root.items.length - 1, root.index + 1) }
-      Keys.onReturnPressed: { if (root.confirming) root.forceQuit(); else root.confirming = true }
+      Keys.onReturnPressed: { if (root.confirming) root.forceQuit(); else root.startConfirm() }
 
       MouseArea { anchors.fill: parent }
 
@@ -203,7 +218,7 @@ Item {
           textFormat: Text.PlainText
           wrapMode: Text.WordWrap
           text: {
-            var group = root.items[root.index]
+            var group = root.confirming ? root.confirmedGroup() : root.items[root.index]
             if (!group) return ""
             var shared = root.sharedWith(group)
             return "Force " + root.apps.nameOf(group) + " to quit? Unsaved changes will be lost."
@@ -236,7 +251,7 @@ Item {
           MouseArea {
             anchors.fill: parent
             cursorShape: Qt.PointingHandCursor
-            onClicked: { if (root.confirming) root.forceQuit(); else root.confirming = true }
+            onClicked: { if (root.confirming) root.forceQuit(); else root.startConfirm() }
           }
         }
       }

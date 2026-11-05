@@ -45,8 +45,10 @@ Item {
   // "constructor", ...) gets a suffix, so it can never reach the shared
   // engine's built-in objects.
   function keyOf(d) {
-    var key = d.isLaptopBattery ? "laptop" : String(d.model || d.nativePath || "Battery")
-    return key in Object.prototype || key === "__proto__" ? key + " (device)" : key
+    if (d.isLaptopBattery) return "laptop"
+    var key = String(d.model || d.nativePath || "Battery")
+    // ("laptop" is the laptop's own key: a device can't take it over)
+    return key === "laptop" || key === "__proto__" || key in Object.prototype ? key + " (device)" : key
   }
   function kindOf(d) { return d.isLaptopBattery ? "Laptop" : String(UPowerDeviceType.toString(d.type) || "Battery") }
   function nameOf(d) { return d.isLaptopBattery ? "Laptop battery" : String(d.model || kindOf(d)) }

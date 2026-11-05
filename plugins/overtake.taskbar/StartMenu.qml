@@ -241,7 +241,8 @@ Item {
 
   function fileIcon(isDir, suffix) {
     if (isDir) return Quickshell.iconPath("folder", true)
-    var name = suffixIcons[String(suffix).toLowerCase()] || "text-x-generic"
+    var key = String(suffix).toLowerCase()
+    var name = Object.prototype.hasOwnProperty.call(suffixIcons, key) ? suffixIcons[key] : "text-x-generic"
     return Quickshell.iconPath(name, true) || Quickshell.iconPath("text-x-generic", true)
   }
 
