@@ -69,7 +69,7 @@ fi
 # longer offered): an update takes each one back out, exactly.
 have_links() { [[ -f $BROWSER_ENTRY ]] && grep -q '^Exec=.*/overtake"\? open-url ' "$BROWSER_ENTRY"; }
 have_images() { [[ -s $HOME/.local/state/overtake/image-defaults || -f $APPS/overtake-image-viewer.desktop ]]; }
-have_name_tags() { [[ -d $PLUGINS/overtake.session-names ]]; }
+have_name_tags() { [[ -d $PLUGINS/overtake.session-names || -f $HOME/.local/state/overtake/session-names.json ]]; }
 
 # Everything below is listed here first, before anything is written.
 plan() {
@@ -85,7 +85,8 @@ Overtake Mode will add (./uninstall.sh removes all of it):
   ~/.config/overtake/                     settings (only ones you don't have yet)
   ~/Pictures/overtake/                    wallpapers
   ~/.local/share/overtake/                a copy of the uninstaller (`overtake uninstall`)
-                                          and of the patcher (patches/apply.py, NOTICE.md)
+                                          and of the patcher (patches/apply.py, NOTICE.md),
+                                          and which version is installed
   ~/.config/omarchy/hooks/post-update.d/overtake.hook
                                           after `omarchy update`, rebuilds the patched
                                           copies from the new Omarchy (or drops one
@@ -100,8 +101,9 @@ and change (or create, if missing) these files (./uninstall.sh undoes each one):
                                           the mode shortcut (Super+Ctrl+Shift+W),
                                           and loading Overtake's shortcuts while
                                           the mode is on
-  ~/.config/hypr/autostart.lua            a marked block: resume the wallpaper
-                                          slideshow at login if the mode is on
+  ~/.config/hypr/autostart.lua            a marked block: at login, check and
+                                          rebuild the patched copies, and resume the
+                                          wallpaper slideshow if the mode is on
   ~/.config/omarchy/extensions/omarchy-menu.jsonc
                                           a marked block: the Overtake Mode entry
   ~/.config/omarchy/shell.json            only while Classic or Studio is on: its
@@ -115,7 +117,7 @@ EOF
   local off=()
   have_links && off+=("the link handler")
   have_images && off+=("the image viewer")
-  have_name_tags && off+=("the Claude Code name tags")
+  have_name_tags && off+=("the Claude Code name tags and the names kept for them")
   [[ -f $MENU ]] && grep -q '"\(style\|appearance\)\.background".*overtake bg-picker' "$MENU" && off+=("the Appearance menus")
   if (( ${#off[@]} )); then
     echo
@@ -185,6 +187,9 @@ install -Dm644 "$REPO/NOTICE.md" "$HOME/.local/share/overtake/NOTICE.md"
 say "command: ~/.local/bin/overtake"
 
 # 2. Hyprland: the Overtake shortcuts file, the switch shortcut, and the login hook.
+# (files that weren't there go again on uninstall, if nothing else was added)
+[[ -e $HYPR/bindings.lua ]] || touch "$HOME/.local/state/overtake/created-bindings"
+[[ -e $HYPR/autostart.lua ]] || touch "$HOME/.local/state/overtake/created-autostart"
 install -Dm644 "$REPO/hypr/overtake.lua" "$HYPR/overtake.lua"
 install -Dm644 "$REPO/hypr/overtake-classic.lua" "$HYPR/overtake-classic.lua"
 install -Dm644 "$REPO/hypr/overtake-studio.lua" "$HYPR/overtake-studio.lua"
@@ -196,7 +201,7 @@ if overtake_flag then
   overtake_flag:close()
   dofile((os.getenv("HOME") or "") .. "/.config/hypr/overtake.lua")
 end'
-set_block "$HYPR/autostart.lua" "--" '-- Overtake Mode: restart its wallpaper slideshow after login if the mode is on.
+set_block "$HYPR/autostart.lua" "--" '-- Overtake Mode: at login, check and rebuild its patched copies of Omarchy plugins, and restart its wallpaper slideshow if the mode is on.
 o.launch_on_start("overtake resume")'
 say "Hyprland: ~/.config/hypr/overtake{,-classic,-studio}.lua, plus marked blocks in bindings.lua and autostart.lua"
 
@@ -211,6 +216,22 @@ if [[ -d $PLUGINS/overtake.session-names ]]; then
   [[ -n ${OVERTAKE_NO_RELOAD:-} ]] || omarchy plugin disable overtake.session-names >/dev/null 2>&1 || true
   rm -rf "${PLUGINS:?}/overtake.session-names"
 fi
+# With no shell to ask, its entry is still in shell.json: out too.
+SHELL_JSON="$HOME/.config/omarchy/shell.json"
+if jq -e '(.plugins | type) == "array" and any(.plugins[]; (if type == "object" then .id else . end) == "overtake.session-names")' "$SHELL_JSON" >/dev/null 2>&1; then
+  target=$(readlink -f "$SHELL_JSON")
+  tmp=$(mktemp "$target.XXXXXX")
+  if jq '.plugins |= map(select((if type == "object" then .id else . end) != "overtake.session-names")) | if .plugins == [] then del(.plugins) else . end' "$SHELL_JSON" >"$tmp"; then
+    chmod --reference="$target" "$tmp" 2>/dev/null || true
+    mv -f "$tmp" "$target"
+  else
+    rm -f "$tmp"
+  fi
+fi
+# and the names you typed for those tags (only a real file of yours, not
+# whatever a link points at)
+SESSION_NAMES="$HOME/.local/state/overtake/session-names.json"
+if [[ -f $SESSION_NAMES && ! -L $SESSION_NAMES && -O $SESSION_NAMES ]]; then rm -f "$SESSION_NAMES"; fi
 for plugin in $OWN_PLUGINS; do
   rm -rf "${PLUGINS:?}/$plugin"
   cp -r "$REPO/plugins/$plugin" "$PLUGINS/$plugin"
@@ -343,6 +364,12 @@ if have_images; then
   rm -f "$APPS/overtake-image-viewer.desktop" "$IMAGE_DEFAULTS"
   say "images: back to what opened them before"
 fi
+
+# Which version is now installed, for the root plugin (Setup.qml): after
+# `omarchy plugin update` it asks for this installer to be run again. Written
+# last, so an install that stopped halfway still asks, and before the shell
+# restarts below.
+jq -r '.version' "$REPO/manifest.json" >"$HOME/.local/share/overtake/version"
 
 # 6. Load it all (OVERTAKE_NO_RELOAD=1 skips this, for testing).
 if [[ -z ${OVERTAKE_NO_RELOAD:-} ]] && hyprctl version >/dev/null 2>&1; then
