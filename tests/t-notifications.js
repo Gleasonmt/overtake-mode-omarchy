@@ -10,6 +10,13 @@
 const fs = require("fs"), vm = require("vm"), path = require("path")
 const [copy, repo] = process.argv.slice(2)
 
+// QML's JSON.stringify leaves an unpaired UTF-16 half raw (measured: length
+// 3 for "\ud83d"), where Node escapes it; the libraries serialise as in QML.
+const qmlJson = `(function () {
+  const raw = JSON.stringify
+  JSON.stringify = function () { const s = raw.apply(JSON, arguments); return typeof s !== "string" ? s
+    : s.replace(/((?:^|[^\\\\])(?:\\\\\\\\)*)\\\\u(d[89a-f][0-9a-f]{2})/gi, (m, pre, hex) => pre + String.fromCharCode(parseInt(hex, 16))) }
+})()`
 const libs = {}
 function load(name) {   // a QML .pragma library, with its .imports
   if (libs[name]) return libs[name]
@@ -17,7 +24,7 @@ function load(name) {   // a QML .pragma library, with its .imports
   let src = fs.readFileSync(path.join(copy, name + ".js"), "utf8")
   src = src.replace(/^\.pragma library$/m, "")
            .replace(/^\.import "(\w+)\.js" as (\w+)$/mg, (m, f, as) => { ctx[as] = load(f); return "" })
-  vm.createContext(ctx); vm.runInContext(src, ctx)
+  vm.createContext(ctx); vm.runInContext(qmlJson, ctx); vm.runInContext(src, ctx)
   return (libs[name] = ctx)
 }
 const Store = load("Store")
@@ -31,7 +38,7 @@ function extract(src, name) {   // a QML function, as a JS function expression
 function block(src, head) {      // the { … } that follows `head`
   const start = src.indexOf(head)
   if (start < 0) return ""
-  let d = 0, i = src.lastIndexOf("{", start)   // the block's own opening brace
+  let d = 0, i = head.endsWith("{") ? start + head.length - 1 : src.lastIndexOf("{", start)
   const from = i
   for (; i < src.length; i++) { if (src[i] === "{") d++; else if (src[i] === "}" && --d === 0) break }
   return src.slice(from, i + 1)
@@ -43,17 +50,22 @@ function handler(name) {
   const m = historyFileQml.match(new RegExp("^\\s*" + name + ": (.+)$", "m"))
   return m ? m[1].replace(/\s+\/\/ .*$/, "").replace(/^\{(.*)\}\s*$/, "$1") : ""
 }
+// a Timer's onTriggered body, on one line or as a { … } block
+function trigger(b) {
+  const m = b.match(/onTriggered: (.*)/)
+  if (!m) return ""
+  if (m[1].trim() === "{") return block(b.slice(m.index), "onTriggered: {").slice(1, -1)
+  return m[1].replace(/\s+\/\/ .*$/, "").replace(/^\{(.*)\}\s*$/, "$1")
+}
 // the Timers the service declares: id → { interval, onTriggered, repeat }
 function timers() {
   const out = {}
-  const re = /Timer \{([^{}]*)\}/g
-  let m
-  while ((m = re.exec(svc))) {
-    const b = m[1], id = (b.match(/id: (\w+)/) || [])[1]
+  for (let at = svc.indexOf("Timer {"); at >= 0; at = svc.indexOf("Timer {", at + 1)) {
+    const b = block(svc.slice(at), "Timer {"), id = (b.match(/^\s*id: (\w+)/m) || [])[1]
     if (!id) continue
     out[id] = { interval: +(b.match(/interval: (\d+)/) || [])[1],
                 repeat: /repeat: true/.test(b),
-                onTriggered: (b.match(/onTriggered: (.+)/) || [])[1] || "" }
+                onTriggered: trigger(b) }
   }
   return out
 }
@@ -87,21 +99,30 @@ function Clock() {
 // failed write still counts as tried; a write refused at open (permissions)
 // emits saveFailed, but one that fails at commit (disk full) only logs and
 // emits saved; reload() from inside a save signal does nothing, and from
-// anywhere else reads the file, makes it the reference and emits loaded.
+// anywhere else reads the file, makes it the reference and emits loaded (or
+// loadFailed when there is no file, after which any text is written). A UTF-16 half without its pair is
+// dropped on the way to disk.
+const onDisk = t => t.replace(/[\ud800-\udbff](?![\udc00-\udfff])|(^|[^\ud800-\udbff])[\udc00-\udfff]/g, "$1")
 function FileView(disk, S) {
-  const f = { cmp: disk.text, fail: "", inSignal: false }
+  // text: what text() gives and setText compares with; data: the bytes it
+  // holds (its last attempt, or the file as last read)
+  const f = { cmp: disk.text, data: disk.text, fail: "", inSignal: false }
   const emit = (name, arg) => { f.inSignal = true; try { S.handlers[name](arg) } finally { f.inSignal = false } }
   f.setText = t => {
     if (t === f.cmp) return
-    f.cmp = t
+    disk.attempts = (disk.attempts || 0) + 1
+    // the same bytes as it holds: its text stays as it was
+    if (onDisk(t) !== f.data) { f.cmp = t; f.data = onDisk(t) }
     if (f.fail === "open") return emit("onSaveFailed")
-    if (f.fail !== "commit") disk.text = t
+    if (f.fail !== "commit") disk.text = onDisk(t)
     emit("onSaved")
   }
   f.reload = () => {
     if (f.inSignal) return
-    f.cmp = disk.text
-    emit("onLoaded", disk.text)
+    if (disk.text === null) { f.cmp = f.data = null; return emit("onLoadFailed") }
+    // bytes it already holds: its text stays (with any unpaired half)
+    if (disk.text !== f.data) { f.cmp = f.data = disk.text }
+    emit("onLoaded", f.cmp)
   }
   return f
 }
@@ -112,7 +133,7 @@ function Service(disk) {
               historyLoaded: false, historyEntries: [], unsaved: {}, liveLoaded: false, quietLoaded: false }
   S.service = S
   const fn = src => src ? new Function("S", "with (S) { return (" + src + ") }")(S) : undefined
-  for (const name of ["saveSoon", "flushStore", "loadHistory", "currentHistory", "forget", "overtakeCheckFile", "overtakeSaveFailed"])
+  for (const name of ["saveSoon", "flushStore", "loadHistory", "currentHistory", "forget", "overtakeCheckFile", "overtakeComparable", "overtakeSaveFailed"])
     S[name] = fn(extract(svc, name))
   for (const [name, arg] of [["onSaved", ""], ["onSaveFailed", ""], ["onLoaded", "text"], ["onLoadFailed", ""]]) {
     const body = handler(name)
@@ -157,8 +178,10 @@ for (const how of ["open", "commit"]) {
   s.saveSoon("history"); settle(s); s.clock.advance(7000)
   s.historyFile.fail = how                       // disk full / unwritable from here
   s.forget("nB1")
+  const before = disk.attempts || 0
   s.clock.advance(12000)
   check(`(${how}) the failed write left the entry on disk`, /SECRET-3/.test(disk.text))
+  check(`(${how}) while it fails, a write about every 6 s, not more`, (disk.attempts || 0) - before <= 3)
   s.historyFile.fail = ""                        // room again
   s.clock.advance(12000)
   check(`(${how}) the cleared history is written once the disk has room`, !/SECRET-3/.test(disk.text))
@@ -166,6 +189,30 @@ for (const how of ["open", "commit"]) {
   check(`(${how}) and then nothing is left retrying`, pending === 0)
   const after = Service(disk); after.start()
   check(`(${how}) after a restart the cleared entries stay gone`, after.historyEntries.length === 0)
+}
+// 3b. A history file deleted while a write fails is written again from memory.
+{
+  const disk = { text: "" }, s = Service(disk); s.start(); settle(s)
+  const add = (k, txt) => { s.historyEntries = Store.addHistory(s.historyEntries, Store.closedEntry(row(k, txt), "expired", Date.now() / 1000), Date.now() / 1000); s.saveSoon("history") }
+  add("nD1", "KEEP-1"); settle(s); s.clock.advance(7000)
+  s.historyFile.fail = "commit"; disk.text = null   // gone, and the disk is full
+  add("nD2", "KEEP-2"); s.clock.advance(3000)
+  s.historyFile.fail = ""; s.clock.advance(12000)
+  check("a deleted history file is written again from memory", disk.text !== null && /KEEP-1/.test(disk.text) && /KEEP-2/.test(disk.text))
+}
+// 3c. A body cut mid-emoji (one UTF-16 half left; the write drops it) never
+//     sets off endless rewrites, even after a failed write and a removal.
+{
+  const disk = { text: "" }, s = Service(disk); s.start(); settle(s)
+  const add = (k, txt) => { s.historyEntries = Store.addHistory(s.historyEntries, Store.closedEntry(row(k, txt), "expired", Date.now() / 1000), Date.now() / 1000); s.saveSoon("history") }
+  add("nE1", "x" + "\ud83d\ude00".repeat(3001)); settle(s); s.clock.advance(7000)   // Omarchy cuts it to 3/4, mid-emoji
+  check("(setup) the stored body ends in half an emoji", /[\ud800-\udbff]"/.test(Store.serialise(s.historyEntries)))
+  s.historyFile.fail = "open"; add("nE2", "new one"); s.clock.advance(3000)
+  s.forget("nE2"); s.clock.advance(3000)
+  s.historyFile.fail = ""; s.clock.advance(12000)
+  const before = disk.attempts
+  s.clock.advance(60000)
+  check("a history with an unpaired UTF-16 half isn't rewritten over and over", disk.attempts === before && !/new one/.test(disk.text))
 }
 // 4. Nothing past its day stays on disk, even with no new notification.
 {

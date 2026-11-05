@@ -164,12 +164,12 @@ Precedents: [macOS Dock #13499](https://github.com/omacom/omarchy-plugin-marketp
   the Omarchy menu opens). In Classic and Studio: the mode, the Trash and Do Not Disturb
   (Omarchy's `notifications/history.json` and `quiet.json`) are watched, not
   polled, and Hyprland window events trigger at most one refresh per 100 ms
-  (title changes are ignored). Process spawns that remain: `overtake
-  remember` while Classic or
+  (title changes are ignored). In-process timers in Overtake's
+  notifications copy (so only in Classic and Studio): an expiry check of history every minute, and
+  a read-back of the history file a second after each write, rewritten 5 s later only while it
+  doesn't match. Process spawns that remain: `overtake remember` while Classic or
   Studio is on, only when a window has moved, resized, opened or closed
-  (checked in-process every 5 s), an in-process expiry check of notification history every minute and a read-back of
-  the history file a second after each write, rewritten every 5 s only while it doesn't match (in Overtake's
-  notifications copy, so only in Classic and Studio), and one status probe (Wi-Fi, Bluetooth, night
+  (checked in-process every 5 s), and one status probe (Wi-Fi, Bluetooth, night
   light…) every 2 s only while the Control Center is open. Battery alerts
   read UPower in-process (on its change events, and every 30 s). In-process Hyprland IPC polling
   that remains: in Classic and Studio every 400 ms (Hyprland sends no event for resizes),
@@ -199,7 +199,7 @@ plugins (pinned commit; see the Actions tab for the run on this release).
 | Upgrades from v0.1.11 | the four optional extras that release offered are taken back out exactly (`mimeapps.list` and the link line byte for byte) | `t-upgrade-extras.sh` |
 | Startup repair | folders an older version left open are tightened at the next `overtake` start | `t-lifecycle.sh` |
 | A compromised wttr.in | at most 256 KB read; only real times reach `date` or the cache, else 07:00/19:00 | `t-sun-times.sh` (fails if the cap is removed) |
-| Notification history (the maintainer's notification-plugin checks) | Clear all and remove written at once (a shutdown right after can't lose them); every history write read back a second later and, if the file doesn't match, written again every 5 s until it does (while Classic or Studio stays on: switching to Omarchy mode before then hands over to Omarchy's own, which reads what is on disk); history past Omarchy's one day pruned every minute and never listed; nothing removed before history has loaded | `t-notifications.sh`: Omarchy's own Store.js and the copy's own functions, timers and history-file handlers, against a FileView that behaves as Quickshell 0.3 was measured to (a write refused at open emits saveFailed; one that fails at commit, e.g. disk full, only logs and emits saved; a reload inside a save signal does nothing; a repeat of the last attempted text is skipped). Both failure kinds, then room again. Fails on v0.1.14 and on a retry wired to saveFailed alone |
+| Notification history (the maintainer's notification-plugin checks) | Clear all and remove written at once (a shutdown right after can't lose them); every history write read back a second later and, if the file doesn't match, written again about every 6 s (read back 1 s after a write, retried 5 s later) until it does, while the shell keeps running: switching to Omarchy mode before then hands over to Omarchy's own, which reads what is on disk, and likewise a shell restart or logout before the disk has room; history past Omarchy's one day pruned every minute and never listed; nothing removed before history has loaded | `t-notifications.sh`: Omarchy's own Store.js and the copy's own functions, timers and history-file handlers, against a FileView that behaves as Quickshell 0.3 was measured to (a write refused at open emits saveFailed; one that fails at commit, e.g. disk full, only logs and emits saved; a reload inside a save signal does nothing; a repeat of the last attempted text is skipped). A reload with the bytes it already holds keeps its text; a failed load lets any text be written; and the libraries' JSON.stringify leaves an unpaired UTF-16 half raw, as QML's does. Covers both failure kinds then room again, at most one write per ~6 s while failing, a file deleted mid-failure, and a body cut mid-emoji not rewritten forever. Fails on v0.1.14, on a retry wired to saveFailed alone, and on a compare that doesn't allow for the unpaired half |
 
 Run them yourself (scratch homes, stubbed desktop commands, nothing touches
 your session): `tests/run.sh`.

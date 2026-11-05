@@ -210,8 +210,21 @@ PATCHES = {
   }
   function overtakeCheckFile(text) {
     if (!historyLoaded) return
-    if (Store.serialise(historyEntries) === String(text)) overtakeSaveRetry.stop()
+    var mine = Store.serialise(historyEntries), disk = String(text)
+    if (mine === disk || overtakeComparable(mine) === overtakeComparable(disk)) overtakeSaveRetry.stop()
     else overtakeSaveRetry.restart()
+  }
+  // Without unpaired UTF-16 halves (a body cut mid-emoji keeps one; the
+  // write drops it), or such a history would never match and be rewritten
+  // every few seconds.
+  function overtakeComparable(s) {
+    var out = ""
+    for (var i = 0; i < s.length; i++) {
+      var c = s.charCodeAt(i)
+      if (c >= 0xd800 && c <= 0xdbff && i + 1 < s.length && (s.charCodeAt(i + 1) & 0xfc00) === 0xdc00) { out += s.substr(i, 2); i++ }
+      else if ((c & 0xf800) !== 0xd800) out += s[i]
+    }
+    return out
   }
   Timer {
     id: overtakeSaveRetry

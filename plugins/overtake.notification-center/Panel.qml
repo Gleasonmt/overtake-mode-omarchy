@@ -201,7 +201,6 @@ Panel {
                    .filter(function(k) { return /^[A-Za-z0-9_-]{1,120}$/.test(k) })
     if (!keys.length) return
     keys.forEach(function(k) { if (pendingKeys.indexOf(k) === -1) pendingKeys.push(k) })
-    removedKeys = removedKeys.concat(keys.filter(function(k) { return removedKeys.indexOf(k) === -1 }))
     entries = entries.filter(function(e) { return keys.indexOf(e.key) === -1 })
     sendPending()
   }
@@ -214,7 +213,7 @@ Panel {
   }
   // Removals wait their turn: one call at a time, the rest queued.
   property var pendingKeys: []
-  property var removedKeys: []    // sent to the service, until the file shows them gone
+  property var removedKeys: []    // taken out by the service, until the file shows them gone
   function sendPending() {
     if (historyProc.running || !pendingKeys.length) return
     var args = ["forget", pendingKeys.join(" ")]
@@ -233,9 +232,9 @@ Panel {
         if (reply === "notready") root.showNotice("Notifications are still loading; try again in a moment.")
         else if (reply !== "ok" && reply !== "none")
           root.showNotice("Couldn't remove: Overtake's notifications aren't loaded (overtake build-copies all).")
-        // not taken by the service: not waiting on a write either
-        if (reply !== "ok" && reply !== "none")
-          root.removedKeys = root.removedKeys.filter(function(k) { return historyProc.sent.indexOf(k) === -1 })
+        // taken out by the service: watched until the file shows them gone
+        if (reply === "ok")
+          root.removedKeys = root.removedKeys.concat(historyProc.sent.filter(function(k) { return root.removedKeys.indexOf(k) === -1 }))
         reloadSoon.restart()
       }
     }
