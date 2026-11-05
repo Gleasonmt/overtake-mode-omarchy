@@ -18,6 +18,7 @@ import qs.Ui
 // `overtake ui control-center` opens it.
 Panel {
   id: root
+  OvertakeFolders { id: folders }   // Overtake's folders private before they're used
   moduleName: "overtake.control-center"
 
   readonly property bool vertical: bar ? bar.vertical : false
@@ -98,7 +99,7 @@ Panel {
   property string lastUiRequest: ""
   property bool uiRequestSeen: false
   FileView {
-    path: Quickshell.env("HOME") + "/.local/state/overtake/ui-request"
+    path: folders.ready ? Quickshell.env("HOME") + "/.local/state/overtake/ui-request" : ""
     watchChanges: true
     printErrors: false
     onFileChanged: reload()

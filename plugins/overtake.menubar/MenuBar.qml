@@ -17,6 +17,7 @@ import qs.Ui
 // `overtake ui app-menu` (the logo's shortcut from scripts) opens the system menu.
 Panel {
   id: root
+  OvertakeFolders { id: folders }   // Overtake's folders private before they're used
   moduleName: "overtake.menubar"
 
   readonly property bool vertical: bar ? bar.vertical : false
@@ -269,7 +270,7 @@ Panel {
   property string lastUiRequest: ""
   property bool uiRequestSeen: false
   FileView {
-    path: Quickshell.env("HOME") + "/.local/state/overtake/ui-request"
+    path: folders.ready ? Quickshell.env("HOME") + "/.local/state/overtake/ui-request" : ""
     watchChanges: true
     printErrors: false
     onFileChanged: reload()

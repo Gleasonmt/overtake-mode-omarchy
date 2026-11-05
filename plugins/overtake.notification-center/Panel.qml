@@ -20,9 +20,7 @@ import qs.Ui
 // the date and time instead, as in a menu bar, with a dot for new ones.
 Panel {
   id: root
-  // Overtake's folders exist and are yours only before anything here writes
-  // to them (the command creates or tightens them to 0700 at start).
-  Component.onCompleted: Quickshell.execDetached(["overtake", "status"])
+  OvertakeFolders { id: folders }   // Overtake's folders private before they're used
   moduleName: "overtake.notification-center"
   ipcTarget: "overtake.notification-center"
 
@@ -98,9 +96,9 @@ Panel {
     onLoaded: {
       root.entries = root.parseHistory(text())
       root.hiddenKeys = root.lastHiddenKeys
-      // a removal the service couldn't write yet (it keeps trying): say so
+      // a removal the service couldn't get into the file even in place: say so
       var stuck = root.entries.some(function(e) { return root.removedKeys.indexOf(e.key) !== -1 })
-      if (stuck) root.showNotice("Not removed yet: Omarchy couldn't save its history (is the disk full?). Overtake writes it again every few seconds while Classic or Studio is on.")
+      if (stuck) root.showNotice("Couldn't remove yet: Omarchy's notification history can't be written (is the disk read-only?). Overtake keeps trying while this session runs.")
       else root.removedKeys = []
     }
     onLoadFailed: root.entries = []
@@ -134,7 +132,7 @@ Panel {
 
   FileView {
     id: seenView
-    path: root.seenFile
+    path: folders.ready ? root.seenFile : ""
     watchChanges: true
     printErrors: false
     onFileChanged: reload()
@@ -144,12 +142,12 @@ Panel {
     var newest = entries.length ? (entries[0].timestamp || 0) : 0
     if (newest <= seen) return
     seen = newest
-    seenView.setText(String(newest) + "\n")
+    folders.write(seenView, String(newest) + "\n")
   }
 
   FileView {
     id: modesView
-    path: root.modesFile
+    path: folders.ready ? root.modesFile : ""
     watchChanges: true
     printErrors: false
     onFileChanged: reload()
@@ -171,7 +169,7 @@ Panel {
     if (mode === "show") delete next[app]
     else next[app] = mode
     appModes = next
-    modesView.setText(JSON.stringify({ apps: next }, null, 2) + "\n")
+    folders.write(modesView, JSON.stringify({ apps: next }, null, 2) + "\n")
   }
 
   // A body as text: notification bodies are markup ("Tom &amp; Jerry",
@@ -206,19 +204,25 @@ Panel {
   }
   function remove(entry) { removeAll([entry]) }
 
-  // Clear all takes out what the panel read (what it shows, and Omarchy's own
-  // feedback it hides), not anything that arrived since.
+  // Clear all is the service's: everything up to the click, also what the
+  // panel hasn't read yet (a silenced copy just filed, a card closing) and
+  // Omarchy's own feedback it hides.
+  property bool pendingAll: false
   function clearAll() {
-    removeAll(entries.slice().concat(hiddenKeys.map(function(k) { return { key: k } })))
+    pendingKeys = entries.map(function(e) { return e.key }).concat(hiddenKeys)
+    pendingAll = true
+    entries = []
+    sendPending()
   }
   // Removals wait their turn: one call at a time, the rest queued.
   property var pendingKeys: []
   property var removedKeys: []    // taken out by the service, until the file shows them gone
   function sendPending() {
-    if (historyProc.running || !pendingKeys.length) return
-    var args = ["forget", pendingKeys.join(" ")]
+    if (historyProc.running || (!pendingKeys.length && !pendingAll)) return
+    var args = pendingAll ? ["forgetAll"] : ["forget", pendingKeys.join(" ")]
     historyProc.sent = pendingKeys
     pendingKeys = []
+    pendingAll = false
     historyProc.command = ["omarchy-shell", "notifications"].concat(args)
     historyProc.running = true
   }
@@ -231,7 +235,7 @@ Panel {
         // "none": already gone (taken out, or aged out of Omarchy's day)
         if (reply === "notready") root.showNotice("Notifications are still loading; try again in a moment.")
         else if (reply !== "ok" && reply !== "none")
-          root.showNotice("Couldn't remove: Overtake's notifications aren't loaded (overtake build-copies all).")
+          root.showNotice("Couldn't remove: this needs Overtake's notifications, which run in Classic and Studio while they still fit your Omarchy.")
         // taken out by the service: watched until the file shows them gone
         if (reply === "ok")
           root.removedKeys = root.removedKeys.concat(historyProc.sent.filter(function(k) { return root.removedKeys.indexOf(k) === -1 }))
@@ -246,10 +250,11 @@ Panel {
     onTriggered: if (historyProc.running || root.pendingKeys.length) restart(); else root.reload()
   }
 
-  // Like clicking the toast, in Omarchy's order: its own action; the app that
-  // sent it, brought forward if it's open; for a browser's web notification,
-  // its site. Nothing is opened from the message text. If none of those
-  // can happen the entry stays in the list rather than vanishing for nothing.
+  // Like clicking the toast: its own action; for a browser's web notification,
+  // its site; otherwise the app that sent it, brought forward if it's open.
+  // Nothing is opened from the message text. If none of those can happen the
+  // entry stays in the list rather than vanishing for nothing. (Omarchy's toast
+  // also tries the sender's own window by process id, which history doesn't keep.)
   function activate(entry) {
     // The toast's own action, checked and run exactly as Omarchy's own
     // notifications do (an argv of strings, through a login shell's PATH).
@@ -266,6 +271,13 @@ Panel {
       close()
       return
     }
+    var host = webHost(entry)
+    if (host) {
+      Qt.openUrlExternally("https://" + host + "/")
+      remove(entry)
+      close()
+      return
+    }
     if (openProc.running) return
     openProc.entry = entry
     // (the app's name, to find its window, as Omarchy's own toasts do)
@@ -277,17 +289,12 @@ Panel {
     property var entry: null
     onExited: function(code) {
       if (code === 0) { root.remove(entry); root.close(); return }
-      // No window: a browser's web notification opens its site, as Omarchy's
-      // toasts do (Omarchy marks those "web:<host>"; a plain hostname only).
-      var host = root.webHost(entry)
-      if (host) {
-        Qt.openUrlExternally("https://" + host + "/")
-        root.remove(entry)
-        root.close()
-      } else root.showNotice("Nothing to open for this one: it has no action, and its app isn't open.")
+      root.showNotice("Nothing to open for this one: it has no action, and its app isn't open.")
     }
   }
 
+  // A browser's web notification (Omarchy marks those "web:<host>"; a plain
+  // hostname only), opened as Omarchy's toasts do.
   function webHost(entry) {
     var key = String(entry && entry.groupKey || "")
     if (key.indexOf("web:") !== 0) return ""

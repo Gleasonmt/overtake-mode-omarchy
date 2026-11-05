@@ -25,6 +25,7 @@ import "DesktopList.js" as DesktopList
 // are skipped. View options live in ~/.config/overtake/desktop.json.
 Item {
   id: root
+  OvertakeFolders { id: folders }   // Overtake's folders private before they're used
 
   property bool modeOn: false
   property bool studio: false   // Studio look: the column sits on the right
@@ -45,7 +46,7 @@ Item {
 
   FileView {
     id: iconsFile
-    path: root.configDir + "/desktop-icons.txt"
+    path: folders.ready ? root.configDir + "/desktop-icons.txt" : ""
     watchChanges: true
     printErrors: false
     onFileChanged: reload()
@@ -58,13 +59,13 @@ Item {
       .filter(function(icon) { return root.builtIn[icon.id] || DesktopEntries.byId(icon.id) })
   }
   function writeIcons(text) {
-    iconsFile.setText(text)
+    folders.write(iconsFile, text)
     parseIcons(text)
   }
 
   FileView {
     id: viewFile
-    path: root.configDir + "/desktop.json"
+    path: folders.ready ? root.configDir + "/desktop.json" : ""
     watchChanges: true
     printErrors: false
     onFileChanged: reload()
@@ -74,7 +75,7 @@ Item {
     var next = Object.assign({}, view)
     next[key] = value
     view = next
-    viewFile.setText(JSON.stringify(next, null, 2) + "\n")
+    folders.write(viewFile, JSON.stringify(next, null, 2) + "\n")
   }
 
   // Icons that aren't a desktop entry: what they open and how they look.
@@ -113,7 +114,7 @@ Item {
   property var startPins: []
   FileView {
     id: pinsFile
-    path: root.configDir + "/start-pinned.txt"
+    path: folders.ready ? root.configDir + "/start-pinned.txt" : ""
     watchChanges: true
     printErrors: false
     onFileChanged: reload()
@@ -124,7 +125,7 @@ Item {
     if (i === -1) next.push(id)
     else next.splice(i, 1)
     startPins = next
-    pinsFile.setText("# Start menu pins, one desktop entry id per line (managed by the Start menu).\n" + next.join("\n") + "\n")
+    folders.write(pinsFile, "# Start menu pins, one desktop entry id per line (managed by the Start menu).\n" + next.join("\n") + "\n")
   }
 
   // ---------- Taskbar pins (for the icon menu) ----------
@@ -149,7 +150,7 @@ Item {
   }
   FileView { id: pinRequestFile; path: Quickshell.env("HOME") + "/.local/state/overtake/taskbar-pin-request"; printErrors: false }
   function setTaskbarPin(id, pin) {
-    pinRequestFile.setText((pin ? "pin " : "unpin ") + id + " " + Date.now() + "\n")
+    folders.write(pinRequestFile, (pin ? "pin " : "unpin ") + id + " " + Date.now() + "\n")
   }
 
   // ---------- Right-click menus ----------

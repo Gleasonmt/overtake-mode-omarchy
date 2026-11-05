@@ -102,7 +102,15 @@ function Clock() {
 // anywhere else reads the file, makes it the reference and emits loaded (or
 // loadFailed when there is no file, after which any text is written). A UTF-16 half without its pair is
 // dropped on the way to disk.
-const onDisk = t => t.replace(/[\ud800-\udbff](?![\udc00-\udfff])|(^|[^\ud800-\udbff])[\udc00-\udfff]/g, "$1")
+const onDisk = t => {
+  let out = ""
+  for (let i = 0; i < t.length; i++) {
+    const c = t.charCodeAt(i)
+    if (c >= 0xd800 && c <= 0xdbff && i + 1 < t.length && (t.charCodeAt(i + 1) & 0xfc00) === 0xdc00) { out += t.substr(i, 2); i++ }
+    else if ((c & 0xf800) !== 0xd800) out += t[i]
+  }
+  return out
+}
 function FileView(disk, S) {
   // text: what text() gives and setText compares with; data: the bytes it
   // holds (its last attempt, or the file as last read)
@@ -130,10 +138,10 @@ function FileView(disk, S) {
 function Service(disk) {
   const clock = Clock()
   const S = { Store, service: null, handlers: {},
-              historyLoaded: false, historyEntries: [], unsaved: {}, liveLoaded: false, quietLoaded: false }
+              historyLoaded: false, historyEntries: [], liveEntries: [], unsaved: {}, liveLoaded: false, quietLoaded: false }
   S.service = S
   const fn = src => src ? new Function("S", "with (S) { return (" + src + ") }")(S) : undefined
-  for (const name of ["saveSoon", "flushStore", "loadHistory", "currentHistory", "forget", "overtakeCheckFile", "overtakeComparable", "overtakeSaveFailed"])
+  for (const name of ["saveSoon", "flushStore", "loadHistory", "currentHistory", "forget", "forgetAll", "storeDrop", "overtakeCheckFile", "overtakeComparable", "overtakeRemoveInPlace", "overtakeSaveFailed"])
     S[name] = fn(extract(svc, name))
   for (const [name, arg] of [["onSaved", ""], ["onSaveFailed", ""], ["onLoaded", "text"], ["onLoadFailed", ""]]) {
     const body = handler(name)
@@ -146,6 +154,11 @@ function Service(disk) {
     S[id] = t
   }
   S.historyFile = FileView(disk, S)
+  // the second FileView: atomicWrites false, blockLoading true. On a full disk
+  // a shrink truncates in place and succeeds (measured); refused at open it fails.
+  S.overtakeInPlace = S.overtakeInPlaceFile = {
+    reload() {}, text: () => disk.text === null ? "" : disk.text,
+    setText(t) { if (S.historyFile.fail !== "open") disk.text = onDisk(t) } }
   S.clock = clock
   S.start = () => S.historyFile.reload()        // the first load
   S.quit = () => {}                              // shell gone: no timer fires again
@@ -180,7 +193,8 @@ for (const how of ["open", "commit"]) {
   s.forget("nB1")
   const before = disk.attempts || 0
   s.clock.advance(12000)
-  check(`(${how}) the failed write left the entry on disk`, /SECRET-3/.test(disk.text))
+  check(how === "open" ? "(open) a refused write leaves the entry on disk, and is retried" : "(commit) on a full disk the removal is already off the file, written in place",
+    how === "open" ? /SECRET-3/.test(disk.text) : !/SECRET-3/.test(disk.text))
   check(`(${how}) while it fails, a write about every 6 s, not more`, (disk.attempts || 0) - before <= 3)
   s.historyFile.fail = ""                        // room again
   s.clock.advance(12000)
@@ -189,6 +203,25 @@ for (const how of ["open", "commit"]) {
   check(`(${how}) and then nothing is left retrying`, pending === 0)
   const after = Service(disk); after.start()
   check(`(${how}) after a restart the cleared entries stay gone`, after.historyEntries.length === 0)
+}
+// 3a. Full disk: a removal is already off the file before there is any room,
+//     so a restart before then doesn't bring it back; other rows stay.
+{
+  const disk = { text: "" }, s = Service(disk); s.start(); settle(s)
+  const add = (k, txt) => { s.historyEntries = Store.addHistory(s.historyEntries, Store.closedEntry(row(k, txt), "expired", Date.now() / 1000), Date.now() / 1000); s.saveSoon("history") }
+  add("nF1", "SECRET-KEEP"); add("nF2", "SECRET-GONE"); settle(s); s.clock.advance(7000)
+  s.historyFile.fail = "commit"
+  s.forget("nF2")
+  const after = Service(disk); after.start()
+  check("full disk: a removal survives a restart before there is room", !/SECRET-GONE/.test(disk.text) && after.historyEntries.length === 1 && /SECRET-KEEP/.test(disk.text))
+}
+// 3a'. forgetAll: everything in memory, and live cards file nothing as they close.
+{
+  const disk = { text: "" }, s = Service(disk); s.start(); settle(s)
+  s.liveEntries = [{ key: "nG1" }]
+  s.historyEntries = Store.addHistory(s.historyEntries, Store.closedEntry(row("nG2", "SECRET-A"), "expired", Date.now() / 1000), Date.now() / 1000); s.saveSoon("history"); settle(s)
+  const r = s.forgetAll()
+  check("forgetAll clears history and the live cards", r === "ok" && s.historyEntries.length === 0 && s.liveEntries.length === 0 && !/SECRET-A/.test(disk.text))
 }
 // 3b. A history file deleted while a write fails is written again from memory.
 {

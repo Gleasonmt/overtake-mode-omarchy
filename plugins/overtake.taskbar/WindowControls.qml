@@ -28,6 +28,7 @@ import qs.Commons as Commons
 // the green dot (or Super+Z) opens a menu of tiles instead of the snap bar.
 Item {
   id: root
+  OvertakeFolders { id: folders }   // Overtake's folders private before they're used
 
   property bool modeOn: false
   property bool studio: false
@@ -73,7 +74,7 @@ Item {
   // ---------- Config and state files ----------
   property var skipPatterns: []
   FileView {
-    path: Quickshell.env("HOME") + "/.config/overtake/no-controls.txt"
+    path: folders.ready ? Quickshell.env("HOME") + "/.config/overtake/no-controls.txt" : ""
     watchChanges: true
     printErrors: false
     onFileChanged: reload()
@@ -89,7 +90,7 @@ Item {
   // address -> name. The taskbar's window list shows them too.
   property var names: ({})
   FileView {
-    path: Quickshell.env("HOME") + "/.local/state/overtake/names.json"
+    path: folders.ready ? Quickshell.env("HOME") + "/.local/state/overtake/names.json" : ""
     watchChanges: true
     printErrors: false
     onFileChanged: reload()
@@ -148,7 +149,7 @@ Item {
   property string lastRenameRequest: ""
   property bool renameRequestSeen: false
   FileView {
-    path: Quickshell.env("HOME") + "/.local/state/overtake/rename-request"
+    path: folders.ready ? Quickshell.env("HOME") + "/.local/state/overtake/rename-request" : ""
     watchChanges: true
     printErrors: false
     onFileChanged: reload()
@@ -191,7 +192,7 @@ Item {
 
   property var zones: ({})
   FileView {
-    path: Quickshell.env("HOME") + "/.local/state/overtake/zones.json"
+    path: folders.ready ? Quickshell.env("HOME") + "/.local/state/overtake/zones.json" : ""
     watchChanges: true
     printErrors: false
     onFileChanged: reload()
@@ -467,7 +468,7 @@ Item {
   property string lastSnapRequest: ""
   property bool snapRequestSeen: false
   FileView {
-    path: Quickshell.env("HOME") + "/.local/state/overtake/snap-request"
+    path: folders.ready ? Quickshell.env("HOME") + "/.local/state/overtake/snap-request" : ""
     watchChanges: true
     printErrors: false
     onFileChanged: reload()
@@ -610,7 +611,7 @@ Item {
   // float-all, rescue); movement for the next two seconds is ours, not a drag.
   property real arrangingUntil: 0
   FileView {
-    path: Quickshell.env("HOME") + "/.local/state/overtake/arranging"
+    path: folders.ready ? Quickshell.env("HOME") + "/.local/state/overtake/arranging" : ""
     watchChanges: true
     printErrors: false
     onFileChanged: { root.arrangingUntil = Date.now() + 2000; reload() }

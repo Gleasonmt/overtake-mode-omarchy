@@ -18,6 +18,7 @@ import "DesktopList.js" as DesktopList
 // incubation, 2026-10-25). Pins live in ~/.config/overtake/start-pinned.txt.
 Item {
   id: root
+  OvertakeFolders { id: folders }   // Overtake's folders private before they're used
 
   required property Item anchorItem
   property Item osAnchorItem: anchorItem
@@ -114,7 +115,7 @@ Item {
 
   FileView {
     id: pinFile
-    path: root.home + "/.config/overtake/start-pinned.txt"
+    path: folders.ready ? root.home + "/.config/overtake/start-pinned.txt" : ""
     watchChanges: true
     printErrors: false
     onFileChanged: reload()
@@ -129,7 +130,7 @@ Item {
   property string desktopIconsText: ""
   FileView {
     id: desktopIconsFile
-    path: root.home + "/.config/overtake/desktop-icons.txt"
+    path: folders.ready ? root.home + "/.config/overtake/desktop-icons.txt" : ""
     watchChanges: true
     printErrors: false
     onFileChanged: reload()
@@ -144,7 +145,7 @@ Item {
       ? DesktopList.remove(desktopIconsText, id)
       : DesktopList.add(desktopIconsText, id, id === "trash" ? "" : app.name)
     desktopIconsText = next
-    desktopIconsFile.setText(next)
+    folders.write(desktopIconsFile, next)
   }
 
   readonly property var pinnedApps: pinIds.map(function(id) { return appsById[id] }).filter(function(a) { return !!a })
@@ -157,7 +158,7 @@ Item {
     if (i === -1) next.push(app.id)
     else next.splice(i, 1)
     pinIds = next
-    pinFile.setText("# Start menu pins, one desktop entry id per line (managed by the Start menu).\n" + next.join("\n") + "\n")
+    folders.write(pinFile, "# Start menu pins, one desktop entry id per line (managed by the Start menu).\n" + next.join("\n") + "\n")
   }
 
   // Search: name prefix, then word prefix, then anywhere in the name,

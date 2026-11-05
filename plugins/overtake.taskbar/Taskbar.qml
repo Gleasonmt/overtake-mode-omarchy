@@ -15,6 +15,7 @@ import qs.Ui
 // Middle-click opens a new window; right-click opens a window menu.
 Panel {
   id: root
+  OvertakeFolders { id: folders }   // Overtake's folders private before they're used
   moduleName: "overtake.taskbar"
 
   readonly property bool vertical: bar ? bar.vertical : false
@@ -76,7 +77,7 @@ Panel {
   // Names given to windows from their title bar (Rename tab): address -> name.
   property var windowNames: ({})
   FileView {
-    path: Quickshell.env("HOME") + "/.local/state/overtake/names.json"
+    path: folders.ready ? Quickshell.env("HOME") + "/.local/state/overtake/names.json" : ""
     watchChanges: true
     printErrors: false
     onFileChanged: reload()
@@ -92,7 +93,7 @@ Panel {
   // Where each minimized window came from (written by `overtake minimize`).
   property var minimizedFrom: ({})
   FileView {
-    path: Quickshell.env("HOME") + "/.local/state/overtake/minimized.json"
+    path: folders.ready ? Quickshell.env("HOME") + "/.local/state/overtake/minimized.json" : ""
     watchChanges: true
     printErrors: false
     onFileChanged: reload()
@@ -479,7 +480,7 @@ Panel {
   property string lastPinRequest: ""
   property bool pinRequestSeen: false
   FileView {
-    path: Quickshell.env("HOME") + "/.local/state/overtake/taskbar-pin-request"
+    path: folders.ready ? Quickshell.env("HOME") + "/.local/state/overtake/taskbar-pin-request" : ""
     watchChanges: true
     printErrors: false
     onFileChanged: reload()
@@ -574,7 +575,7 @@ Panel {
   property string lastStartRequest: ""
   property bool startRequestSeen: false
   FileView {
-    path: Quickshell.env("HOME") + "/.local/state/overtake/start-request"
+    path: folders.ready ? Quickshell.env("HOME") + "/.local/state/overtake/start-request" : ""
     watchChanges: true
     printErrors: false
     onFileChanged: reload()

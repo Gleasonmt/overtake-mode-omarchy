@@ -27,7 +27,9 @@ run "lifecycle" bash tests/t-lifecycle.sh
 run "omarchy mode" bash tests/t-omarchy-mode.sh
 run "upgrade from v0.1.11" bash tests/t-upgrade-extras.sh
 run "wttr.in limits" bash tests/t-sun-times.sh
+run "private folders" bash tests/t-folders.sh
 run "notification history" bash tests/t-notifications.sh
+run "notification history in real Quickshell" bash tests/t-notifications-qs.sh
 
 if (( failed )); then echo "SOME TESTS FAILED"; exit 1; fi
 echo "ALL TESTS PASSED"

@@ -78,6 +78,37 @@ PATCHES = {
     # this service's own file, rewritten whole from memory, so only it can take
     # an entry out).
     "notifications": [
+      # A copied verification code goes to wl-copy on stdin, never as an
+      # argument: wl-copy's clipboard server keeps its arguments in its
+      # command line, readable by other accounts, while it holds the code.
+      ("Service.qml",
+'''  Process { id: clipProc; running: false }''',
+'''  Process { id: clipProc; running: false }
+
+  // Overtake Mode: a copied code goes to wl-copy on stdin, never as an
+  // argument (wl-copy's clipboard server keeps its arguments in its command
+  // line, readable by other accounts, while it holds the clipboard).
+  Process {
+    id: overtakeCodeClip
+    property string value: ""
+    function send(v) {
+      running = false
+      value = v
+      stdinEnabled = true
+      running = true
+    }
+    command: ["wl-copy", "--sensitive"]
+    onStarted: { write(value); value = ""; stdinEnabled = false }
+  }'''),
+      ("Service.qml",
+'''    runClip(["wl-copy", "--sensitive", "--", value])''',
+'''    overtakeCodeClip.send(value)   // Overtake Mode: on stdin, not in argv'''),
+      # The minute-later check reads at most a code's length of the
+      # clipboard (whatever was copied since could be any size).
+      ("Service.qml",
+'''    command: ["wl-paste", "--no-newline"]''',
+'''    // Overtake Mode: only as much as a code's length, whatever was copied since
+    command: ["sh", "-c", "wl-paste --no-newline 2>/dev/null | head -c 65"]'''),
       ("Service.qml",
 '''  readonly property int lowDuration: 5000
   readonly property int normalDuration: 8000''',
@@ -165,9 +196,25 @@ PATCHES = {
       var kept = service.historyEntries.filter(function(e) { return drop.indexOf(String(e.key)) === -1 })
       if (kept.length === service.historyEntries.length) return "none"
       service.historyEntries = kept
+      service.overtakeInPlace.reload()
+      service.overtakeRemoveInPlace(service.overtakeInPlace.text())
       service.saveSoon("history")
       service.flushStore()
       return "ok"
+    }
+
+    // Overtake Mode: Clear all is everything up to now, whether or not the
+    // center has shown it yet: a copy Do Not Disturb or a quiet app filed a
+    // moment ago (or while a full disk kept it out of the file), and every
+    // card still on screen or on its way out, which would otherwise file
+    // itself into history as it closes. (Those stay on screen until they
+    // time out, but leave nothing behind.)
+    function forgetAll(): string {
+      if (!service.historyLoaded) return "notready"
+      service.liveEntries.map(function(e) { return String(e.key) })
+        .forEach(function(key) { service.storeDrop(key) })
+      if (!service.historyEntries.length) return "none"
+      return forget(service.historyEntries.map(function(e) { return String(e.key) }).join(" "))
     }
 '''),
       # History past its day leaves on time (every minute), not only when the
@@ -210,8 +257,11 @@ PATCHES = {
   }
   function overtakeCheckFile(text) {
     if (!historyLoaded) return
+    overtakeRemoveInPlace(text)
     var mine = Store.serialise(historyEntries), disk = String(text)
-    if (mine === disk || overtakeComparable(mine) === overtakeComparable(disk)) overtakeSaveRetry.stop()
+    // (the slow compare only for a text that has an unpaired half)
+    var lone = /[\\ud800-\\udbff](?![\\udc00-\\udfff])|(?:^|[^\\ud800-\\udbff])[\\udc00-\\udfff]/
+    if (mine === disk || ((lone.test(mine) || lone.test(disk)) && overtakeComparable(mine) === overtakeComparable(disk))) overtakeSaveRetry.stop()
     else overtakeSaveRetry.restart()
   }
   // Without unpaired UTF-16 halves (a body cut mid-emoji keeps one; the
@@ -230,6 +280,29 @@ PATCHES = {
     id: overtakeSaveRetry
     interval: 5000
     onTriggered: service.saveSoon("history")
+  }
+  // A row taken out (remove, Clear all, past its day) is also taken out of
+  // the file in place, at once and at each read-back: on a full disk the
+  // usual write (a new file renamed over it) gets no space, so a restart
+  // would read the row again. This write is the file as it stands less the
+  // rows no longer in memory, never longer than what it overwrites, so it
+  // reuses the file's own space; cut short, it is no JSON, which the loader
+  // reads as no history, never as a removed row.
+  property alias overtakeInPlace: overtakeInPlaceFile
+  FileView {
+    id: overtakeInPlaceFile
+    path: historyFile.path
+    atomicWrites: false
+    blockLoading: true
+    printErrors: false
+  }
+  function overtakeRemoveInPlace(diskText) {
+    var rows, keep = Object.create(null)   // (a key may be "__proto__")
+    try { rows = JSON.parse(String(diskText)) } catch (e) { return }
+    if (!Array.isArray(rows)) return
+    historyEntries.forEach(function(e) { keep[String(e.key)] = true })
+    var left = rows.filter(function(e) { return !!e && typeof e === "object" && keep[String(e.key)] === true })
+    if (left.length !== rows.length) overtakeInPlaceFile.setText(JSON.stringify(left) + "\\n")
   }'''),
       ("Service.qml",
 '''    id: historyFile

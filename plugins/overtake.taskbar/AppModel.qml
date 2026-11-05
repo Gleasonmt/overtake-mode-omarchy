@@ -10,6 +10,7 @@ import Quickshell.Io
 // "browser" and "terminal" stand for your default ones.
 Item {
   id: root
+  OvertakeFolders { id: folders }   // Overtake's folders private before they're used
 
   // ---------- Pins ----------
   readonly property string pinsPath: Quickshell.env("HOME") + "/.config/overtake/dock-pinned.txt"
@@ -17,7 +18,7 @@ Item {
   readonly property var pinned: pinLines.map(resolveId).filter(function(id, i, all) { return id && all.indexOf(id) === i })
   FileView {
     id: pinsFile
-    path: root.pinsPath
+    path: folders.ready ? root.pinsPath : ""
     watchChanges: true
     printErrors: false
     onFileChanged: reload()
@@ -78,14 +79,14 @@ Item {
 
   function writePins(lines) {
     root.pinLines = lines
-    pinsFile.setText("# Dock pins, one desktop entry id per line (managed by the Dock: right-click an app).\n"
+    folders.write(pinsFile, "# Dock pins, one desktop entry id per line (managed by the Dock: right-click an app).\n"
       + "# \"browser\" and \"terminal\" stand for your default browser and terminal.\n" + lines.join("\n") + "\n")
   }
 
   // ---------- Windows ----------
   property var windowNames: ({})
   FileView {
-    path: Quickshell.env("HOME") + "/.local/state/overtake/names.json"
+    path: folders.ready ? Quickshell.env("HOME") + "/.local/state/overtake/names.json" : ""
     watchChanges: true
     printErrors: false
     onFileChanged: reload()

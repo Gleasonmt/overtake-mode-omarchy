@@ -9,16 +9,13 @@ import Quickshell.Io
 // creates the flag file); Settings opens on request.
 Item {
   id: root
-  // Overtake's folders exist and are yours only before anything here writes
-  // to them (the command creates or tightens them to 0700 at start).
-  Component.onCompleted: Quickshell.execDetached(["overtake", "status"])
-
+  OvertakeFolders { id: folders }   // Overtake's folders private before they're used
   property var shell: null
 
   // On or off: `overtake` keeps "on" or "off" in state/mode (watched, not polled).
   property bool modeOn: false
   FileView {
-    path: Quickshell.env("HOME") + "/.local/state/overtake/mode"
+    path: folders.ready ? Quickshell.env("HOME") + "/.local/state/overtake/mode" : ""
     watchChanges: true
     printErrors: false
     onFileChanged: reload()
@@ -31,7 +28,7 @@ Item {
   property string style: "classic"
   readonly property bool studio: modeOn && style === "studio"
   FileView {
-    path: Quickshell.env("HOME") + "/.config/overtake/style"
+    path: folders.ready ? Quickshell.env("HOME") + "/.config/overtake/style" : ""
     watchChanges: true
     printErrors: false
     onFileChanged: reload()
@@ -40,7 +37,7 @@ Item {
   }
   property var studioSettings: ({})
   FileView {
-    path: Quickshell.env("HOME") + "/.config/overtake/studio.json"
+    path: folders.ready ? Quickshell.env("HOME") + "/.config/overtake/studio.json" : ""
     watchChanges: true
     printErrors: false
     onFileChanged: reload()
@@ -70,7 +67,7 @@ Item {
   property string lastUiRequest: ""
   property bool uiRequestSeen: false
   FileView {
-    path: Quickshell.env("HOME") + "/.local/state/overtake/ui-request"
+    path: folders.ready ? Quickshell.env("HOME") + "/.local/state/overtake/ui-request" : ""
     watchChanges: true
     printErrors: false
     onFileChanged: reload()
@@ -114,7 +111,7 @@ Item {
   property string lastSettingsRequest: ""
   property bool settingsRequestSeen: false
   FileView {
-    path: Quickshell.env("HOME") + "/.local/state/overtake/settings-request"
+    path: folders.ready ? Quickshell.env("HOME") + "/.local/state/overtake/settings-request" : ""
     watchChanges: true
     printErrors: false
     onFileChanged: reload()

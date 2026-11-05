@@ -18,6 +18,7 @@ import Quickshell.Services.UPower
 // Critical level.
 Item {
   id: root
+  OvertakeFolders { id: folders }   // Overtake's folders private before they're used
 
   property bool modeOn: false
 
@@ -74,7 +75,7 @@ Item {
   // ---------- Settings ----------
   FileView {
     id: configFile
-    path: root.configPath
+    path: folders.ready ? root.configPath : ""
     watchChanges: true
     printErrors: false
     onFileChanged: reload()
@@ -88,7 +89,7 @@ Item {
   }
   function save(next) {
     config = next
-    configFile.setText(JSON.stringify(next, null, 2) + "\n")
+    folders.write(configFile, JSON.stringify(next, null, 2) + "\n")
     refreshList()
   }
 
