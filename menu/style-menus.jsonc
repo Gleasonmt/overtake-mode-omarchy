@@ -1,7 +1,7 @@
   // Optional (./install.sh --style-menus): Overtake's own Appearance > Background
   // and Appearance > Theme, replacing Omarchy's in every mode.
   // Appearance > Background: the theme's backgrounds plus Overtake's wallpapers (overtake bg-picker).
-  "appearance.background": {"icon":"","label":"Background","aliases":["background","wallpaper"],"action":"background=$(overtake bg-picker); [[ -n $background ]] && omarchy-theme-bg-set \"$background\""},
+  "appearance.background": {"icon":"\uf03e","label":"Background","aliases":["background","wallpaper"],"action":"background=$(overtake bg-picker); [[ -n $background ]] && omarchy-theme-bg-set \"$background\""},
 
   // Appearance > Theme as folders: Omarchy's themes, yours, or all (overtake theme-picker).
   "appearance.theme": {"icon": "󰸌", "label": "Theme", "aliases": ["theme", "themes"]},
