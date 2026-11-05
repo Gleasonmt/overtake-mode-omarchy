@@ -380,9 +380,9 @@ then `omarchy plugin remove gleasonmt.overtake-mode`.
 
 ## Wallpapers
 
-Made for this project with an AI image model: the Classic slideshow pictures
-and the Studio snow leopard. `wallpapers/src` has scripts that redraw three of
-them.
+Made for this project: the Classic slideshow pictures are drawn by code written
+with an AI assistant (`wallpapers/src` has the scripts, which redraw each one
+exactly), and the Studio snow leopard was made with an AI image model.
 
 Some pictures include the Omarchy logo.
 

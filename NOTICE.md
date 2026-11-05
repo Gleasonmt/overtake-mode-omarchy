@@ -41,9 +41,9 @@ WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ## Wallpapers
 
-The pictures in `wallpapers/` were made for this project with an AI image
-model: the Classic slideshow (`wallpapers/*.png`) and the Studio snow leopard
-(`wallpapers/studio/7-snow-leopard.jpg`). They're covered by this project's
-MIT license; `wallpapers/src` has scripts that redraw three of them. Some
-pictures include the Omarchy logo, which comes from Omarchy (MIT, notice
-above).
+The pictures in `wallpapers/` were made for this project. The Classic slideshow
+(`wallpapers/*.png`) is drawn by code, written with an AI assistant; `wallpapers/src`
+has the scripts, which redraw each picture exactly. The Studio snow leopard
+(`wallpapers/studio/7-snow-leopard.jpg`) was made with an AI image model. They're
+covered by this project's MIT license. Some pictures include the Omarchy logo,
+which comes from Omarchy (MIT, notice above).
