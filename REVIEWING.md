@@ -2,7 +2,7 @@
 
 Notes for marketplace reviewers: what the automated baseline will report, where
 to find each thing it points at, and how to check the rest quickly. Line numbers
-are for release v0.1.13.
+are for release v0.1.14.
 
 ## Shape
 
@@ -52,7 +52,7 @@ Precedents: [macOS Dock #13499](https://github.com/omacom/omarchy-plugin-marketp
 ## Install and uninstall
 
 - `install.sh`: `plan()` (line 75) prints every file it will add and every
-  existing file it will change; nothing is written before the prompt (line 142)
+  existing file it will change; nothing is written before the prompt (line 140)
   or `--yes`, and it refuses without a terminal. `--dry-run` only prints.
 - **Omarchy mode is Omarchy as it ships.** Overtake's bar, its copies of
   Omarchy's notifications and battery services, its shortcuts, window rules
@@ -72,7 +72,7 @@ Precedents: [macOS Dock #13499](https://github.com/omacom/omarchy-plugin-marketp
   `~/.local/share/overtake`) prints what it will do and asks (line 64). It
   switches back to Omarchy first (also if a switch failed halfway), removes the
   marked blocks, re-enables Omarchy's notifications/battery unless the user had
-  turned them off before installing (recorded at `install.sh:237`), restores
+  turned them off before installing (recorded at `install.sh:235`), restores
   anything an earlier version changed (the exact earlier `mimeapps.list`
   lines, recorded per type, `uninstall.sh:152`; the link handler), and deletes
   its own files. `--purge` also removes
@@ -114,7 +114,7 @@ Precedents: [macOS Dock #13499](https://github.com/omacom/omarchy-plugin-marketp
     stdin and from there over D-Bus, never through `notify-send`'s arguments;
   - the bar's settings (which can name your cities) reach jq through a file
     descriptor, not the command line;
-  - names reach `overtake` on stdin (`name … -` :1805; QML:
+  - names reach `overtake` on stdin (`name … -` :1808; QML:
     `WindowControls.qml:133`); notification text never leaves the shell
     (the notification center doesn't pass it to anything);
   - Copy URL passes the page title in the environment (`copy_url` :1205) and
@@ -126,9 +126,7 @@ Precedents: [macOS Dock #13499](https://github.com/omacom/omarchy-plugin-marketp
   opens (`xdg-open` needs the path); a notification's app name
   (`overtake notification-open`, to find its window, as Omarchy's toasts do
   with `omarchy-hyprland-focus-app`); a web notification's site address
-  when it's opened (`https://<host>/`, as Omarchy's toasts open it); and
-  `overtake name here "<name>"` when a user types it that way on purpose (the documented form, `echo name | overtake name here
-  -`, keeps it out).
+  when it's opened (`https://<host>/`, as Omarchy's toasts open it).
 - **Shell and Lua:** window addresses must match `^0x[0-9a-fA-F]+$` before any
   command runs (`bin/overtake:1723`); workspace names with quotes,
   backslashes, `;` (which `hyprctl --batch` splits on) or control characters
@@ -198,6 +196,7 @@ plugins (pinned commit; see the Actions tab for the run on this release).
 | Omarchy mode stays stock | Overtake's notifications and battery copies switched on only with Classic/Studio, off (and the bar back) when switching to Omarchy; switched off in `shell.json` itself when no shell is running | `t-omarchy-mode.sh` |
 | Upgrades from v0.1.11 | the four optional extras that release offered are taken back out exactly (`mimeapps.list` and the link line byte for byte) | `t-upgrade-extras.sh` |
 | Startup repair | folders an older version left open are tightened at the next `overtake` start | `t-lifecycle.sh` |
+| A compromised wttr.in | at most 256 KB read; only real times reach `date` or the cache, else 07:00/19:00 | `t-sun-times.sh` (fails if the cap is removed) |
 
 Run them yourself (scratch homes, stubbed desktop commands, nothing touches
 your session): `tests/run.sh`.
@@ -205,7 +204,7 @@ your session): `tests/run.sh`.
 ## Trying it without touching your desktop
 
 ```bash
-git clone https://github.com/Gleasonmt/overtake-mode-omarchy.git && cd overtake-mode-omarchy
+git clone --branch v0.1.14 https://github.com/Gleasonmt/overtake-mode-omarchy.git && cd overtake-mode-omarchy
 ./install.sh --dry-run                     # the full change list; writes nothing
 scratch=$(mktemp -d)      # a private, empty home to install into
 mkdir -p "$scratch/.config/omarchy" && echo '{}' > "$scratch/.config/omarchy/shell.json"

@@ -92,8 +92,6 @@ Overtake Mode will add (./uninstall.sh removes all of it):
                                           whose patch no longer fits)
   ~/.local/state/overtake/, ~/.cache/overtake/
                                           its state (yours only) and the Background lists
-  ~/.cache/omarchy/image-selector/        Background previews, made by Omarchy's own
-                                          picker (left for Omarchy to manage)
 EOF
   cat <<'EOF'
 
@@ -303,9 +301,6 @@ for file in 1-mesa-day.png 2-mesa-night.png 3-ribbons.png 4-aurora.png 5-orbs.pn
   rm -f "${PICTURES:?}/studio/$file"
 done
 say "settings: ~/.config/overtake (existing files kept); wallpapers: ~/Pictures/overtake/{slideshow,studio}"
-# previews for Appearance > Background, made now (by Omarchy's omarchy-menu-images,
-# in its own cache) so the first opening doesn't wait
-setsid "$HOME/.local/bin/overtake" bg-picker cache </dev/null >/dev/null 2>&1 &
 
 # Trash as an app, so it can be found in Start, pinned to Start or the
 # taskbar, and added back to the desktop after being removed from it.

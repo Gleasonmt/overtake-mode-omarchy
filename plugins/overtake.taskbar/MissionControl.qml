@@ -92,7 +92,8 @@ Item {
           id: space
           required property int index
           readonly property int number: root.block * 10 + index + 1
-          readonly property int count: (Hyprland.toplevels.values || []).filter(function(t) { return t.workspace && t.workspace.id === space.number }).length
+          // (the same windows the grid shows: ones Hyprland still describes)
+          readonly property int count: (Hyprland.toplevels.values || []).filter(function(t) { return t && t.workspace && t.workspace.id === space.number && t.lastIpcObject && t.lastIpcObject.size }).length
           readonly property bool current: root.workspace && root.workspace.id === number
           visible: count > 0 || current || space.index < 3
           width: 132

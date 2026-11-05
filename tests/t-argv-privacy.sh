@@ -32,4 +32,8 @@ pass "no private text in any of $(wc -l <"$ARGV_LOG") logged command lines"
 # The marker did reach where it belongs (so the test exercised the paths).
 grep -q "$MARK" "$H/.local/state/overtake/names.json" || fail "the window name wasn't stored (path not exercised)"
 grep -q "$MARK" "$H/.config/omarchy/shell.json" || fail "the bar settings didn't come back after off"
-pass "the private text reached its private destinations (names.json, shell.json)"
+
+# A name given as an argument (where other accounts could read it) is refused.
+if sbx "$H" "$O" name 0xa1 "ARGNAME" >/dev/null 2>&1; then fail "a window name given as an argument was accepted"; fi
+grep -q "ARGNAME" "$H/.local/state/overtake/names.json" && fail "a window name given as an argument was stored"
+pass "the private text reached its private destinations (names.json, shell.json); names are taken on stdin only"

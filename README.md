@@ -294,7 +294,7 @@ All in `~/.config/overtake/`:
 | `~/.config/omarchy/shell.json` | only while Classic or Studio is on: Overtake's bar, and `overtake.notifications` and `overtake.battery` enabled (through `omarchy plugin enable`) in place of Omarchy's own; switching to Omarchy puts your bar and Omarchy's own back. If you had Omarchy's own notifications or battery turned off, uninstalling leaves them off |
 | `~/.config/overtake/`, `~/Pictures/overtake/` | your settings and the wallpapers |
 | `~/.local/state/overtake/` | its state: the mode, saved Omarchy bar and looks, window places and names (readable only by you) |
-| `~/.cache/overtake/` | the lists behind the desktop's Change background (links to the pictures). Their previews are made by Omarchy's own picker (`omarchy-menu-images`) in its cache, `~/.cache/omarchy/image-selector`, as for Omarchy's own Background menu; the installer makes them once in the background so the first opening doesn't wait |
+| `~/.cache/overtake/` | the lists behind the desktop's Change background (links to the pictures). When you open it, Omarchy's own picker (`omarchy-menu-images`) shows them, with its previews in its own cache, as for Omarchy's own Background menu |
 | `~/.local/share/overtake/` | a copy of the uninstaller, so `overtake uninstall` works without the repository, and of the patcher (`patches/apply.py`, `NOTICE.md`) for rebuilding the copies |
 | `~/.config/omarchy/hooks/post-update.d/overtake.hook` | runs `overtake build-copies update` near the end of `omarchy update`: the copies of Omarchy's plugins are rebuilt from the updated Omarchy, and the shell reloads a changed plugin folder by itself. The same check runs at login (`overtake resume`), so an Omarchy update made outside `omarchy update` is caught too |
 | `~/.local/share/applications/overtake-trash.desktop` | Trash as an app, for Start, the taskbar and the desktop |
@@ -310,8 +310,9 @@ back when you switch to Omarchy. Your saved Omarchy layout lives in
 
 `./uninstall.sh` undoes every row above, except that it keeps your settings
 and wallpapers (`~/.config/overtake`, `~/Pictures/overtake`) unless you add
-`--purge` (which also deletes pictures you added to those folders), and the
-previews in Omarchy's own image cache stay for Omarchy to manage.
+`--purge` (which also deletes pictures you added to those folders); previews
+Omarchy's own picker made when you used Change background stay in Omarchy's
+cache for Omarchy to manage.
 
 If a future Omarchy changes one of those widgets so the change no longer
 applies, the installer says so and Overtake uses Omarchy's own one.

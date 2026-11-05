@@ -26,6 +26,7 @@ run "argv privacy" bash tests/t-argv-privacy.sh
 run "lifecycle" bash tests/t-lifecycle.sh
 run "omarchy mode" bash tests/t-omarchy-mode.sh
 run "upgrade from v0.1.11" bash tests/t-upgrade-extras.sh
+run "wttr.in limits" bash tests/t-sun-times.sh
 
 if (( failed )); then echo "SOME TESTS FAILED"; exit 1; fi
 echo "ALL TESTS PASSED"

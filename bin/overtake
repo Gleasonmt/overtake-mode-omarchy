@@ -36,7 +36,7 @@
 #   overtake taskbar-position <left|center>  # right-click Start: where the taskbar sits on the bar
 #   overtake copy-url <address>  # title bar menu: copy a browser window's page address
 #   overtake rename [address]    # taskbar menu: bring a window up with its name ready to edit
-#   overtake name <address|here> [name|-]  # name a window (shown in the taskbar and title bar); no name clears it, - reads it from stdin
+#   overtake name <address|here> [-]  # name a window (shown in the taskbar and title bar) from one line on stdin; no - clears it
 #                             # "here": the window this runs in
 #   overtake fill-gap <address>  # a window opened: snap it into a spot snapped windows leave free
 #   overtake ui <spotlight|apps|app-windows|switcher|switcher-back|switcher-commit|switcher-cancel|mission-control|force-quit|app-menu|control-center>
@@ -1802,7 +1802,10 @@ Gio.bus_get_sync(Gio.BusType.SESSION, None).call_sync(
   name)
     addr=${2:-}
     [[ $addr == here ]] && addr=$(window_here)
-    name=${3:-}; [[ $name == - ]] && { IFS= read -r -t 5 name || true; }   # "-": one line on stdin
+    # the name only on stdin ("-", one line; no name clears it), never as an
+    # argument, where other accounts could read it in the process list
+    [[ -z ${3:-} || ${3:-} == - ]] || { echo "overtake name: give the name on stdin: echo NAME | overtake name ${2:-here} -" >&2; exit 1; }
+    name=""; [[ ${3:-} == - ]] && { IFS= read -r -t 5 name || true; }
     [[ -n $addr ]] && set_name "$addr" "$name" || { [[ ${2:-} == here ]] && echo "overtake: no window found for this process" >&2; true; } ;;
   start)
     mkdir -p -m 700 "$STATE_DIR"

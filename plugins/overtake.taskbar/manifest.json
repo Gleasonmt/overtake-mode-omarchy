@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "overtake.taskbar",
   "name": "Overtake Mode (Omarchy)",
-  "version": "0.1.13",
+  "version": "0.1.14",
   "author": "Gleasonmt",
   "description": "Taskbar, Start menu, title bars, snap layouts and desktop icons for Overtake Mode (Omarchy)",
   "kinds": [

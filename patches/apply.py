@@ -81,9 +81,9 @@ PATCHES = {
       ("Service.qml",
 '''  readonly property int lowDuration: 5000
   readonly property int normalDuration: 8000''',
-'''  // Overtake Mode on? (its flag file). This copy stays loaded in Omarchy mode
-  // too, acting like Omarchy's own while the mode is off, so switching modes
-  // needs no shell restart.
+'''  // Overtake Mode on? (its flag file). Overtake switches this copy on only
+  // with Classic or Studio; the check keeps it behaving like Omarchy's own in
+  // the moment around a switch.
   property bool overtakeOn: false
   FileView {   // "on" or "off", kept by `overtake` (watched, not polled)
     path: Quickshell.env("HOME") + "/.local/state/overtake/mode"
@@ -175,8 +175,8 @@ PATCHES = {
     "battery": ("Service.qml",
 '''  function checkBattery() {
     var state''',
-'''  // Overtake Mode on? (its flag file). This copy stays loaded in Omarchy mode
-  // too, warning as Omarchy's own does while the mode is off.
+'''  // Overtake Mode on? (its flag file). Overtake switches this copy on only
+  // with Classic or Studio; while the flag is off it warns as Omarchy's own.
   property bool overtakeOn: false
   FileView {   // "on" or "off", kept by `overtake` (watched, not polled)
     path: Quickshell.env("HOME") + "/.local/state/overtake/mode"
