@@ -157,17 +157,30 @@ Panel {
     var keys = list.map(function(e) { return String(e.key || "") })
                    .filter(function(k) { return /^[A-Za-z0-9_-]{1,120}$/.test(k) })
     if (!keys.length) return
-    historyCall(["forget", keys.join(" ")])
+    keys.forEach(function(k) { if (pendingKeys.indexOf(k) === -1) pendingKeys.push(k) })
     entries = entries.filter(function(e) { return keys.indexOf(e.key) === -1 })
+    sendPending()
   }
   function remove(entry) { removeAll([entry]) }
 
   function clearAll() {
-    historyCall(["clearHistory"])
+    pendingClear = true
+    pendingKeys = []
     entries = []
+    sendPending()
   }
-  function historyCall(args) {
-    if (historyProc.running) { reloadSoon.restart(); return }
+  // Removals wait their turn: one call at a time, the rest queued (a clear
+  // replaces any queued removals).
+  property var pendingKeys: []
+  property bool pendingClear: false
+  function sendPending() {
+    if (historyProc.running) return
+    var args
+    if (pendingClear) args = ["clearHistory"]
+    else if (pendingKeys.length) args = ["forget", pendingKeys.join(" ")]
+    else return
+    pendingClear = false
+    pendingKeys = []
     historyProc.command = ["omarchy-shell", "notifications"].concat(args)
     historyProc.running = true
   }
@@ -175,13 +188,21 @@ Panel {
     id: historyProc
     stdout: StdioCollector {
       onStreamFinished: {
-        if (String(text || "").trim() !== "ok")
+        var reply = String(text || "").trim()
+        // "none": already gone (taken out, or aged out of Omarchy's day)
+        if (reply === "notready") root.showNotice("Notifications are still loading; try again in a moment.")
+        else if (reply !== "ok" && reply !== "none")
           root.showNotice("Couldn't remove: Overtake's notifications aren't loaded (overtake build-copies all).")
         reloadSoon.restart()
       }
     }
+    onExited: root.sendPending()
   }
-  Timer { id: reloadSoon; interval: 500; onTriggered: root.reload() }   // the file as it now stands
+  Timer {   // the file as it now stands, once nothing is still on its way
+    id: reloadSoon
+    interval: 500
+    onTriggered: if (historyProc.running || root.pendingClear || root.pendingKeys.length) restart(); else root.reload()
+  }
 
   // Like clicking the toast: run its action if it carried one, otherwise
   // bring the app that sent it to the front. Then it's done with.
@@ -209,10 +230,9 @@ Panel {
     openProc.entry = entry
     // the message text goes on stdin ("-"), not in the process list
     openProc.body = String(entry.body || "").replace(/<[^>]*>/g, "").replace(/\n/g, " ")
-    // (the icon only when it's a plain icon name: a path, like a contact's
-    // picture, stays out of the process list)
-    var icon = String(entry.appIcon || "")
-    openProc.command = ["overtake", "notification-open", String(entry.app || ""), /^[A-Za-z0-9._-]+$/.test(icon) ? icon : "", "-"]
+    // (the app's name, to find its window; the second argument, once its
+    // icon, is no longer used)
+    openProc.command = ["overtake", "notification-open", String(entry.app || ""), "", "-"]
     openProc.running = true
   }
   Process {

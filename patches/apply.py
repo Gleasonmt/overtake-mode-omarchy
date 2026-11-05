@@ -160,7 +160,8 @@ PATCHES = {
     // out of history.
     function forget(keys: string): string {
       var drop = String(keys || "").split(" ").filter(function(k) { return k !== "" })
-      if (!drop.length || !service.historyLoaded) return "none"   // (not read yet: it would come back)
+      if (!service.historyLoaded) return "notready"   // (not read yet: it would come back)
+      if (!drop.length) return "none"
       var kept = service.historyEntries.filter(function(e) { return drop.indexOf(String(e.key)) === -1 })
       if (kept.length === service.historyEntries.length) return "none"
       service.historyEntries = kept
@@ -169,7 +170,7 @@ PATCHES = {
     }
 
     function clearHistory(): string {
-      if (!service.historyLoaded) return "none"
+      if (!service.historyLoaded) return "notready"
       service.historyEntries = []
       service.saveSoon("history")
       return "ok"
