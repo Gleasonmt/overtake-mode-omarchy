@@ -23,7 +23,6 @@ MENU="$HOME/.config/omarchy/extensions/omarchy-menu.jsonc"
 CONFIG="$HOME/.config/overtake"
 PICTURES="$HOME/Pictures/overtake"
 APPS="$HOME/.local/share/applications"
-BROWSER_ENTRY="$APPS/omarchy-browser.desktop"
 
 say() { printf '  %s\n' "$*"; }
 die() { printf 'overtake install: %s\n' "$*" >&2; exit 1; }
@@ -63,13 +62,6 @@ MENU_FIRST=$(grep -m1 -v '^[[:space:]]*\(//.*\)\?$' "$MENU_CHECK" 2>/dev/null ||
 if [[ -n $MENU_FIRST && ! $MENU_FIRST =~ ^[[:space:]]*\{ ]]; then
   die "$MENU_CHECK doesn't start with { ; fix it first (Overtake adds its menu entry there)."
 fi
-
-# What earlier versions could add and this one no longer does (the optional
-# link handler, image viewer, Appearance menus and Claude Code name tags, no
-# longer offered): an update takes each one back out, exactly.
-have_links() { [[ -f $BROWSER_ENTRY ]] && grep -q '^Exec=.*/overtake"\? open-url ' "$BROWSER_ENTRY"; }
-have_images() { [[ -s $HOME/.local/state/overtake/image-defaults || -f $APPS/overtake-image-viewer.desktop ]]; }
-have_name_tags() { [[ -d $PLUGINS/overtake.session-names || -f $HOME/.local/state/overtake/session-names.json ]]; }
 
 # Everything below is listed here first, before anything is written.
 plan() {
@@ -114,17 +106,6 @@ and change (or create, if missing) these files (./uninstall.sh undoes each one):
   ~/.config/omarchy/shell.toml, GTK's title-bar buttons, and Omarchy's
   floating workspace layouts tiled; all put back when you switch to Omarchy)
 EOF
-  local off=()
-  have_links && off+=("the link handler")
-  have_images && off+=("the image viewer")
-  have_name_tags && off+=("the Claude Code name tags and the names kept for them")
-  [[ -f $MENU ]] && grep -q '"\(style\|appearance\)\.background".*overtake bg-picker' "$MENU" && off+=("the Appearance menus")
-  if (( ${#off[@]} )); then
-    echo
-    local list
-    printf -v list '%s, ' "${off[@]}"
-    echo "and take back out what an earlier version added: ${list%, }"
-  fi
   cat <<'EOF'
 
 then reload Hyprland and restart the Omarchy shell.
@@ -168,8 +149,7 @@ PY
 }
 
 # Overtake's own folders are yours only (settings name your devices and apps;
-# state names windows): made 0700, and folders an older version made with the
-# default mode are tightened too. A symlinked folder is left as you set it up.
+# state names windows): made 0700, and any left open are tightened too. A symlinked folder is left as you set it up.
 for dir in "$HOME/.local/state/overtake" "$HOME/.config/overtake" "${XDG_CACHE_HOME:-$HOME/.cache}/overtake"; do
   mkdir -p -m 700 "$dir"
   [[ -L $dir ]] || chmod 700 "$dir"
@@ -211,27 +191,6 @@ say "Hyprland: ~/.config/hypr/overtake{,-classic,-studio}.lua, plus marked block
 #    applies is left out, and Overtake uses Omarchy's own one instead.
 mkdir -p "$PLUGINS"
 OWN_PLUGINS="overtake.taskbar overtake.notification-center overtake.menubar overtake.control-center"
-if [[ -d $PLUGINS/overtake.session-names ]]; then
-  # an earlier version's name tags: out again (not in a test install: `omarchy plugin` acts on the running shell)
-  [[ -n ${OVERTAKE_NO_RELOAD:-} ]] || omarchy plugin disable overtake.session-names >/dev/null 2>&1 || true
-  rm -rf "${PLUGINS:?}/overtake.session-names"
-fi
-# With no shell to ask, its entry is still in shell.json: out too.
-SHELL_JSON="$HOME/.config/omarchy/shell.json"
-if jq -e '(.plugins | type) == "array" and any(.plugins[]; (if type == "object" then .id else . end) == "overtake.session-names")' "$SHELL_JSON" >/dev/null 2>&1; then
-  target=$(readlink -f "$SHELL_JSON")
-  tmp=$(mktemp "$target.XXXXXX")
-  if jq '.plugins |= map(select((if type == "object" then .id else . end) != "overtake.session-names")) | if .plugins == [] then del(.plugins) else . end' "$SHELL_JSON" >"$tmp"; then
-    chmod --reference="$target" "$tmp" 2>/dev/null || true
-    mv -f "$tmp" "$target"
-  else
-    rm -f "$tmp"
-  fi
-fi
-# and the names you typed for those tags (only a real file of yours, not
-# whatever a link points at)
-SESSION_NAMES="$HOME/.local/state/overtake/session-names.json"
-if [[ -f $SESSION_NAMES && ! -L $SESSION_NAMES && -O $SESSION_NAMES ]]; then rm -f "$SESSION_NAMES"; fi
 for plugin in $OWN_PLUGINS; do
   rm -rf "${PLUGINS:?}/$plugin"
   cp -r "$REPO/plugins/$plugin" "$PLUGINS/$plugin"
@@ -254,15 +213,14 @@ say "hook: ~/.config/omarchy/hooks/post-update.d/overtake.hook"
 # Which of Omarchy's own you had turned off yourself, so ./uninstall.sh leaves
 # those off instead of turning them back on.
 if [[ ! -e $HOME/.local/state/overtake/disabled-before ]]; then
-  # (not one that Overtake's own copy switched off, as an older install may have)
+  # (not one that Overtake's own copy switched off)
   jq -r '(if (.cloneSourceRestores | type) == "array" then .cloneSourceRestores else [] end) as $r
     | (.disabledPlugins // [])[] | select(. == "omarchy.notifications" or . == "omarchy.battery")
     | select(("overtake." + ltrimstr("omarchy.")) as $c | $r | index($c) | not)' \
     "$HOME/.config/omarchy/shell.json" >"$HOME/.local/state/overtake/disabled-before" 2>/dev/null || true
 fi
 # Omarchy's own notifications and battery run in Omarchy mode; Overtake's
-# copies are switched in only while Classic or Studio is on (and out again
-# here if an earlier version left them on in Omarchy mode).
+# copies are switched in only while Classic or Studio is on.
 if [[ -f $HOME/.local/state/overtake/enabled ]]; then
   "$HOME/.local/bin/overtake" copies on
 else
@@ -276,7 +234,7 @@ if [[ ! -s $MENU ]]; then
   printf '{\n}\n' >"$MENU"
   touch "$HOME/.local/state/overtake/created-menu"   # so uninstall.sh removes it again
 fi
-MENU_BLOCK=$(cat "$REPO/menu/omarchy-menu.jsonc")   # (an earlier version's Appearance menus go with the old block)
+MENU_BLOCK=$(cat "$REPO/menu/omarchy-menu.jsonc")
 python3 -I - "$MENU" "$MENU_BLOCK" <<'PY'
 import sys, re
 path, block = sys.argv[1:3]
@@ -337,33 +295,6 @@ Type=Application
 Terminal=false
 Categories=System;FileTools;
 DESKTOP
-
-# An earlier version's link handler: Omarchy's own line back.
-if have_links; then
-  sed -i --follow-symlinks 's|^Exec=.*/overtake"\? open-url |Exec=omarchy-launch-browser |' "$BROWSER_ENTRY"
-  say "links: back to Omarchy's own handler"
-fi
-
-# An earlier version's image viewer: each type back to what opened it before
-# (as ./uninstall.sh does).
-IMAGE_DEFAULTS="$HOME/.local/state/overtake/image-defaults"
-MIMEAPPS="${XDG_CONFIG_HOME:-$HOME/.config}/mimeapps.list"
-IMAGE_TYPES="image/png image/jpeg image/jpg image/gif image/bmp image/webp image/tiff image/avif image/heif image/jxl image/svg+xml"
-if have_images; then
-  for t in $IMAGE_TYPES; do
-    [[ $(xdg-mime query default "$t" 2>/dev/null) == overtake-image-viewer.desktop ]] || continue
-    before=""
-    [[ -f $IMAGE_DEFAULTS ]] && before=$(awk -F'\t' -v t="$t" '$1 == t { print $2; exit }' "$IMAGE_DEFAULTS")
-    tmp=$(mktemp "$MIMEAPPS.XXXXXX")
-    awk -v t="$t" -v before="$before" '
-      /^\[/ { s = ($0 == "[Default Applications]") }
-      s && index($0, t "=overtake-image-viewer.desktop") == 1 { if (before != "") print t "=" before; next }
-      { print }' "$MIMEAPPS" >"$tmp" && cat "$tmp" >"$MIMEAPPS"
-    rm -f "$tmp"
-  done
-  rm -f "$APPS/overtake-image-viewer.desktop" "$IMAGE_DEFAULTS"
-  say "images: back to what opened them before"
-fi
 
 # Which version is now installed, for the root plugin (Setup.qml): after
 # `omarchy plugin update` it asks for this installer to be run again. Written

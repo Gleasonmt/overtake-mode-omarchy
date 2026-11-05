@@ -59,6 +59,18 @@ ShellRoot {
         r = card ? String(card.key) : "none"
         if (card) svc.finishClose(card.key, "expired")
       }
+      else if (c === "age") {      // every history row a day and more older
+        svc.historyEntries = svc.historyEntries.map(function(e) { var o = Object.assign({}, e); o.closed_ts = o.closed_ts - 90000; return o })
+        svc.currentHistory()
+      }
+      else if (c === "reloadlive") svc.overtakeLiveInPlace.reload()   // (its load order at start varies)
+      else if (c === "count") r = "toasts=" + svc.testToasts.count
+      else if (c === "racelive") {  // Clear all, and a card saved in the same tick
+        var was = svc.liveEntries[0]
+        IpcRegistry.call("notifications", "forgetAll", [])
+        svc.liveEntries = [Object.assign({}, was, { key: "nrace" })]
+        svc.saveSoon("live"); svc.flushStore()
+      }
       else if (c === "forgetoldest") {
         var all = svc.historyEntries
         r = IpcRegistry.call("notifications", "forget", [String(all[all.length - 1].key)]).output
@@ -91,7 +103,7 @@ export HOME=$E/home-$SCEN QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=none PA
 unset WAYLAND_DISPLAY HYPRLAND_INSTANCE_SIGNATURE DISPLAY
 N=$HOME/.local/state/omarchy/notifications; H=$N/history.json
 mkdir -p "$N" "$HOME/.local/state/overtake" "$HOME/.config/overtake"; echo on > "$HOME/.local/state/overtake/mode"; : > "$HOME/ctl"
-[[ $SCEN == full* || $SCEN == stop || $SCEN == stale ]] && mount -t tmpfs -o size=256k tmpfs "$N"
+[[ $SCEN == full* || $SCEN == stop || $SCEN == stale || $SCEN == aged ]] && mount -t tmpfs -o size=256k tmpfs "$N"
 ctl() { echo "$1 $(date +%s%N)" > "$HOME/ctl"; sleep "${2:-0.5}"; }
 start() { ( exec qs -p "$E/root/shell.qml" ) >>"$E/qs-$SCEN.log" 2>&1 & QS=$!; sleep 4; }
 stop() { kill -TERM "$QS"; wait "$QS" 2>/dev/null; }
@@ -145,6 +157,28 @@ case $SCEN in
     stop; start
     ctl closecard 1
     echo "history=[$(secrets)]"
+    ;;
+  aged)    # a row past its day on a full disk, after an earlier in-place write
+    ctl dnd
+    notify-send -a Signal "Alice" "SECRET-1 $(pad)"; sleep 1.5
+    fill; ctl forgetall 2; rm -f "$N/filler"; sleep 7
+    notify-send -a Signal "Bob" "SECRET-2 $(pad)"; sleep 1.5
+    echo "filed=[$(secrets)]"
+    fill; ctl age 3
+    echo "aged=[$(secrets)]"
+    ;;
+  restart)  # a healthy restart keeps a card on screen
+    notify-send -a Signal "Alice" "SECRET-1 on screen"; sleep 1.5
+    echo "before=[$(live)]"
+    stop; start
+    ctl reloadlive 1
+    echo "after=[$(live)]"
+    ctl count 1
+    ;;
+  race)    # a card saved in the same tick as Clear all isn't lost from the file
+    notify-send -a Signal "Alice" "SECRET-1 on screen"; sleep 1.5
+    ctl racelive 4
+    echo "live=[$(live)]"
     ;;
   dnd)
     ctl dnd
@@ -209,6 +243,24 @@ has "$out" before "SECRET-2 " || fail "(setup) the card wasn't in live.json: $ou
 has "$out" live "" || fail "a card on screen at Clear all stayed in live.json on a full disk: $out"
 has "$out" history "" || fail "that card came back and filed itself after a restart: $out"
 pass "a card on screen at Clear all doesn't come back on a full disk"
+
+# A row past its day leaves on a full disk too.
+out=$(run_scen aged)
+has "$out" filed "SECRET-2 " || fail "(setup) the row wasn't on disk: $out"
+has "$out" aged "" || fail "a row past its day stayed in the file on a full disk: $out"
+pass "a row past its day leaves on a full disk"
+
+# A normal restart keeps a card on screen (the in-place view takes out only what memory dropped).
+out=$(run_scen restart)
+has "$out" before "SECRET-1 " || fail "(setup) the card wasn't in live.json: $out"
+has "$out" after "SECRET-1 " || fail "a restart took a card on screen out of live.json: $out"
+grep -q 'CTL count -> "toasts=1"' <(sed 's/^.*CTL/CTL/' "$E/qs-restart.log") || fail "a restart lost a card on screen"
+pass "a normal restart keeps a card on screen"
+
+# A card saved in the same tick as Clear all isn't lost from live.json.
+out=$(run_scen race)
+has "$out" live "SECRET-1 " || fail "a card saved during Clear all stayed missing from live.json: $out"
+pass "a card saved during Clear all gets back into live.json"
 
 # A silenced copy filed a moment before Clear all goes with it.
 out=$(run_scen dnd)

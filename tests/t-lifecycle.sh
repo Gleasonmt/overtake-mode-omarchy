@@ -1,13 +1,13 @@
 #!/bin/bash
 # Install → reinstall → on → off → uninstall:
 # every file the user had comes back byte for byte, Overtake's folders are
-# private (also when an older version left them open), and Omarchy's floating
+# private (also when they were left open), and Omarchy's floating
 # workspace layouts are paused while the mode is on and restored after.
 source "$(dirname "$0")/lib.sh"
 
 H="$T/home"
 make_home "$H"
-mkdir -p "$H/.config/overtake" && chmod 755 "$H/.config/overtake"   # as an older version left it
+mkdir -p "$H/.config/overtake" && chmod 755 "$H/.config/overtake"   # left open
 cp -a "$H" "$T/before"
 L="$H/.local/state/omarchy/workspace-layouts"
 
@@ -16,9 +16,9 @@ sbx "$H" ./install.sh --yes >"$T/log" 2>&1 || { cat "$T/log"; fail "install"; }
 for d in .config/overtake .local/state/overtake .cache/overtake; do
   [[ $(stat -c %a "$H/$d") == 700 ]] || fail "$d is $(stat -c %a "$H/$d"), not 700"
 done
-pass "install: Overtake's folders are 0700 (an old 0755 one tightened)"
+pass "install: Overtake's folders are 0700 (a 0755 one tightened)"
 
-# An older version may have left them open after install, too: the next
+# Left open after install, too: the next
 # start of any `overtake` command tightens them again.
 chmod 755 "$H/.local/state/overtake" "$H/.config/overtake" "$H/.cache/overtake"
 sbx "$H" "$H/.local/bin/overtake" status >/dev/null

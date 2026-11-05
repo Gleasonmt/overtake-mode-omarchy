@@ -32,7 +32,6 @@ Item {
     printErrors: false
   }
 
-  // (Fixed text naming the folder: no path from this machine in a command line.)
   // This folder's version when it is newer than the installed one (or that
   // was never recorded, by a release before 0.1.15), else "".
   function versionToInstall(manifestText, installedText) {

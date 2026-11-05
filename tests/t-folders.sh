@@ -53,3 +53,12 @@ grep -q 'MODE on' "$E/qs.log" || fail "a watch on a folder missing at start neve
 pass "a watch on a folder missing at shell start still works"
 [[ $(cat "$E/mode-after-delete" 2>/dev/null) == 700 ]] || fail "a deleted settings folder came back '$(cat "$E/mode-after-delete" 2>/dev/null)' (should be 700)"
 pass "a deleted settings folder comes back owner-only"
+
+# If `overtake` can't start at all, watching doesn't wait forever.
+F=$T/qs2; mkdir -p "$F/shell" "$F/run" "$F/home/.local/state/overtake"; chmod 700 "$F/run"
+cp "$REPO/plugins/overtake.taskbar/OvertakeFolders.qml" "$F/shell/"
+sed '/BatteryAlerts { }/d' "$E/shell/shell.qml" > "$F/shell/shell.qml"
+echo on > "$F/home/.local/state/overtake/mode"
+( cd "$F"; env -i PATH=/usr/bin HOME="$F/home" XDG_RUNTIME_DIR="$F/run" QT_QPA_PLATFORM=offscreen timeout 4 qs -p "$F/shell/shell.qml" > "$F/qs.log" 2>&1 ) || true
+grep -q 'MODE on' "$F/qs.log" || fail "with no overtake command, file watches never started"
+pass "with no overtake command, file watches still start"

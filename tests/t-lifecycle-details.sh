@@ -50,6 +50,7 @@ node -e '
   for (const [a, b, want] of cases) if (f(a, b) !== want) { console.error("FAIL: versionToInstall", a, JSON.stringify(b), "gave", f(a, b)); process.exit(1) }
 ' || fail "Setup.qml's version check"
 grep -q 'Run ./install.sh again in' Setup.qml || fail "Setup.qml doesn't ask for the installer again"
+grep -q 'root.folder +.*install\|install.*root.folder' Setup.qml && fail "Setup.qml puts this machine's path in notify-send's arguments"
 pass "Setup.qml asks for ./install.sh again when this folder is newer than what was installed, or nothing was recorded"
 sbx "$H" "$O" off >>"$T/log" 2>&1
 sbx "$H" ./uninstall.sh --yes >>"$T/log" 2>&1 || { cat "$T/log"; fail "uninstall"; }
@@ -223,15 +224,20 @@ pass "one you added to since stays"
 # ---------- shell.toml ----------
 fresh
 TOML="$H/.config/omarchy/shell.toml"
+rm -f "$TOML"
+sbx "$H" "$O" on >>"$T/log" 2>&1 || { cat "$T/log"; fail "on"; }
+[[ -s $TOML ]] || fail "on didn't write the bar size"
+sbx "$H" "$O" off >>"$T/log" 2>&1 || { cat "$T/log"; fail "off"; }
+[[ ! -e $TOML ]] || fail "off left the shell.toml it created"
 printf '\n' >"$TOML"
 sbx "$H" "$O" on >>"$T/log" 2>&1 || { cat "$T/log"; fail "on"; }
 sbx "$H" "$O" off >>"$T/log" 2>&1 || { cat "$T/log"; fail "off"; }
-[[ ! -e $TOML ]] || fail "off left a shell.toml with only white space"
+[[ -e $TOML ]] || fail "off deleted a blank shell.toml that was yours"
 printf '[font]\nbase-size = 12\n' >"$TOML"
 sbx "$H" "$O" on >>"$T/log" 2>&1 || { cat "$T/log"; fail "on"; }
 sbx "$H" "$O" off >>"$T/log" 2>&1 || { cat "$T/log"; fail "off"; }
 [[ $(<"$TOML") == $'[font]\nbase-size = 12' ]] || fail "off changed your shell.toml"
-pass "shell.toml goes when only white space is left, and keeps what's yours"
+pass "a shell.toml Overtake created goes with it; one that was yours stays, blank or not"
 
 # ---------- What the code and the login line say ----------
 grep -q "omarchy-shell-config writes them" bin/overtake && fail "replace_with's comment claims it works as omarchy-shell-config does"

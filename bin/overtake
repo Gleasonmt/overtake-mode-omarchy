@@ -50,7 +50,7 @@ set -euo pipefail
 SHELL_JSON="$HOME/.config/omarchy/shell.json"
 STATE_DIR="$HOME/.local/state/overtake"
 # Overtake's folders are yours only, whichever command makes them first (and
-# tightened at startup if an older version left them open).
+# tightened at startup if they were left open).
 for _dir in "$STATE_DIR" "$HOME/.config/overtake" "${XDG_CACHE_HOME:-$HOME/.cache}/overtake"; do
   if [[ ! -e $_dir ]]; then mkdir -p -m 700 "$_dir" 2>/dev/null || true
   elif [[ -d $_dir && ! -L $_dir && -O $_dir && $(stat -c %a "$_dir") != 700 ]]; then chmod 700 "$_dir" 2>/dev/null || true
@@ -320,7 +320,7 @@ build_copies() {  # build_copies all|update
 # Studio, kept in a marked block of the machine-level shell.toml so turning
 # the mode off removes exactly it.
 add_bar_size() {
-  [[ -f $SHELL_TOML ]] || : >"$SHELL_TOML"
+  [[ -f $SHELL_TOML ]] || { : >"$SHELL_TOML"; touch "$STATE_DIR/created-shell-toml"; }
   if [[ $(style) == studio ]]; then
     replace_with "$SHELL_TOML" bar_size_toml 30 13
   else
@@ -358,12 +358,11 @@ remove_bar_size() {
   [[ -f $SHELL_TOML ]] || return 0
   replace_with "$SHELL_TOML" awk -v b="$TOML_BEGIN" -v e="$TOML_END" \
     '$0 == b { skip = 1 } !skip { print } $0 == e { skip = 0 }' "$SHELL_TOML"
-  # Nothing left but white space: the file goes (v0.1.0 to v0.1.11 left it
-  # behind empty). Omarchy reads a missing file the same as an empty one.
-  if [[ ! -L $SHELL_TOML && -z $(tr -d '[:space:]' <"$SHELL_TOML") ]]; then
+  # Overtake created it and nothing else was added: the file goes too.
+  if [[ -f $STATE_DIR/created-shell-toml && ! -L $SHELL_TOML && -z $(tr -d '[:space:]' <"$SHELL_TOML") ]]; then
     rm -f "$SHELL_TOML"
   fi
-  rm -f "$STATE_DIR/created-shell-toml"   # (the marker earlier versions kept)
+  rm -f "$STATE_DIR/created-shell-toml"
 }
 
 # The bar layout in shell.json (fails, leaving the file as it was, if the
@@ -1712,7 +1711,6 @@ bg_picker() {
   cache="${XDG_CACHE_HOME:-$HOME/.cache}/overtake/bg-picker"
   # links change only when the pictures do: unchanged folders let Omarchy's
   # picker reuse its list instead of rereading every picture
-  rm -f "$cache"/* 2>/dev/null || true   # (flat layout of an older version)
   mkdir -p "$cache/1-theme" "$cache/2-live" "$cache/3-overtake" "$cache/4-themes"
 
   n=0

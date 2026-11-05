@@ -155,7 +155,7 @@ function Service(disk) {
     S[id] = t
   }
   S.historyFile = FileView(disk, S)
-  // the second FileView: atomicWrites false, blockLoading true. On a full disk
+  // the second FileView: atomicWrites false. On a full disk
   // a shrink truncates in place and succeeds (measured); refused at open it fails.
   // reload() is asynchronous (measured): the file is read a moment later.
   const inPlace = { path: null,

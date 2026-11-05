@@ -19,7 +19,7 @@ Item {
   Process {
     id: check
     command: ["overtake", "status"]
-        running: true
+    running: true
     // (couldn't start at all: no exit comes, and watching must not wait forever)
     onRunningChanged: if (!running) gate.ready = true
     onExited: function(code) {

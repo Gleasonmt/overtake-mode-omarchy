@@ -39,12 +39,11 @@ cat <<'EOF'
 Uninstalling Overtake Mode will:
   switch back to Omarchy, if the mode is on
   remove its marked blocks from ~/.config/hypr/bindings.lua, autostart.lua,
-    ~/.config/omarchy/extensions/omarchy-menu.jsonc and shell.toml (shell.toml
-    goes if only white space is left, as does a file of these it created itself)
+    ~/.config/omarchy/extensions/omarchy-menu.jsonc and shell.toml
+    (a file of these it created goes if nothing else was added)
   make sure Omarchy's own notifications and battery run (shell.json; any
     you had turned off yourself stay off)
   put back your own screensaver art, if Overtake replaced it
-  undo what an earlier version's extras changed (links, image viewer)
   delete ~/.local/bin/overtake, ~/.config/hypr/overtake*.lua, its Omarchy
     post-update hook (hooks/post-update.d/overtake.hook),
     ~/.config/omarchy/plugins/overtake.*, its .desktop files,
@@ -113,7 +112,7 @@ remove_if_created "$HYPR/autostart.lua" created-autostart
 # whatever HOME says.
 SHELL_JSON="$HOME/.config/omarchy/shell.json"
 if [[ -z ${OVERTAKE_NO_RELOAD:-} ]]; then
-  for id in overtake.notifications overtake.battery overtake.session-names; do
+  for id in overtake.notifications overtake.battery; do
     omarchy plugin disable "$id" >/dev/null 2>&1 || true
   done
 fi
@@ -149,9 +148,8 @@ p = sys.argv[1]
 t = open(p, encoding="utf-8", errors="surrogateescape", newline="").read()
 open(p, "w", encoding="utf-8", errors="surrogateescape", newline="").write(re.sub(r"\n?# >>> overtake.*?# <<< overtake\n?", "\n", t, flags=re.S))
 PY
-  # (nothing left but white space: the file goes, as v0.1.0 to v0.1.11 left it
-  # behind empty; Omarchy reads a missing file the same as an empty one)
-  if [[ ! -L $SHELL_TOML && -z $(tr -d '[:space:]' <"$SHELL_TOML") ]]; then
+  # (the file goes if Overtake created it and nothing else was added)
+  if [[ -f $HOME/.local/state/overtake/created-shell-toml && ! -L $SHELL_TOML && -z $(tr -d '[:space:]' <"$SHELL_TOML") ]]; then
     rm -f "$SHELL_TOML"
   fi
 fi
@@ -161,26 +159,6 @@ if [[ -z $PURGE && -f $HOME/.local/state/overtake/taskbar-settings.json ]]; then
   mkdir -p -m 700 "$HOME/.config/overtake"
   cp "$HOME/.local/state/overtake/taskbar-settings.json" "$HOME/.config/overtake/taskbar-settings.json"
 fi
-# Images back to what opened them before (an earlier version's image viewer):
-# Overtake's line out of mimeapps.list, and your own line back exactly if you
-# had one (the installer recorded it). Nothing is added you didn't have.
-IMAGE_DEFAULTS="$HOME/.local/state/overtake/image-defaults"
-MIMEAPPS="${XDG_CONFIG_HOME:-$HOME/.config}/mimeapps.list"
-for t in image/png image/jpeg image/jpg image/gif image/bmp image/webp image/tiff image/avif image/heif image/jxl image/svg+xml; do
-  [[ $(xdg-mime query default "$t" 2>/dev/null) == overtake-image-viewer.desktop ]] || continue
-  before=""
-  [[ -f $IMAGE_DEFAULTS ]] && before=$(awk -F'\t' -v t="$t" '$1 == t { print $2; exit }' "$IMAGE_DEFAULTS")
-  tmp=$(mktemp "$MIMEAPPS.XXXXXX")
-  awk -v t="$t" -v before="$before" '
-    /^\[/ { s = ($0 == "[Default Applications]") }
-    s && index($0, t "=overtake-image-viewer.desktop") == 1 { if (before != "") print t "=" before; next }
-    { print }' "$MIMEAPPS" >"$tmp" &&
-    cat "$tmp" >"$MIMEAPPS"
-  rm -f "$tmp"
-done
-# Links back to Omarchy's own handler
-sed -i --follow-symlinks 's|^Exec=.*/overtake"\? open-url |Exec=omarchy-launch-browser |' "$HOME/.local/share/applications/omarchy-browser.desktop" 2>/dev/null || true
-rm -f "$HOME/.local/share/applications/overtake-image-viewer.desktop"
 rm -f "$HOME/.local/share/applications/overtake-trash.desktop"
 rm -f "$HOME/.config/omarchy/hooks/post-update.d/overtake.hook"
 # Screensaver art you had before Overtake replaced it
@@ -191,7 +169,7 @@ rm -rf "${PLUGINS:?}/overtake.taskbar" "${PLUGINS:?}/overtake.workspaces" \
        "${PLUGINS:?}/overtake.bluetooth" "${PLUGINS:?}/overtake.audio" \
        "${PLUGINS:?}/overtake.notifications" "${PLUGINS:?}/overtake.notification-center" \
        "${PLUGINS:?}/overtake.battery" "${PLUGINS:?}/overtake.menubar" "${PLUGINS:?}/overtake.control-center" \
-       "${PLUGINS:?}/overtake.session-names" "${PLUGINS:?}"/.overtake-build.* \
+       "${PLUGINS:?}"/.overtake-build.* \
        "$HOME/.local/state/overtake" "${XDG_CACHE_HOME:-$HOME/.cache}/overtake" "$HOME/.local/share/overtake"
 
 if [[ $PURGE ]]; then

@@ -281,7 +281,7 @@ PATCHES = {
     interval: 5000
     onTriggered: service.saveSoon("history")
   }
-    // A row taken out (remove, Clear all, past its day) is also taken out of
+  // A row taken out (remove, Clear all, past its day) is also taken out of
   // the file in place, right after the removal and at each read-back: on a
   // full disk the usual write (a new file renamed over it) gets no space, so
   // a restart would read the row again. reload() is asynchronous, so this
@@ -297,7 +297,7 @@ PATCHES = {
     printErrors: false
     onLoaded: if (service.historyLoaded) service.overtakeRemoveInPlace(text())
   }
-    // The same for the cards on screen (live.json), at Clear all: otherwise one
+  // The same for the cards on screen (live.json), at Clear all: otherwise one
   // comes back after a restart on a full disk and files itself as it closes.
   property alias overtakeLiveInPlace: overtakeLiveInPlaceFile
   FileView {
@@ -313,7 +313,23 @@ PATCHES = {
       service.liveEntries.forEach(function(e) { keep[String(e.key)] = true })
       var left = rows.filter(function(e) { return !!e && typeof e === "object" && keep[String(e.key)] === true })
       if (left.length !== rows.length) setText(JSON.stringify(left) + "\\n")
+      // A card that arrived as this was read can be missing from the file now:
+      // written again from memory (reloaded first: FileView skips the text it
+      // last wrote), and read back a second later, a few times at most.
+      var have = Object.create(null)
+      left.forEach(function(e) { have[String(e.key)] = true })
+      if (service.liveEntries.some(function(e) { return have[String(e.key)] !== true })) {
+        liveFile.reload()
+        service.saveSoon("live")
+        if (overtakeLiveReadBack.tries++ < 5) overtakeLiveReadBack.restart()
+      } else overtakeLiveReadBack.tries = 0
     }
+  }
+  Timer {
+    id: overtakeLiveReadBack
+    property int tries: 0
+    interval: 1000
+    onTriggered: overtakeLiveInPlaceFile.reload()
   }
   function overtakeRemoveInPlace(diskText) {
     var rows, keep = Object.create(null)   // (a key may be "__proto__")

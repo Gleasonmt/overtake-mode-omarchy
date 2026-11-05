@@ -254,7 +254,8 @@ Panel {
   // its site; otherwise the app that sent it, brought forward if it's open.
   // Nothing is opened from the message text. If none of those can happen the
   // entry stays in the list rather than vanishing for nothing. (Omarchy's toast
-  // also tries the sender's own window by process id, which history doesn't keep.)
+  // also tries the sender's own window first; a stored process id may belong to
+  // another process by now, so the center doesn't use it.)
   function activate(entry) {
     // The toast's own action, checked and run exactly as Omarchy's own
     // notifications do (an argv of strings, through a login shell's PATH).
