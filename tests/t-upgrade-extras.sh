@@ -13,6 +13,10 @@ if ! git -C "$REPO" cat-file -e "$OLD^{commit}" 2>/dev/null; then
 fi
 mkdir -p "$T/old"
 git -C "$REPO" archive "$OLD" | tar -x -C "$T/old"
+# (v0.1.11's installer only looked in /usr/share/omarchy; point it at the
+# Omarchy plugins the tests use, as this version's installer can be)
+sed -i "s|^OMARCHY_PLUGINS=/usr/share/omarchy/shell/plugins\$|OMARCHY_PLUGINS=$OMARCHY_SRC|" "$T/old/install.sh"
+grep -q "^OMARCHY_PLUGINS=$OMARCHY_SRC\$" "$T/old/install.sh" || fail "couldn't point $OLD's installer at the Omarchy plugins (test setup)"
 
 # A working xdg-mime (it writes and reads mimeapps.list as the real one does)
 # and an imv-dir, so v0.1.11's image viewer default really is set up.
