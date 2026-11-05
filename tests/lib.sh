@@ -59,7 +59,7 @@ EOF
 
 # Real tools, wrapped so their command lines are logged too.
 for c in jq python3 sed awk grep cp mv rm mkdir chmod mktemp flock date find sort head tail tr cut \
-         readlink stat cat ls ln touch install diff cmp dirname basename sleep env timeout file ps seq wc tee; do
+         readlink stat cat ls ln touch install diff cmp dirname basename sleep env timeout ps seq wc tee; do
   real=$(command -v "$c") || continue
   printf '#!/bin/bash\nprintf "%%s\\0" "%s" "$@" >>"%s"; printf "\\n" >>"%s"\nexec "%s" "$@"\n' "$c" "$ARGV_LOG" "$ARGV_LOG" "$real" >"$WRAP/$c"
   chmod +x "$WRAP/$c"

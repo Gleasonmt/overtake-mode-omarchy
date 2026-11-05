@@ -110,6 +110,9 @@ and change (or create, if missing) these files (./uninstall.sh undoes each one):
                                           bar, and its notifications and battery
                                           copies in place of Omarchy's own; all put
                                           back when you switch to Omarchy
+  (also only while Classic or Studio is on: a marked bar-size block in
+  ~/.config/omarchy/shell.toml, GTK's title-bar buttons, and Omarchy's
+  floating workspace layouts tiled; all put back when you switch to Omarchy)
 EOF
   local off=()
   have_links && off+=("the link handler")

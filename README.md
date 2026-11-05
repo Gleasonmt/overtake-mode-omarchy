@@ -40,11 +40,13 @@ In Omarchy mode, Omarchy runs as it ships: Overtake's bar, notifications,
 battery alerts and shortcuts apply in Classic and Studio, and switching to
 Omarchy puts everything back. What stays in every mode: the mode shortcut, a
 login check that the patched copies still match your Omarchy, the Omarchy menu
-entry, the post-update hook and a Trash entry in the app launcher.
+entry, the post-update hook and a Trash entry in the app launcher. (Changes you
+make yourself in Overtake's Settings, like the screensaver art, are yours and
+stay.)
 
 Needs Omarchy 4.5 or later (tested on 4.5.0). Everything it uses ships with Omarchy,
 including `jq`, `python3` (with its GObject bindings), `hyprctl`, `fd`, `curl`,
-`flock`, ImageMagick (`magick`), `gtk-launch`, `wl-copy` and `file`. Optional: Nautilus for the Trash app.
+`flock`, ImageMagick (`magick`), `gtk-launch` and `wl-copy`. Optional: Nautilus for the Trash app.
 
 Then switch it on with **Super + Ctrl + Shift + W**, `overtake on`, or
 **Omarchy menu → Overtake Mode**. Each press of the shortcut goes to the next
@@ -335,7 +337,7 @@ What it reads on your machine, and keeps there:
   and matches what you type against that list in-process.
 - Window names and window places are kept in
   `~/.local/state/overtake`, readable only by you. Window titles and names
-  are passed between Overtake's parts through pipes, not command lines, so
+  are passed between Overtake's parts through pipes, stdin or the environment, not command lines, so
   they don't show up in the process list for other users.
 
 ## Uninstall

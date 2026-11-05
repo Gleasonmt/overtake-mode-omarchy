@@ -32,6 +32,7 @@
 #   overtake snap-layouts     # SUPER+Z: show the snap layouts for the focused window
 #   overtake uninstall [--purge] [--dry-run] [--yes]  # remove Overtake Mode (runs its uninstall.sh)
 #   overtake build-copies [all|update]  # (re)build the patched copies of Omarchy's plugins from the installed Omarchy
+#   overtake copies on|off    # (the installer) Overtake's notifications and battery copies on or off
 #   overtake taskbar-position <left|center>  # right-click Start: where the taskbar sits on the bar
 #   overtake copy-url <address>  # title bar menu: copy a browser window's page address
 #   overtake rename [address]    # taskbar menu: bring a window up with its name ready to edit
@@ -727,6 +728,7 @@ switch_copies() {  # switch_copies on|off
     # No shell to ask (a TTY, an SSH session): switching off is done in
     # shell.json itself, so Omarchy's own run when the shell next starts.
     [[ -n $ok || $1 == on ]] || hand_back_in_shell_json "$id"
+    [[ -n $ok || $1 == off ]] || echo "overtake: couldn't switch overtake.$id on (${out:-no reply from the shell}); afterwards run: omarchy plugin enable overtake.$id" >&2
   done
 }
 
@@ -1195,9 +1197,6 @@ close_window() {
 }
 
 # ---------- Floating and snap layouts ----------
-# Several overtake processes can write the same state file at once (quick
-# clicks, the taskbar's periodic `remember`), so writes take a lock and their
-# own temp file, and an empty result never replaces the file.
 # A browser window's page address, to the clipboard. Nothing outside the
 # browser can ask it for the page it shows, but it keeps every page it visits
 # (address and title) in its History database, and the window's title is the
@@ -1256,6 +1255,9 @@ taskbar_position() {
   omarchy-shell shell reloadConfig >/dev/null 2>&1 || true
 }
 
+# Several overtake processes can write the same state file at once (quick
+# clicks, the taskbar's periodic `remember`), so writes take a lock and their
+# own temp file, and an empty result never replaces the file.
 json_set() {  # json_set <file> <jq filter> [jq args...]
   local file=$1 filter=$2
   shift 2
@@ -1727,8 +1729,8 @@ esac
 
 case "${1:-help}" in
   help|-h|--help) usage ;;
-  build-copies) build_copies "${2:-update}" ;;
-  copies) [[ ${2:-} == on || ${2:-} == off ]] && switch_copies "$2" ;;   # (the installer: Overtake's service copies on or off)   # installer (all) and the post-update hook (update)
+  build-copies) build_copies "${2:-update}" ;;   # installer (all) and the post-update hook (update)
+  copies) [[ ${2:-} == on || ${2:-} == off ]] && switch_copies "$2" ;;   # (the installer: Overtake's service copies on or off)
   uninstall)
     shift
     [[ -x $HOME/.local/share/overtake/uninstall.sh ]] || { echo "overtake: the uninstaller isn't installed; run ./uninstall.sh from the repository" >&2; exit 1; }

@@ -29,3 +29,16 @@ sbx "$H" env -u OVERTAKE_NO_RELOAD "$H/.local/bin/overtake" off >>"$T/log" 2>&1 
 for id in notifications battery; do calls | grep -q "disable overtake.$id" || fail "off didn't switch overtake.$id off"; done
 jq -e '.bar | tostring | test("overtake") | not' "$H/.config/omarchy/shell.json" >/dev/null || fail "Overtake's bar left in Omarchy mode"
 pass "switching to Omarchy turns them off and puts the bar back"
+
+# No shell to ask (a TTY or SSH session): switching off is done in shell.json
+# itself, so Omarchy's own run when the shell next starts.
+stub omarchy 'echo "omarchy-shell is not running" >&2; exit 1'
+jq '.plugins = [{"id":"overtake.notifications"},{"id":"overtake.battery"}]
+    | .disabledPlugins = ["omarchy.notifications","omarchy.battery"]
+    | .cloneSourceRestores = ["overtake.notifications","overtake.battery"]' \
+  "$H/.config/omarchy/shell.json" >"$T/s.json" && cat "$T/s.json" >"$H/.config/omarchy/shell.json"
+sbx "$H" env -u OVERTAKE_NO_RELOAD "$H/.local/bin/overtake" copies off >>"$T/log" 2>&1 || { cat "$T/log"; fail "copies off"; }
+jq -e '((.plugins // []) | map(.id? // .) | any(startswith("overtake.notifications") or startswith("overtake.battery")) | not)
+       and ((.disabledPlugins // []) | length == 0) and (has("cloneSourceRestores") | not)' \
+  "$H/.config/omarchy/shell.json" >/dev/null || { cat "$H/.config/omarchy/shell.json"; fail "with no shell running, the copies weren't switched off in shell.json"; }
+pass "with no shell running, switching off is done in shell.json itself"
