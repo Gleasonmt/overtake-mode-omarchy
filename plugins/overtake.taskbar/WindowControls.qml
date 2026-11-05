@@ -51,6 +51,24 @@ Item {
   function run(args) {
     Quickshell.execDetached(["overtake"].concat(args))
   }
+  // Work that Hyprland's window events start (filling a gap for a new window,
+  // minimizing on an app's request) runs one `overtake` at a time, queued and
+  // without repeats, so a burst of events can't pile up processes.
+  property var eventQueue: []
+  function queueEvent(args) {
+    var key = args.join(" ")
+    if (eventQueue.some(function(a) { return a.join(" ") === key })) return
+    if (eventQueue.length >= 50) return   // (a runaway app: drop the rest)
+    eventQueue = eventQueue.concat([args])
+    runNextEvent()
+  }
+  function runNextEvent() {
+    if (eventProc.running || !eventQueue.length) return
+    eventProc.command = ["overtake"].concat(eventQueue[0])
+    eventQueue = eventQueue.slice(1)
+    eventProc.running = true
+  }
+  Process { id: eventProc; onExited: root.runNextEvent() }
 
   // ---------- Config and state files ----------
   property var skipPatterns: []
@@ -497,10 +515,10 @@ Item {
       if (root.modeOn && event.name === "activespecial" && String(event.data).split(",")[0] === "special:minimized")
         root.run(["hide-minimized"])
       // A new window next to snapped ones goes into a spot they leave free.
-      if (root.modeOn && event.name === "openwindow") root.run(["fill-gap", "0x" + String(event.data).split(",")[0]])
+      if (root.modeOn && event.name === "openwindow") root.queueEvent(["fill-gap", "0x" + String(event.data).split(",")[0]])
       if (root.modeOn && event.name === "minimized") {
         var parts = String(event.data).split(",")
-        if (parts[1] === "1") root.run(["minimize", "0x" + parts[0]])
+        if (parts[1] === "1") root.queueEvent(["minimize", "0x" + parts[0]])
       }
     }
   }
@@ -529,12 +547,26 @@ Item {
   }
 
   // Keep a record of where every window sits (paused around screen changes,
-  // so the record is from before the change).
+  // so the record is from before the change). Checked every 5 s, written only
+  // when a window has moved, resized, opened or closed since the last record.
+  property string rememberedLayout: ""
+  onModeOnChanged: rememberedLayout = ""   // (a fresh record each time the mode comes on)
+  function layoutSignature() {
+    return (Hyprland.toplevels.values || []).map(function(t) {
+      var o = t.lastIpcObject || {}
+      return [t.address, String(o.at), String(o.size), o.workspace ? o.workspace.id : "", o.floating].join(":")
+    }).sort().join("|")
+  }
   Timer {
     interval: 5000
     repeat: true
     running: root.modeOn && !root.dragging && !rescueTimer.running && !relayoutAgainTimer.running
-    onTriggered: root.run(["remember"])
+    onTriggered: {
+      var now = root.layoutSignature()
+      if (now === root.rememberedLayout) return
+      root.rememberedLayout = now
+      root.run(["remember"])
+    }
   }
 
   Timer {
@@ -588,7 +620,7 @@ Item {
 
   Timer {
     // quick only once the window has started moving
-    interval: root.movedTicks > 0 || root.selfMoving ? 80 : 250
+    interval: root.movedTicks > 0 || root.selfMoving ? 80 : 500
     running: root.watchingSelfMove
     repeat: true
     onTriggered: {

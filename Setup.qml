@@ -23,7 +23,7 @@ Item {
     running: true
     onExited: function(code) {
       if (code === 0) return
-      Quickshell.execDetached(["notify-send", "-a", "Overtake Mode", "Finish installing Overtake Mode",
+      Quickshell.execDetached(["notify-send", "-a", "Overtake Mode", "--", "Finish installing Overtake Mode",
         "Run ./install.sh in " + root.folder + " (it lists every change and asks first)."])
     }
   }

@@ -7,6 +7,8 @@ o.bind("SUPER + R", "Run", "omarchy-menu toggle apps")
 hl.unbind("SUPER + I")   -- (Omarchy 4.5: input-language switching)
 o.bind("SUPER + I", "Settings", "overtake settings")
 o.bind("SUPER + D", "Show desktop", "overtake show-desktop")
+hl.unbind("SUPER + M")   -- (Omarchy 4.5's minimize works only on its floating workspaces)
+o.bind("SUPER + M", "Minimize window", "overtake minimize")
 o.bind("SUPER + PERIOD", "Emojis", "omarchy-shell shell toggle omarchy.emojis")
 o.bind("CTRL + SHIFT + ESCAPE", "Task Manager", { tui = "btop" })
 

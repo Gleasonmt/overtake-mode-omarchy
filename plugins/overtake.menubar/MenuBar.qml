@@ -172,7 +172,7 @@ Panel {
       case "Help": return [
         { label: "Keyboard Shortcuts", shortcut: "Super K", run: function() { sh("omarchy-menu-keybindings") } },
         { label: "Overtake Mode Help", run: function() { sh("omarchy-launch-browser https://github.com/Gleasonmt/overtake-mode-omarchy#readme") } },
-        { label: "Omarchy Manual", run: function() { sh("omarchy-launch-webapp https://learn.omacom.io/2/the-omarchy-manual") } }
+        { label: "Omarchy Manual", run: function() { sh("omarchy-launch-webapp https://omarchy.org/manual/") } }
       ]
     }
     return []

@@ -165,7 +165,8 @@ Item {
   // you type, so what you type never goes into another program's command
   // line (which other users can read).
   property var fileIndex: []
-  onOpenChanged: if (!open) fileIndex = []
+  property var fileNames: []   // each entry's name, lowercased once, for matching
+  onOpenChanged: if (!open) { fileList.running = false; fileIndex = []; fileNames = [] }
   Timer {
     id: fileTimer
     interval: 220
@@ -180,7 +181,10 @@ Item {
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: {
-        root.fileIndex = text.split("\n").filter(function(l) { return l })
+        if (!root.open) return   // (closed while fd ran: nothing to keep)
+        var list = text.split("\n").filter(function(l) { return l })
+        root.fileNames = list.map(function(l) { var c = l.replace(/\/$/, ""); return c.slice(c.lastIndexOf("/") + 1).toLowerCase() })
+        root.fileIndex = list
         root.filterFiles()
       }
     }
@@ -198,10 +202,9 @@ Item {
     var q = root.query.trim().toLowerCase()
     if (q.length < 2 || root.view !== "search") return
     var found = []
-    for (var i = 0; i < fileIndex.length && found.length < 8; i++) {
-      var clean = fileIndex[i].replace(/\/$/, "")
-      if (clean.split("/").pop().toLowerCase().indexOf(q) !== -1) found.push(fileIndex[i])
-    }
+    var names = fileNames
+    for (var i = 0; i < names.length && found.length < 8; i++)
+      if (names[i].indexOf(q) !== -1) found.push(fileIndex[i])
     root.fileResults = found.map(function(path) {
       var clean = path.replace(/\/$/, "")
       var dir = path.charAt(path.length - 1) === "/"

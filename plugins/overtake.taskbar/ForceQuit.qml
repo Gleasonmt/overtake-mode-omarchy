@@ -19,7 +19,11 @@ Item {
   property int index: 0
   property bool confirming: false
 
-  readonly property var items: apps.runningGroups
+  // (Not the shell's own windows, like Overtake's Settings: ending that
+  // process would take the bar and everything else down with it.)
+  readonly property var items: apps.runningGroups.filter(function(g) {
+    return !g.windows.some(function(t) { return apps.windowAppId(t) === "org.quickshell" })
+  })
   readonly property color fg: Commons.Color.foreground
   readonly property color bg: Commons.Color.background
 

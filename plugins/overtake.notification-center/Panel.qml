@@ -45,7 +45,7 @@ Panel {
 
   // One group per app, newest first: { app, icon, glyph, entries, newest, critical }.
   readonly property var groups: {
-    var byApp = {}, out = []
+    var byApp = Object.create(null), out = []   // (no inherited keys: an app may call itself "constructor")
     entries.forEach(function(e) {
       var app = String(e.app || "Notifications")
       var g = byApp[app]
@@ -64,8 +64,10 @@ Panel {
 
   // Apps for Manage: everything with notifications, plus any with a setting
   // (an app set to Off sends nothing new, but must stay listed to undo it).
+  // (Not "Omarchy" or "Notifications": the panel's names for Omarchy's own
+  // feedback and for senders without a name, which a setting can't reach.)
   readonly property var knownApps: {
-    var names = groups.map(function(g) { return g.app })
+    var names = groups.map(function(g) { return g.app }).filter(function(app) { return app !== "Omarchy" && app !== "Notifications" })
     Object.keys(appModes).forEach(function(app) { if (names.indexOf(app) === -1) names.push(app) })
     return names.sort(function(a, b) { return a.toLowerCase().localeCompare(b.toLowerCase()) })
   }
@@ -76,7 +78,7 @@ Panel {
 
   readonly property bool clockMode: setting("clock", false) === true
   property date now: new Date()
-  Timer { interval: 1000; repeat: true; running: root.clockMode; onTriggered: root.now = new Date() }
+  Timer { interval: root.clockMode ? 1000 : 30000; repeat: true; running: root.clockMode || root.opened; onTriggered: root.now = new Date() }
 
   implicitWidth: clockMode ? clockText.implicitWidth + Style.space(18) + (root.unread > 0 || root.dnd ? Style.space(12) : 0) : button.implicitWidth
   implicitHeight: clockMode ? (bar ? bar.barSize : Style.bar.sizeHorizontal) : button.implicitHeight
@@ -136,10 +138,18 @@ Panel {
     watchChanges: true
     printErrors: false
     onFileChanged: reload()
-    onLoaded: { try { root.appModes = (JSON.parse(text()) || {}).apps || {} } catch (e) { root.appModes = {} } }
+    onLoaded: {
+      try {
+        var apps = (JSON.parse(text()) || {}).apps
+        root.appModes = apps && typeof apps === "object" && !Array.isArray(apps) ? apps : {}
+      } catch (e) { root.appModes = {} }
+    }
     onLoadFailed: root.appModes = {}
   }
-  function modeOf(app) { return appModes[app] || "show" }
+  function modeOf(app) {
+    var mode = Object.prototype.hasOwnProperty.call(appModes, app) ? appModes[app] : ""
+    return mode === "quiet" || mode === "off" ? mode : "show"
+  }
   function setMode(app, mode) {
     var next = Object.assign({}, appModes)
     if (mode === "show") delete next[app]
@@ -148,10 +158,27 @@ Panel {
     modesView.setText(JSON.stringify({ apps: next }, null, 2) + "\n")
   }
 
+  // A body as text: notification bodies are markup ("Tom &amp; Jerry",
+  // <b>…</b>), so the spec's tags go and entities are decoded, as Omarchy's
+  // Markup.oneLine does (a "<" that isn't one of those tags stays).
+  readonly property var entities: ({ amp: "&", lt: "<", gt: ">", quot: "\"", apos: "'", nbsp: " " })
+  function decodeOnce(text) {
+    return text
+      .replace(/&#(\d{1,7});/g, function(m, n) { var c = parseInt(n, 10); return c > 0 && c < 0x110000 ? String.fromCodePoint(c) : m })
+      .replace(/&#x([0-9a-f]{1,6});/gi, function(m, n) { var c = parseInt(n, 16); return c > 0 && c < 0x110000 ? String.fromCodePoint(c) : m })
+      .replace(/&([a-z]+);/gi, function(m, name) { var hit = root.entities[name.toLowerCase()]; return hit === undefined ? m : hit })
+  }
+  function plainBody(body, keepLines) {
+    var text = String(body || "").slice(0, 32768)
+      .replace(/<\/?(?:b|i|u|a|img|br)\b[^>]*>/gi, function(tag) { return /^<br/i.test(tag) ? "\n" : "" })
+    for (var i = 0; i < 3; i++) { var once = decodeOnce(text); if (once === text) break; text = once }
+    return keepLines ? text.trim() : text.replace(/\s+/g, " ").trim()
+  }
+
   // ---------- Actions ----------
   // History is the notifications service's own (it rewrites the file from
   // memory), so entries are taken out through it: Overtake's copy answers
-  // `forget` and `clearHistory`. Omarchy's own doesn't, and the reload then
+  // `forget`. Omarchy's own doesn't, and the reload then
   // puts the rows back.
   function removeAll(list) {
     var keys = list.map(function(e) { return String(e.key || "") })
@@ -163,23 +190,14 @@ Panel {
   }
   function remove(entry) { removeAll([entry]) }
 
-  function clearAll() {
-    pendingClear = true
-    pendingKeys = []
-    entries = []
-    sendPending()
-  }
-  // Removals wait their turn: one call at a time, the rest queued (a clear
-  // replaces any queued removals).
+  // Clear all takes out what the panel shows, not anything that arrived
+  // since it last read the file.
+  function clearAll() { removeAll(entries.slice()) }
+  // Removals wait their turn: one call at a time, the rest queued.
   property var pendingKeys: []
-  property bool pendingClear: false
   function sendPending() {
-    if (historyProc.running) return
-    var args
-    if (pendingClear) args = ["clearHistory"]
-    else if (pendingKeys.length) args = ["forget", pendingKeys.join(" ")]
-    else return
-    pendingClear = false
+    if (historyProc.running || !pendingKeys.length) return
+    var args = ["forget", pendingKeys.join(" ")]
     pendingKeys = []
     historyProc.command = ["omarchy-shell", "notifications"].concat(args)
     historyProc.running = true
@@ -201,15 +219,13 @@ Panel {
   Timer {   // the file as it now stands, once nothing is still on its way
     id: reloadSoon
     interval: 500
-    onTriggered: if (historyProc.running || root.pendingClear || root.pendingKeys.length) restart(); else root.reload()
+    onTriggered: if (historyProc.running || root.pendingKeys.length) restart(); else root.reload()
   }
 
-  // Like clicking the toast: run its action if it carried one, otherwise
-  // bring the app that sent it to the front. Then it's done with.
-  // What clicking does, in order: the toast's own action; a file the message
-  // names (a screenshot "saved to '...png'"), opened; the app that sent it,
-  // brought forward if it's open. If none of those can happen the entry
-  // stays in the list rather than vanishing for nothing.
+  // Like clicking the toast, in Omarchy's order: its own action; for a web
+  // notification, its site; otherwise the app that sent it, brought forward
+  // if it's open. Nothing is opened from the message text. If none of those
+  // can happen the entry stays in the list rather than vanishing for nothing.
   function activate(entry) {
     // The toast's own action, checked and run exactly as Omarchy's own
     // notifications do (an argv of strings, through a login shell's PATH).
@@ -226,24 +242,28 @@ Panel {
       close()
       return
     }
+    // A web notification names its site (Omarchy keeps it as `source`): open
+    // the site, as Omarchy's own toasts do (a plain hostname only).
+    var host = String(entry.source || "").toLowerCase().replace(/\.$/, "")
+    if (host.length <= 253 && /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/.test(host)
+        && !/^(?:0x[0-9a-f]*|[0-9]+)$/.test(host.split(".").pop())) {
+      Quickshell.execDetached(["omarchy-launch-browser", "https://" + host + "/"])
+      remove(entry)
+      close()
+      return
+    }
     if (openProc.running) return
     openProc.entry = entry
-    // the message text goes on stdin ("-"), not in the process list
-    openProc.body = String(entry.body || "").replace(/<[^>]*>/g, "").replace(/\n/g, " ")
-    // (the app's name, to find its window; the second argument, once its
-    // icon, is no longer used)
-    openProc.command = ["overtake", "notification-open", String(entry.app || ""), "", "-"]
+    // (the app's name, to find its window, as Omarchy's own toasts do)
+    openProc.command = ["overtake", "notification-open", String(entry.app || "")]
     openProc.running = true
   }
   Process {
     id: openProc
     property var entry: null
-    property string body: ""
-    stdinEnabled: true
-    onStarted: { write(body + "\n"); body = "" }
     onExited: function(code) {
       if (code === 0) { root.remove(entry); root.close() }
-      else root.showNotice("Nothing to open for this one: its app isn't open and it doesn't name a file.")
+      else root.showNotice("Nothing to open for this one: it has no action, and its app isn't open.")
     }
   }
 
@@ -259,7 +279,7 @@ Panel {
     expanded = next
   }
   // Every group starts closed, so the panel always opens on the short list.
-  function isOpen(app) { return !!expanded[app] }
+  function isOpen(app) { return Object.prototype.hasOwnProperty.call(expanded, app) && expanded[app] === true }
 
   Process {
     id: dndProc
@@ -283,13 +303,13 @@ Panel {
   }
 
   onOpenedChanged: {
-    if (opened) { refreshDnd(); reload(); markSeen() }
+    if (opened) { now = new Date(); refreshDnd(); reload(); markSeen() }
     else { view = "list"; expanded = {} }
   }
   onEntriesChanged: if (opened) markSeen()
 
   function ago(ts) {
-    var s = Math.max(0, (Date.now() - (ts || 0)) / 1000)
+    var s = Math.max(0, (root.now.getTime() - (ts || 0)) / 1000)   // (root.now: "now" ages while the panel is open)
     if (s < 60) return "now"
     if (s < 3600) return Math.floor(s / 60) + " min ago"
     if (s < 86400) return Math.floor(s / 3600) + " h ago"
@@ -589,7 +609,7 @@ Panel {
                           visible: !group.open
                           text: {
                             var e = group.modelData.entries[0]
-                            var body = String(e.body || "").replace(/<[^>]*>/g, "").replace(/\s+/g, " ")
+                            var body = root.plainBody(e.body, false)
                             return (e.summary || "") + (body ? " — " + body : "")
                           }
                           textFormat: Text.PlainText
@@ -691,7 +711,7 @@ Panel {
                             Text {
                               width: parent.width
                               visible: text.length > 0
-                              text: String(item.modelData.body || "").replace(/<[^>]*>/g, "")
+                              text: root.plainBody(item.modelData.body, true)
                               textFormat: Text.PlainText
                               wrapMode: Text.Wrap
                               maximumLineCount: 3
@@ -794,7 +814,8 @@ Panel {
                     id: modeRow
                     anchors.centerIn: parent
                     Repeater {
-                      model: [["show", "Show"], ["quiet", "Quiet"], ["off", "Off"]]
+                      // (notify-send's pop-ups aren't kept by Omarchy, so Quiet would just hide them: Show or Off)
+                      model: appRow.modelData === "notify-send" ? [["show", "Show"], ["off", "Off"]] : [["show", "Show"], ["quiet", "Quiet"], ["off", "Off"]]
                       Rectangle {
                         id: modeChip
                         required property var modelData
@@ -869,7 +890,7 @@ Panel {
               width: parent.width
               wrapMode: Text.Wrap
               text: root.dnd
-                ? "On: pop-ups are hidden for every app; notifications still collect here"
+                ? "On: pop-ups are hidden (except critical battery alerts); notifications still collect here"
                 : "Off: notifications pop up, then collect here"
               color: root.panelFg
               opacity: .55

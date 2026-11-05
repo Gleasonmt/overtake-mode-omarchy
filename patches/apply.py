@@ -4,7 +4,7 @@
   apply.py <workspaces|bluetooth|audio|notifications|battery> <plugin-dir>
 
 Each patch is one or more exact replacements. If Omarchy has changed any code
-one expects, nothing is written and it exits 1, so the installer can fall back
+one expects, nothing is written and it exits 3, so the installer can fall back
 to Omarchy's own plugin instead of shipping a broken one.
 """
 import sys, os
@@ -155,9 +155,9 @@ PATCHES = {
 '''    function count(): string { return String(toasts.count) }''',
 '''    function count(): string { return String(toasts.count) }
 
-    // Overtake Mode: the notification center's remove (history keys, space
-    // separated) and Clear all. Kept in both modes: they only take entries
-    // out of history.
+    // Overtake Mode: the notification center's remove and Clear all (history
+    // keys, space separated). Kept in both modes: it only takes entries out
+    // of history.
     function forget(keys: string): string {
       var drop = String(keys || "").split(" ").filter(function(k) { return k !== "" })
       if (!service.historyLoaded) return "notready"   // (not read yet: it would come back)
@@ -168,13 +168,7 @@ PATCHES = {
       service.saveSoon("history")
       return "ok"
     }
-
-    function clearHistory(): string {
-      if (!service.historyLoaded) return "notready"
-      service.historyEntries = []
-      service.saveSoon("history")
-      return "ok"
-    }'''),
+'''),
     ],
     # Overtake Mode's battery alerts (per device, levels you choose) replace
     # Omarchy's single 10% laptop warning; power profiles still switch here.
@@ -208,7 +202,7 @@ for filename, old, new in patches:
     path = os.path.join(plugin_dir, filename)
     text = texts.get(path) or open(path).read()
     if text.count(old) != 1:   # missing, or no longer one place to change
-        sys.exit(1)
+        sys.exit(3)   # (3: the patch doesn't fit; any other failure is something else)
     texts[path] = text.replace(old, new, 1)
 for path, text in texts.items():
     open(path, "w").write(text)

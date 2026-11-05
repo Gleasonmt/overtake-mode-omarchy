@@ -140,6 +140,6 @@ Item {
   Timer {
     id: barCheck
     interval: 1500
-    onTriggered: Quickshell.execDetached(["overtake", "fix-bar"])
+    onTriggered: if (root.modeOn) Quickshell.execDetached(["overtake", "fix-bar"])
   }
 }

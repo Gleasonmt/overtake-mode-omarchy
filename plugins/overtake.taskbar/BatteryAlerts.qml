@@ -160,7 +160,7 @@ Item {
       ? percent + "% left. " + (d.isLaptopBattery ? "Plug in now." : "Charge it now.")
       : percent + "% left. " + (d.isLaptopBattery ? "Plug in soon." : "Charge it soon.")
     Quickshell.execDetached(["notify-send", "-a", "Battery", "-i", iconFor(kind, level),
-                             "-u", level === "critical" ? "critical" : "normal", title, body])
+                             "-u", level === "critical" ? "critical" : "normal", "--", title, body])   // ("--": a device names itself)
     // Keep Omarchy's battery-low hook working, at the laptop's Critical level.
     if (d.isLaptopBattery && level === "critical") Quickshell.execDetached(["omarchy-hook", "battery-low", String(percent)])
   }
@@ -171,7 +171,18 @@ Item {
     refreshList()
     if (!modeOn) return
     var fired = Object.assign({}, persisted.fired), changed = false
+    // One device per key (two laptop batteries, a mouse seen through both its
+    // receiver and Bluetooth): the one that most needs charging, so the key's
+    // state isn't re-armed by one and fired again by the other.
+    var byKey = {}
     liveDevices().forEach(function(d) {
+      var k = keyOf(d), cur = byKey[k]
+      if (!cur) { byKey[k] = d; return }
+      var curCharging = isCharging(cur), charging = isCharging(d)
+      if ((curCharging && !charging) || (curCharging === charging && percentOf(d) < percentOf(cur))) byKey[k] = d
+    })
+    Object.keys(byKey).forEach(function(k) {
+      var d = byKey[k]
       var key = keyOf(d), lv = levelsFor(key), p = percentOf(d)
       var state = fired[key] || ""
       var next = state
