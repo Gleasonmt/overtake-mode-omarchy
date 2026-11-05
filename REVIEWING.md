@@ -2,7 +2,7 @@
 
 Notes for marketplace reviewers: what the automated baseline will report, where
 to find each thing it points at, and how to check the rest quickly. Line numbers
-are for release v0.1.14.
+are for release v0.1.15.
 
 ## Shape
 
@@ -167,7 +167,8 @@ Precedents: [macOS Dock #13499](https://github.com/omacom/omarchy-plugin-marketp
   (title changes are ignored). Process spawns that remain: `overtake
   remember` while Classic or
   Studio is on, only when a window has moved, resized, opened or closed
-  (checked in-process every 5 s), and one status probe (Wi-Fi, Bluetooth, night
+  (checked in-process every 5 s), an in-process expiry check of notification history every minute (in Overtake's
+  notifications copy, so only in Classic and Studio), and one status probe (Wi-Fi, Bluetooth, night
   light…) every 2 s only while the Control Center is open. Battery alerts
   read UPower in-process (on its change events, and every 30 s). In-process Hyprland IPC polling
   that remains: in Classic and Studio every 400 ms (Hyprland sends no event for resizes),
@@ -197,6 +198,7 @@ plugins (pinned commit; see the Actions tab for the run on this release).
 | Upgrades from v0.1.11 | the four optional extras that release offered are taken back out exactly (`mimeapps.list` and the link line byte for byte) | `t-upgrade-extras.sh` |
 | Startup repair | folders an older version left open are tightened at the next `overtake` start | `t-lifecycle.sh` |
 | A compromised wttr.in | at most 256 KB read; only real times reach `date` or the cache, else 07:00/19:00 | `t-sun-times.sh` (fails if the cap is removed) |
+| Notification history (the maintainer's notification-plugin checks) | Clear all and remove written at once (a shutdown right after can't lose them) and retried after a failed write until they stick; history past Omarchy's one day pruned every minute and never listed; nothing removed before history has loaded | `t-notifications.sh` (Omarchy's own Store.js with the patched functions; fails on v0.1.14) |
 
 Run them yourself (scratch homes, stubbed desktop commands, nothing touches
 your session): `tests/run.sh`.
@@ -204,7 +206,7 @@ your session): `tests/run.sh`.
 ## Trying it without touching your desktop
 
 ```bash
-git clone --branch v0.1.14 https://github.com/Gleasonmt/overtake-mode-omarchy.git && cd overtake-mode-omarchy
+git clone --branch v0.1.15 https://github.com/Gleasonmt/overtake-mode-omarchy.git && cd overtake-mode-omarchy
 ./install.sh --dry-run                     # the full change list; writes nothing
 scratch=$(mktemp -d)      # a private, empty home to install into
 mkdir -p "$scratch/.config/omarchy" && echo '{}' > "$scratch/.config/omarchy/shell.json"

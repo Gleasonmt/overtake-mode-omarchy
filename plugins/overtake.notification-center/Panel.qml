@@ -95,7 +95,14 @@ Panel {
     watchChanges: true
     printErrors: false
     onFileChanged: reload()
-    onLoaded: { root.entries = root.parseHistory(text()); root.hiddenKeys = root.lastHiddenKeys }
+    onLoaded: {
+      root.entries = root.parseHistory(text())
+      root.hiddenKeys = root.lastHiddenKeys
+      // a removal the service couldn't write yet (it keeps trying): say so
+      var stuck = root.entries.some(function(e) { return root.removedKeys.indexOf(e.key) !== -1 })
+      if (stuck) root.showNotice("Not removed yet: Omarchy couldn't save its history (is the disk full?). It keeps trying.")
+      else root.removedKeys = []
+    }
     onLoadFailed: root.entries = []
   }
   function reload() { historyView.reload() }
@@ -108,6 +115,8 @@ Panel {
     var out = [], hidden = []
     list.forEach(function(e) {
       if (!e || typeof e !== "object" || typeof e.key !== "string") return
+      // past Omarchy's one day: not shown, whatever the file still holds
+      if (Number(e.closed_ts || e.ts || 0) < Date.now() / 1000 - 86400) return
       // Omarchy's own "you just did that" toasts (Overtake Mode on, silenced
       // notifications, ...) are feedback, not something to come back to,
       // unless they carry an action (a screenshot's "click to edit").
@@ -192,6 +201,7 @@ Panel {
                    .filter(function(k) { return /^[A-Za-z0-9_-]{1,120}$/.test(k) })
     if (!keys.length) return
     keys.forEach(function(k) { if (pendingKeys.indexOf(k) === -1) pendingKeys.push(k) })
+    removedKeys = removedKeys.concat(keys.filter(function(k) { return removedKeys.indexOf(k) === -1 }))
     entries = entries.filter(function(e) { return keys.indexOf(e.key) === -1 })
     sendPending()
   }
@@ -204,6 +214,7 @@ Panel {
   }
   // Removals wait their turn: one call at a time, the rest queued.
   property var pendingKeys: []
+  property var removedKeys: []    // sent to the service, until the file shows them gone
   function sendPending() {
     if (historyProc.running || !pendingKeys.length) return
     var args = ["forget", pendingKeys.join(" ")]

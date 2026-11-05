@@ -156,8 +156,8 @@ PATCHES = {
 '''    function count(): string { return String(toasts.count) }
 
     // Overtake Mode: the notification center's remove and Clear all (history
-    // keys, space separated). Kept in both modes: it only takes entries out
-    // of history.
+    // keys, space separated). Written at once, not after the usual quarter
+    // second, so a shutdown right after can't lose it.
     function forget(keys: string): string {
       var drop = String(keys || "").split(" ").filter(function(k) { return k !== "" })
       if (!service.historyLoaded) return "notready"   // (not read yet: it would come back)
@@ -166,9 +166,61 @@ PATCHES = {
       if (kept.length === service.historyEntries.length) return "none"
       service.historyEntries = kept
       service.saveSoon("history")
+      service.flushStore()
       return "ok"
     }
 '''),
+      # History past its day leaves on time (every minute), not only when the
+      # next notification arrives; and a failed history write is retried
+      # (Quickshell's FileView skips a later write of the same text it failed
+      # to write, so it's reloaded from disk first).
+      ("Service.qml",
+'''  // Started, never restarted, so a flood still writes every quarter second.
+  Timer {
+    id: saveTimer
+    interval: 250
+    onTriggered: service.flushStore()
+  }''',
+'''  // Started, never restarted, so a flood still writes every quarter second.
+  Timer {
+    id: saveTimer
+    interval: 250
+    onTriggered: service.flushStore()
+  }
+
+  // Overtake Mode: history past its day leaves on time (Omarchy prunes it
+  // only when a notification arrives or the shell starts).
+  Timer {
+    id: overtakeExpiry
+    interval: 60000
+    repeat: true
+    running: service.historyLoaded
+    onTriggered: service.currentHistory()
+  }
+  // Overtake Mode: a history write that failed (disk full, I/O error) is
+  // tried again: reloaded first, as FileView skips writing the same text
+  // twice, then saved from memory every 5 s until it sticks.
+  function overtakeSaveFailed() {
+    historyFile.reload()
+    overtakeSaveRetry.restart()
+  }
+  Timer {
+    id: overtakeSaveRetry
+    interval: 5000
+    onTriggered: service.saveSoon("history")
+  }'''),
+      ("Service.qml",
+'''    id: historyFile
+    path: service.storeReady ? service.stateDir + "/history.json" : ""
+    atomicWrites: true
+    printErrors: false
+    onLoaded: service.loadHistory(text())''',
+'''    id: historyFile
+    path: service.storeReady ? service.stateDir + "/history.json" : ""
+    atomicWrites: true
+    printErrors: false
+    onSaveFailed: service.overtakeSaveFailed()   // Overtake Mode: tried again
+    onLoaded: service.loadHistory(text())'''),
     ],
     # Overtake Mode's battery alerts (per device, levels you choose) replace
     # Omarchy's single 10% laptop warning; power profiles still switch here.
