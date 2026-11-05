@@ -41,7 +41,7 @@
 #   overtake ui <spotlight|apps|app-windows|switcher|switcher-back|switcher-commit|switcher-cancel|mission-control|force-quit|app-menu|control-center>
 #                             # Studio: open one of its panels (Super+Space, Super+Tab, Ctrl+Up, ...)
 #   overtake hide-app|hide-others|quit-app [address]  # Studio: Super+H, Super+Alt+H, Super+Q
-#   overtake resume           # at login: restart the slideshow if the mode is on (and fix-bar)
+#   overtake resume           # at login: check the patched copies still match Omarchy; restart the slideshow if the mode is on (and fix-bar)
 #   overtake fix-bar          # put Overtake's workspaces/bluetooth/audio back if the bar has Omarchy's
 
 set -euo pipefail
@@ -266,7 +266,8 @@ build_copies() {  # build_copies all|update
 # Studio, kept in a marked block of the machine-level shell.toml so turning
 # the mode off removes exactly it.
 add_bar_size() {
-  [[ -f $SHELL_TOML ]] || : >"$SHELL_TOML"
+  # (a shell.toml Overtake had to create goes again with its block)
+  [[ -f $SHELL_TOML ]] || { : >"$SHELL_TOML"; touch "$STATE_DIR/created-shell-toml"; }
   if [[ $(style) == studio ]]; then
     replace_with "$SHELL_TOML" bar_size_toml 30 13
   else
@@ -305,6 +306,10 @@ remove_bar_size() {
   [[ -f $SHELL_TOML ]] || return 0
   replace_with "$SHELL_TOML" awk -v b="$TOML_BEGIN" -v e="$TOML_END" \
     '$0 == b { skip = 1 } !skip { print } $0 == e { skip = 0 }' "$SHELL_TOML"
+  if [[ -f $STATE_DIR/created-shell-toml && -z $(tr -d '[:space:]' <"$SHELL_TOML") ]]; then
+    rm -f "$SHELL_TOML"
+  fi
+  rm -f "$STATE_DIR/created-shell-toml"
 }
 
 # The bar layout in shell.json (fails, leaving the file as it was, if the
@@ -520,7 +525,6 @@ slideshow_loop() {
   done
 }
 
-
 # on/off/toggle run one at a time (a double-tapped shortcut, or the menu and a
 # shortcut together, would otherwise interleave and save the Overtake bar as
 # "your" bar).
@@ -710,14 +714,19 @@ resume_floating_layouts() {
 # back on when the copy goes); not in a test install (OVERTAKE_NO_RELOAD).
 switch_copies() {  # switch_copies on|off
   [[ -z ${OVERTAKE_NO_RELOAD:-} ]] || return 0
-  local id out i
+  local id out i ok
   for id in notifications battery; do
     [[ $1 == off || -d $HOME/.config/omarchy/plugins/overtake.$id ]] || continue
+    ok=""
     for i in $(seq 20); do
-      out=$(omarchy plugin "$([[ $1 == on ]] && echo enable || echo disable)" "overtake.$id" 2>&1) && break
+      out=$(omarchy plugin "$([[ $1 == on ]] && echo enable || echo disable)" "overtake.$id" 2>&1) && { ok=1; break; }
       [[ $out == *"not known"* || $out == *"not responding"* ]] || break   # (or the shell is restarting)
+      omarchy-shell shell rescanPlugins >/dev/null 2>&1 || true   # (files just written: ask it to look again)
       sleep 0.3
     done
+    # No shell to ask (a TTY, an SSH session): switching off is done in
+    # shell.json itself, so Omarchy's own run when the shell next starts.
+    [[ -n $ok || $1 == on ]] || hand_back_in_shell_json "$id"
   done
 }
 
@@ -1089,7 +1098,6 @@ focus_app() {  # focus_app <app> [exact]: its most recent window (class contains
   fi
 }
 
-
 # A notification clicked in the notification center that carries no action of
 # its own: bring the sending app's open window forward, as Omarchy's own toasts
 # do (omarchy-hyprland-focus-app). Nothing is opened or launched from the
@@ -1263,8 +1271,6 @@ json_set() {  # json_set <file> <jq filter> [jq args...]
 # Window names (title bar Rename tab, taskbar Rename window) live in
 # names.json as address -> name; a name goes with its window.
 NAMES="$STATE_DIR/names.json"
-
-
 
 window_here() {  # the window this command runs in: walk up the process tree to a window's process
   local windows pid=$$ i
@@ -1553,16 +1559,17 @@ unsnap_window() {
 # Hide Others (Super+Alt+H): every other app's. Quit (Super+Q): close all of
 # the app's windows, wherever they are.
 app_windows() {  # app_windows <address> <same|others> [here]
-  local addr=$1 which=$2 where=${3:-} clients class ws
-  clients=$(hyprctl clients -j)
-  class=$(jq -r --arg a "$addr" '.[] | select(.address == $a) | .class' <<<"$clients")
-  [[ -n $class ]] || return 0
-  ws=$(jq -r --arg a "$addr" '.[] | select(.address == $a) | .workspace.name' <<<"$clients")
-  jq -r --arg c "$class" --arg ws "$ws" --arg which "$which" --arg where "$where" '.[]
+  local addr=$1 which=$2 where=${3:-}
+  # (one jq call keyed by the address: the app's class, which the app
+  # chooses, stays inside jq rather than in a command line)
+  hyprctl clients -j | jq -r --arg a "$addr" --arg which "$which" --arg where "$where" '
+    (first(.[] | select(.address == $a)) // empty) as $me
+    | select(($me.class // "") != "")
+    | .[]
     | select(.workspace.id > 0 or .workspace.name == "special:minimized")
-    | select(if $which == "same" then .class == $c else .class != $c end)
-    | select($where != "here" or .workspace.name == $ws)
-    | .address' <<<"$clients"
+    | select(if $which == "same" then .class == $me.class else .class != $me.class end)
+    | select($where != "here" or .workspace.name == $me.workspace.name)
+    | .address'
 }
 
 hide_app() {
@@ -1600,7 +1607,6 @@ show_desktop() {
     rm -f "$DESKTOP_RETURN"
   fi
 }
-
 
 # Style > Background: every wallpaper in one list, in groups, each named by
 # where it comes from (the picker labels a picture by its file name):
@@ -1721,7 +1727,8 @@ esac
 
 case "${1:-help}" in
   help|-h|--help) usage ;;
-  build-copies) build_copies "${2:-update}" ;;   # installer (all) and the post-update hook (update)
+  build-copies) build_copies "${2:-update}" ;;
+  copies) [[ ${2:-} == on || ${2:-} == off ]] && switch_copies "$2" ;;   # (the installer: Overtake's service copies on or off)   # installer (all) and the post-update hook (update)
   uninstall)
     shift
     [[ -x $HOME/.local/share/overtake/uninstall.sh ]] || { echo "overtake: the uninstaller isn't installed; run ./uninstall.sh from the repository" >&2; exit 1; }

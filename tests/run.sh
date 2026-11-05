@@ -19,13 +19,13 @@ if command -v qmllint >/dev/null || [[ -x /usr/lib/qt6/bin/qmllint ]]; then
   # (syntax errors only: Quickshell's own modules aren't needed to parse)
   run "qml" bash -c "for f in plugins/*/*.qml Setup.qml; do if $QMLLINT \"\$f\" 2>&1 | grep -q -E '\\[syntax\\]|Expected token|Unexpected token'; then echo \"qmllint syntax error: \$f\"; exit 1; fi; done; echo 'ok - every QML file parses'"
 fi
-run "plain text" bash -c 'n=$(grep -c "^\s*Text {" plugins/*/*.qml Setup.qml | awk -F: "{s+=\$2} END {print s}"); p=$(grep -c "textFormat: Text.PlainText" plugins/*/*.qml Setup.qml | awk -F: "{s+=\$2} END {print s}"); (( p >= n )) && ! grep -q -E "Text\.(RichText|StyledText|MarkdownText)" plugins/*/*.qml && echo "ok - all $n Text items are plain text"'
+run "plain text" python3 -I tests/t-plain-text.py
 run "qml logic" node tests/t-qml-logic.js
 run "patches" bash tests/t-patches.sh
 run "argv privacy" bash tests/t-argv-privacy.sh
 run "lifecycle" bash tests/t-lifecycle.sh
 run "omarchy mode" bash tests/t-omarchy-mode.sh
-run "upgrade from 0.1.12" bash tests/t-upgrade-extras.sh
+run "upgrade from v0.1.11" bash tests/t-upgrade-extras.sh
 
 if (( failed )); then echo "SOME TESTS FAILED"; exit 1; fi
 echo "ALL TESTS PASSED"

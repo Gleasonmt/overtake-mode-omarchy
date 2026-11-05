@@ -19,6 +19,7 @@ sbx "$H" "$O" relayout all >>"$T/log" 2>&1 || true
 echo "Name $MARK" | sbx "$H" "$O" name 0xa1 - >>"$T/log" 2>&1 || true
 printf '{"app":"Battery","summary":"%s mouse low","body":"%s"}' "$MARK" "$MARK" | sbx "$H" "$O" notify-stdin >>"$T/log" 2>&1 || true
 sbx "$H" "$O" notification-open "Slack" >>"$T/log" 2>&1 || true
+for c in hide-app hide-others quit-app; do sbx "$H" "$O" "$c" 0xa1 >>"$T/log" 2>&1 || true; done   # look up windows by class
 sbx "$H" "$O" off >>"$T/log" 2>&1 || true                      # saved bar (with the marker) restored
 
 [[ -s $ARGV_LOG ]] || fail "no commands were logged (the harness isn't working)"

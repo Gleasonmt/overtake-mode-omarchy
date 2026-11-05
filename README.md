@@ -38,12 +38,13 @@ you say yes. `--dry-run` only lists; `--yes` doesn't ask.
 
 In Omarchy mode, Omarchy runs as it ships: Overtake's bar, notifications,
 battery alerts and shortcuts apply in Classic and Studio, and switching to
-Omarchy puts everything back. Only the mode switch itself (its shortcut, its
-Omarchy menu entry) is there in every mode.
+Omarchy puts everything back. What stays in every mode: the mode shortcut, a
+login check that the patched copies still match your Omarchy, the Omarchy menu
+entry, the post-update hook and a Trash entry in the app launcher.
 
-Needs Omarchy 4.5 or later (tested on 4.5.0). Everything it uses ships with Omarchy:
-`jq`, `python3`, `hyprctl`, `fd`, ImageMagick (`magick`), `notify-send`,
-`gtk-launch`, `wl-copy` and `file`. Optional: Nautilus for the Trash app.
+Needs Omarchy 4.5 or later (tested on 4.5.0). Everything it uses ships with Omarchy,
+including `jq`, `python3` (with its GObject bindings), `hyprctl`, `fd`, `curl`,
+`flock`, ImageMagick (`magick`), `gtk-launch`, `wl-copy` and `file`. Optional: Nautilus for the Trash app.
 
 Then switch it on with **Super + Ctrl + Shift + W**, `overtake on`, or
 **Omarchy menu → Overtake Mode**. Each press of the shortcut goes to the next
@@ -295,6 +296,7 @@ All in `~/.config/overtake/`:
 | `~/.local/share/overtake/` | a copy of the uninstaller, so `overtake uninstall` works without the repository, and of the patcher (`patches/apply.py`, `NOTICE.md`) for rebuilding the copies |
 | `~/.config/omarchy/hooks/post-update.d/overtake.hook` | runs `overtake build-copies update` near the end of `omarchy update`: the copies of Omarchy's plugins are rebuilt from the updated Omarchy, and the shell reloads a changed plugin folder by itself. The same check runs at login (`overtake resume`), so an Omarchy update made outside `omarchy update` is caught too |
 | `~/.local/share/applications/overtake-trash.desktop` | Trash as an app, for Start, the taskbar and the desktop |
+| `~/.config/omarchy/branding/screensaver.txt` | only when you pick screensaver art in Settings: replaced, with yours kept once as `screensaver.txt.before-overtake` and put back on uninstall |
 
 While the mode is on, `overtake` also saves your Omarchy bar layout and
 swaps in its own (`~/.config/omarchy/shell.json`), adds a marked bar-size

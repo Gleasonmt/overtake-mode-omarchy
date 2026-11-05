@@ -40,9 +40,10 @@ Uninstalling Overtake Mode will:
   switch back to Omarchy, if the mode is on
   remove its marked blocks from ~/.config/hypr/bindings.lua, autostart.lua,
     ~/.config/omarchy/extensions/omarchy-menu.jsonc and shell.toml
-  hand notifications and battery back to Omarchy's own (shell.json; any
+  make sure Omarchy's own notifications and battery run (shell.json; any
     you had turned off yourself stay off)
-  point links and images back at what opened them before
+  put back your own screensaver art, if Overtake replaced it
+  undo what an earlier version's extras changed (links, image viewer)
   delete ~/.local/bin/overtake, ~/.config/hypr/overtake*.lua, its Omarchy
     post-update hook (hooks/post-update.d/overtake.hook),
     ~/.config/omarchy/plugins/overtake.*, its .desktop files,
@@ -134,6 +135,10 @@ p = sys.argv[1]
 t = open(p, encoding="utf-8", errors="surrogateescape", newline="").read()
 open(p, "w", encoding="utf-8", errors="surrogateescape", newline="").write(re.sub(r"\n?# >>> overtake.*?# <<< overtake\n?", "\n", t, flags=re.S))
 PY
+  # (one Overtake had to create, now empty, goes too)
+  if [[ -f $HOME/.local/state/overtake/created-shell-toml && -z $(tr -d '[:space:]' <"$SHELL_TOML") ]]; then
+    rm -f "$SHELL_TOML"
+  fi
 fi
 
 # Taskbar pins live with the state; keep them unless purging.
@@ -141,26 +146,22 @@ if [[ -z $PURGE && -f $HOME/.local/state/overtake/taskbar-settings.json ]]; then
   mkdir -p -m 700 "$HOME/.config/overtake"
   cp "$HOME/.local/state/overtake/taskbar-settings.json" "$HOME/.config/overtake/taskbar-settings.json"
 fi
-# Images back to what opened them before: Overtake's line out of
-# mimeapps.list, and your own setting back if you had one (the installer
-# recorded it; an older install didn't, and those go back to imv)
+# Images back to what opened them before (an earlier version's image viewer):
+# Overtake's line out of mimeapps.list, and your own line back exactly if you
+# had one (the installer recorded it). Nothing is added you didn't have.
 IMAGE_DEFAULTS="$HOME/.local/state/overtake/image-defaults"
 MIMEAPPS="${XDG_CONFIG_HOME:-$HOME/.config}/mimeapps.list"
 for t in image/png image/jpeg image/jpg image/gif image/bmp image/webp image/tiff image/avif image/heif image/jxl image/svg+xml; do
   [[ $(xdg-mime query default "$t" 2>/dev/null) == overtake-image-viewer.desktop ]] || continue
-  if [[ -f $IMAGE_DEFAULTS ]] && grep -q "^$t	" "$IMAGE_DEFAULTS"; then
-    before=$(awk -F'\t' -v t="$t" '$1 == t { print $2; exit }' "$IMAGE_DEFAULTS")
-    # Overtake's line out, and your own line (if you had one) back exactly
-    tmp=$(mktemp "$MIMEAPPS.XXXXXX")
-    awk -v t="$t" -v before="$before" '
-      /^\[/ { s = ($0 == "[Default Applications]") }
-      s && index($0, t "=overtake-image-viewer.desktop") == 1 { if (before != "") print t "=" before; next }
-      { print }' "$MIMEAPPS" >"$tmp" &&
-      cat "$tmp" >"$MIMEAPPS"
-    rm -f "$tmp"
-  else
-    xdg-mime default imv.desktop "$t"
-  fi
+  before=""
+  [[ -f $IMAGE_DEFAULTS ]] && before=$(awk -F'\t' -v t="$t" '$1 == t { print $2; exit }' "$IMAGE_DEFAULTS")
+  tmp=$(mktemp "$MIMEAPPS.XXXXXX")
+  awk -v t="$t" -v before="$before" '
+    /^\[/ { s = ($0 == "[Default Applications]") }
+    s && index($0, t "=overtake-image-viewer.desktop") == 1 { if (before != "") print t "=" before; next }
+    { print }' "$MIMEAPPS" >"$tmp" &&
+    cat "$tmp" >"$MIMEAPPS"
+  rm -f "$tmp"
 done
 # Links back to Omarchy's own handler
 sed -i --follow-symlinks 's|^Exec=.*/overtake"\? open-url |Exec=omarchy-launch-browser |' "$HOME/.local/share/applications/omarchy-browser.desktop" 2>/dev/null || true

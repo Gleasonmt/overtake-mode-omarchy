@@ -91,3 +91,19 @@ sbx() {  # sbx <home> <command...>
       HOME="$h" XDG_RUNTIME_DIR="$T/run" OVERTAKE_NO_RELOAD=1 OVERTAKE_OMARCHY_PLUGINS="$OMARCHY_SRC" \
       PATH="$STUB:$WRAP:/usr/bin:/bin" "$@"
 }
+
+# After uninstall: every file the user had is back byte for byte (shell.json
+# by content: jq rewrites it), and nothing new is left except Overtake's kept
+# settings and wallpapers (empty folders are allowed).
+check_restored() {  # check_restored <before> <after>
+  local before=$1 after=$2 extra changed
+  jq -S . "$before/.config/omarchy/shell.json" >"$T/a.json"; jq -S . "$after/.config/omarchy/shell.json" >"$T/b.json"
+  cmp -s "$T/a.json" "$T/b.json" || { diff "$T/a.json" "$T/b.json"; fail "shell.json content changed"; }
+  (cd "$before" && find . \( -type f -o -type l \) | sort) >"$T/files-before"
+  (cd "$after" && find . \( -type f -o -type l \) | sort) >"$T/files-after"
+  extra=$(comm -13 "$T/files-before" "$T/files-after" | grep -v -E '^\./(\.config/overtake|Pictures/overtake)/' || true)
+  [[ -z $extra ]] || { echo "$extra"; fail "uninstall left files behind"; }
+  comm -23 "$T/files-before" "$T/files-after" | grep -q . && { comm -23 "$T/files-before" "$T/files-after"; fail "uninstall removed a file of the user's"; }
+  changed=$(diff -rq -x shell.json "$before" "$after" | grep -v '^Only in' || true)
+  [[ -z $changed ]] || { echo "$changed"; fail "a file of the user's changed"; }
+}

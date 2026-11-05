@@ -65,8 +65,8 @@ if [[ -n $MENU_FIRST && ! $MENU_FIRST =~ ^[[:space:]]*\{ ]]; then
 fi
 
 # What earlier versions could add and this one no longer does (the optional
-# link handler, image viewer, Appearance menus and Claude Code name tags, now
-# separate): an update takes each one back out, exactly.
+# link handler, image viewer, Appearance menus and Claude Code name tags, no
+# longer offered): an update takes each one back out, exactly.
 have_links() { [[ -f $BROWSER_ENTRY ]] && grep -q '^Exec=.*/overtake"\? open-url ' "$BROWSER_ENTRY"; }
 have_images() { [[ -s $HOME/.local/state/overtake/image-defaults || -f $APPS/overtake-image-viewer.desktop ]]; }
 have_name_tags() { [[ -d $PLUGINS/overtake.session-names ]]; }
@@ -229,24 +229,6 @@ cat >"$HOME/.config/omarchy/hooks/post-update.d/overtake.hook" <<'EOF'
 if [ -x "$HOME/.local/bin/overtake" ]; then "$HOME/.local/bin/overtake" build-copies update; fi
 EOF
 say "hook: ~/.config/omarchy/hooks/post-update.d/overtake.hook"
-# Both stay enabled in either mode (they check it themselves), so switching
-# modes needs no shell restart. The reload below picks them up. So do the
-# name tags on Claude Code windows (overtake.session-names).
-# Turn a plugin on through the running shell. Just after its files are
-# written the shell may not know it yet ("not known"): ask it to look again and
-# retry for a few seconds rather than fail quietly.
-enable_plugin() {
-  local id=$1 out="" i
-  for i in $(seq 20); do
-    out=$(omarchy plugin enable "$id" 2>&1) && return 0
-    [[ $out == *"not known"* || $out == *"not responding"* ]] || break   # (or the shell is restarting)
-    omarchy-shell shell rescanPlugins >/dev/null 2>&1 || true
-    sleep 0.3
-  done
-  say "couldn't turn on $id (${out:-no reply from the shell}); afterwards run: omarchy plugin enable $id"
-  return 0
-}
-
 # Which of Omarchy's own you had turned off yourself, so ./uninstall.sh leaves
 # those off instead of turning them back on.
 if [[ ! -e $HOME/.local/state/overtake/disabled-before ]]; then
@@ -259,14 +241,10 @@ fi
 # Omarchy's own notifications and battery run in Omarchy mode; Overtake's
 # copies are switched in only while Classic or Studio is on (and out again
 # here if an earlier version left them on in Omarchy mode).
-if [[ -z ${OVERTAKE_NO_RELOAD:-} ]]; then
-  for id in notifications battery; do
-    if [[ -f $HOME/.local/state/overtake/enabled && -d $PLUGINS/overtake.$id ]]; then
-      enable_plugin "overtake.$id"
-    else
-      omarchy plugin disable "overtake.$id" >/dev/null 2>&1 || true
-    fi
-  done
+if [[ -f $HOME/.local/state/overtake/enabled ]]; then
+  "$HOME/.local/bin/overtake" copies on
+else
+  "$HOME/.local/bin/overtake" copies off   # (in shell.json itself if no shell is running)
 fi
 say "plugins: ${OWN_PLUGINS// /, }"
 

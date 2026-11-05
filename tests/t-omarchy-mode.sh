@@ -13,8 +13,10 @@ calls() { tr '\0' ' ' <"$ARGV_LOG" | grep -o "omarchy plugin [a-z]* overtake\.[a
 
 : >"$ARGV_LOG"
 sbx "$H" env -u OVERTAKE_NO_RELOAD ./install.sh --yes >"$T/log" 2>&1 || { cat "$T/log"; fail "install"; }
-calls | grep -q "enable overtake.notifications" && fail "install switched Overtake's notifications on in Omarchy mode"
-calls | grep -q "disable overtake.notifications" || fail "install didn't make sure Omarchy's own notifications run"
+for id in notifications battery; do
+  calls | grep -q "enable overtake.$id" && fail "install switched overtake.$id on in Omarchy mode"
+  calls | grep -q "disable overtake.$id" || fail "install didn't make sure Omarchy's own $id runs"
+done
 pass "install in Omarchy mode leaves Omarchy's own notifications and battery running"
 
 : >"$ARGV_LOG"
