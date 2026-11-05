@@ -2,7 +2,7 @@
 
 Notes for marketplace reviewers: what the automated baseline will report, where
 to find each thing it points at, and how to check the rest quickly. Line numbers
-are for release v0.1.7.
+are for release v0.1.8.
 
 ## Shape
 
@@ -39,40 +39,48 @@ Precedents: [macOS Dock #13499](https://github.com/omacom/omarchy-plugin-marketp
 ## Install and uninstall
 
 - `install.sh`: `plan()` (line 117) prints every file it will add and every
-  existing file it will change; nothing is written before the prompt (line 190)
+  existing file it will change; nothing is written before the prompt (line 197)
   or `--yes`, and it refuses without a terminal. `--dry-run` only prints.
 - **Optional extras are off unless chosen** (asked one by one in a terminal, or
   `--link-handler`, `--image-viewer`, `--style-menus`, `--name-tags`): the
   link handler (`omarchy-browser.desktop`), the default image viewer
   (`xdg-mime`), Overtake's Style > Background / Theme in the Omarchy menu, and
-  the Claude Code name tags (`~/.claude/sessions`, Super+Alt+N). Without them
-  Overtake changes nothing outside its own files, its marked blocks, and the
-  two `shell.json` plugin entries below. An update keeps earlier choices;
+  the Claude Code name tags (`~/.claude/sessions`, Super+Alt+N; without them
+  `~/.claude` is never read). Without them Overtake changes nothing outside its
+  own files, its marked blocks, its post-update hook, and `shell.json`'s plugin
+  list, where its copies of Omarchy's notifications and battery are enabled in
+  place of Omarchy's own (switched off in every mode while the copy is on). An update keeps earlier choices;
   `--no-…` takes one back out exactly.
 - Edits to existing files are between `>>> overtake` / `<<< overtake` markers
   (`bindings.lua`, `autostart.lua`, `omarchy-menu.jsonc`). The README's
   [What it installs](README.md#what-it-installs) table lists every path.
 - `uninstall.sh` (also `overtake uninstall`, from a copy in
-  `~/.local/share/overtake`) prints what it will do and asks (line 62). It
+  `~/.local/share/overtake`) prints what it will do and asks (line 63). It
   switches back to Omarchy first (also if a switch failed halfway), removes the
   marked blocks, re-enables Omarchy's notifications/battery unless the user had
-  turned them off before installing (recorded at `install.sh:324`), restores
-  the exact earlier `mimeapps.list` lines (recorded per type, `uninstall.sh:142`)
+  turned them off before installing (recorded at `install.sh:313`), restores
+  the exact earlier `mimeapps.list` lines (recorded per type, `uninstall.sh:147`)
   and the link handler, and deletes its own files. `--purge` also removes
   settings and wallpapers.
 - **Why patched copies of Omarchy's notifications and battery services:**
   the notification center needs every notification kept in Omarchy's history
   with a close button and per-app quiet/off settings, and Overtake's battery
   alerts cover each device instead of Omarchy's single 10% warning. The copies
-  are built at install time from the installed Omarchy by exact replacements
-  (`patches/apply.py`): if Omarchy's code has changed, that copy isn't
-  installed and Omarchy's own stays. While Overtake Mode is off they behave
-  exactly like Omarchy's own (so switching modes needs no shell restart).
+  are built from the installed Omarchy by exact replacements
+  (`patches/apply.py`, `build_copies` in `bin/overtake:168`), at install and
+  again after every `omarchy update` (a hook in
+  `~/.config/omarchy/hooks/post-update.d/overtake.hook`, which Omarchy runs
+  before it restarts the shell), so they never fall behind Omarchy's code. If
+  a patch no longer fits, that copy is removed, Omarchy's own is switched back
+  on, and a notification says so. While Overtake Mode is off they behave like
+  Omarchy's own (history kept to Omarchy's 10, Omarchy's low-battery warning
+  and Do Not Disturb exceptions unchanged), so switching modes needs no shell
+  restart.
   Uninstall hands Omarchy's own back, leaving off any the user had turned off.
 - While a mode is on, `overtake` swaps the bar layout in `shell.json`, adds a
   marked block to `shell.toml` and sets GTK's `button-layout`; all of it is put
   back when switching to Omarchy. Both files are replaced whole through a temp
-  file next to them and a rename (`replace_with`, `bin/overtake:179`), as
+  file next to them and a rename (`replace_with`, `bin/overtake:238`), as
   Omarchy's own `omarchy-shell-config` does.
 
 ## Untrusted input and private data
@@ -82,15 +90,15 @@ Precedents: [macOS Dock #13499](https://github.com/omacom/omarchy-plugin-marketp
 - **Process arguments:** window titles, window names, Claude Code session ids
   and notification text never go into another process's argv:
   - jq gets them through `--slurpfile`/`--rawfile` from `<(printf …)`
-    (`remember_layout` :775, `relayout` :797, `claude_windows` :1147,
-    `sync_session_names` :1172, `set_name` :1208);
-  - names and notification text reach `overtake` on stdin (`name … -` :1742,
-    `notification-open … -` :1715; QML: `session-names/Service.qml:232`,
-    `notification-center/Panel.qml:208`);
-  - Copy URL passes the page title in the environment (`copy_url` :1074) and
+    (`remember_layout` :834, `relayout` :856, `claude_windows` :1218,
+    `sync_session_names` :1245, `set_name` :1281);
+  - names and notification text reach `overtake` on stdin (`name … -` :1816,
+    `notification-open … -` :1788; QML: `session-names/Service.qml:235`,
+    `notification-center/Panel.qml:209`);
+  - Copy URL passes the page title in the environment (`copy_url` :1145) and
     reads browser history read-only in place;
   - Spotlight lists the home folder once per opening and matches typed text
-    in-process (`Spotlight.qml:178`); its calculator is a small parser
+    in-process (`Spotlight.qml:179`); its calculator is a small parser
     (`Spotlight.qml:104`), no eval.
 - **What still goes into process arguments**, and why: file paths a click
   opens (`xdg-open` needs the path); a notification's app name and plain icon
@@ -98,9 +106,9 @@ Precedents: [macOS Dock #13499](https://github.com/omacom/omarchy-plugin-marketp
   message text itself goes on stdin); a device's name in a battery alert
   (`notify-send`'s title); and `overtake name here "<name>"` when a user types
   it that way on purpose (`echo name | overtake name here -` keeps it out).
-- **Shell and Lua:** window addresses must match `^0x[0-9a-f]+$` before any
-  command runs (`bin/overtake:1673`); workspace names with quotes or
-  backslashes are refused before reaching Hyprland's Lua (`lua_safe` :675);
+- **Shell and Lua:** window addresses must match `^0x[0-9a-fA-F]+$` before any
+  command runs (`bin/overtake:1746`); workspace names with quotes or
+  backslashes are refused before reaching Hyprland's Lua (`lua_safe` :734);
   Settings shell-quotes font and theme names (`Settings.qml:47`).
 - **Opening things from other apps' text:** clicking a notification in the
   notification center runs the notification's own action exactly as Omarchy's
@@ -109,24 +117,27 @@ Precedents: [macOS Dock #13499](https://github.com/omacom/omarchy-plugin-marketp
   folder or file the message names only if it's under `$HOME`, not
   executable, and (for a file) both its extension and its content are a
   picture, video, sound, PDF or plain text
-  (`notification_open` :946); app names are matched only as plain desktop-file
-  names. `open-url` (:912) drops option-like arguments.
+  (`notification_open` :1005); app names are matched only as plain desktop-file
+  names. `open-url` (:971) drops option-like arguments.
 - **Images:** notification icons and album art load local files only
-  (`Panel.qml:265`, `ControlCenter.qml:256`).
+  (`Panel.qml:275`, `ControlCenter.qml:260`).
 - **Network:** one request, `wttr.in` for sunrise/sunset, only in the optional
-  Day & Night wallpaper mode (`sun_times` :310); documented in the README.
+  Day & Night wallpaper mode (`sun_times` :369); documented in the README.
 - **Local reads** (browser history for Copy URL, `~/.claude/sessions` for name
   tags, recent files, files under home for search) are listed in the README's
   Privacy section and never leave the machine.
 - **Files:** state lives in `~/.local/state/overtake`, created 0700; no `/tmp`
   state; the slideshow's saved pid is checked against `/proc/<pid>/cmdline`
-  before it's stopped (`stop_slideshow` :355).
-- **Background work:** the mode, Claude Code sessions and the Trash are
-  watched, not polled (`session-names/Service.qml:83`), and Hyprland window
-  events trigger at most one refresh per 100 ms (title changes are ignored).
-  Process spawns that remain: `overtake sessions` every 15 s while Claude Code
-  runs (and when a window opens or closes then), and `overtake remember`
-  every 5 s while Classic or Studio is on. In-process Hyprland IPC polling
+  before it's stopped (`stop_slideshow` :414).
+- **Background work:** the mode, Claude Code sessions, the Trash and Do Not
+  Disturb (Omarchy's `notifications.json`) are watched, not polled
+  (`session-names/Service.qml:82`), and Hyprland window events trigger at
+  most one refresh per 100 ms (title changes are ignored). Process spawns
+  that remain: `overtake sessions` every 15 s while Claude Code runs (and
+  when a window opens or closes then), `overtake remember` every 5 s while
+  Classic or Studio is on, and one status probe (Wi-Fi, Bluetooth, night
+  light…) every 2 s only while the Control Center is open. Battery alerts
+  read UPower in-process (on its change events, and every 30 s). In-process Hyprland IPC polling
   that remains: window geometry every 1.5 s while a window has a name tag;
   in Classic and Studio every 400 ms (Hyprland sends no event for resizes),
   and while a floating window has focus every 250 ms, 80 ms once it's

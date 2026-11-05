@@ -43,7 +43,8 @@ Uninstalling Overtake Mode will:
   hand notifications and battery back to Omarchy's own (shell.json; any
     you had turned off yourself stay off)
   point links and images back at what opened them before
-  delete ~/.local/bin/overtake, ~/.config/hypr/overtake*.lua,
+  delete ~/.local/bin/overtake, ~/.config/hypr/overtake*.lua, its Omarchy
+    post-update hook (hooks/post-update.d/overtake.hook),
     ~/.config/omarchy/plugins/overtake.*, its .desktop files,
     ~/.local/share/overtake, ~/.local/state/overtake and ~/.cache/overtake
 EOF
@@ -90,6 +91,10 @@ PY
 remove_block "$HYPR/bindings.lua" "--"
 remove_block "$HYPR/autostart.lua" "--"
 remove_block "$MENU" "  //"
+# the menu file, if install.sh created it and nothing else was added since
+if [[ -f $HOME/.local/state/overtake/created-menu && -f $MENU && -z $(tr -d '{} \n\t' <"$MENU") ]]; then
+  rm -f "$MENU"
+fi
 
 # Hand notifications and battery back to Omarchy's own before removing the
 # patched copies. Disabling goes through the shell; if it isn't running, edit
@@ -112,9 +117,9 @@ if [[ -f $SHELL_JSON ]]; then
   if jq --argjson keep "${KEEP_OFF:-[]}" '(if (.plugins | type) == "array" then .plugins |= map(select((if type == "object" then .id else . end) | tostring | startswith("overtake.") | not)) else . end)
       | (if (.disabledPlugins | type) == "array" then .disabledPlugins |= map(select((tostring | startswith("overtake.") | not) and ((. == "omarchy.notifications" or . == "omarchy.battery") as $ours | ($ours | not) or (. as $id | $keep | index($id))))) else . end)
       | (if (.cloneSourceRestores | type) == "array" then .cloneSourceRestores |= map(select(tostring | startswith("overtake.") | not)) else . end)' \
-      "$SHELL_JSON" >"$tmp"; then
+      "$SHELL_JSON" >"$tmp" && ! jq -e --slurpfile new "$tmp" '. == $new[0]' "$SHELL_JSON" >/dev/null 2>&1; then
     chmod --reference="$target" "$tmp" 2>/dev/null || true
-    mv -f "$tmp" "$target"
+    mv -f "$tmp" "$target"   # (only when something changed)
   else
     rm -f "$tmp"
   fi
@@ -161,6 +166,10 @@ done
 sed -i 's|^Exec=.*/overtake open-url |Exec=omarchy-launch-browser |' "$HOME/.local/share/applications/omarchy-browser.desktop" 2>/dev/null || true
 rm -f "$HOME/.local/share/applications/overtake-image-viewer.desktop"
 rm -f "$HOME/.local/share/applications/overtake-trash.desktop"
+rm -f "$HOME/.config/omarchy/hooks/post-update.d/overtake.hook"
+# Screensaver art you had before Overtake replaced it
+art="$HOME/.config/omarchy/branding/screensaver.txt"
+[[ -f $art.before-overtake ]] && mv -f "$art.before-overtake" "$art"
 rm -f "$HOME/.local/bin/overtake" "$HYPR/overtake.lua" "$HYPR/overtake-classic.lua" "$HYPR/overtake-studio.lua"
 rm -rf "${PLUGINS:?}/overtake.taskbar" "${PLUGINS:?}/overtake.workspaces" \
        "${PLUGINS:?}/overtake.bluetooth" "${PLUGINS:?}/overtake.audio" \

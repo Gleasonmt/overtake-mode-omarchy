@@ -116,7 +116,7 @@ PATCHES = {
 '''  readonly property int normalPopupDuration: overtakeOn ? 10000 : 8000  // Overtake Mode'''),
       ("Service.qml",
 '''  readonly property int historyLimit: 10''',
-'''  readonly property int historyLimit: 50  // Overtake Mode: the notification center's list'''),
+'''  readonly property int historyLimit: overtakeOn ? 50 : 10  // Overtake Mode: the notification center's list (Omarchy's 10 while off)'''),
       ("Service.qml",
 '''      raw, service.replayCarryOver, NotificationUrgency.Normal, service.historyLimit)''',
 '''      raw, service.replayCarryOver, NotificationUrgency.Normal, service.overtakeOn ? service.historyLimit : 10)'''),
@@ -173,8 +173,8 @@ PATCHES = {
 '''  function shouldBypassDnd(notification) {
     return NotificationLogic.shouldBypassDnd(notification, NotificationUrgency.Critical)''',
 '''  function shouldBypassDnd(notification) {
-    // Overtake Mode: a critical battery alert always gets through.
-    if (String(notification.appName || "") === "Battery" && notification.urgency === NotificationUrgency.Critical) return true
+    // Overtake Mode (only while it's on): a critical battery alert always gets through.
+    if (service.overtakeOn && String(notification.appName || "") === "Battery" && notification.urgency === NotificationUrgency.Critical) return true
     return NotificationLogic.shouldBypassDnd(notification, NotificationUrgency.Critical)'''),
     ],
     # Overtake Mode's battery alerts (per device, levels you choose) replace
