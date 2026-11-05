@@ -1,5 +1,7 @@
 # Overtake Mode (Omarchy)
 
+![Overtake Mode: Omarchy, Classic and Studio side by side](preview.png)
+
 A classic desktop you can switch on and off inside [Omarchy](https://omarchy.org):
 a bottom taskbar with a Start menu, title bars with minimize / maximize / close,
 snap layouts, desktop icons, a Settings window, and familiar shortcuts. It's an
