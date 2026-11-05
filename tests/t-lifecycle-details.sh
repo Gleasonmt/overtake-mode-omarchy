@@ -46,7 +46,7 @@ node -e '
   for (; i < src.length; i++) { if (src[i] === "{") depth++; else if (src[i] === "}" && --depth === 0) break }
   const f = new Function(src.slice(start, i + 1) + "; return versionToInstall")()
   const m = JSON.stringify({ version: "0.2.0" })
-  const cases = [[m, "0.2.0\n", ""], [m, "0.1.15\n", "0.2.0"], [m, "", "0.2.0"], ["not json", "0.1.15", ""], ["{}", "0.1.15", ""]]
+  const cases = [[m, "0.2.0\n", ""], [m, "0.3.0\n", ""], [m, "0.1.15\n", "0.2.0"], [m, "", "0.2.0"], ["not json", "0.1.15", ""], ["{}", "0.1.15", ""]]
   for (const [a, b, want] of cases) if (f(a, b) !== want) { console.error("FAIL: versionToInstall", a, JSON.stringify(b), "gave", f(a, b)); process.exit(1) }
 ' || fail "Setup.qml's version check"
 grep -q 'Run ./install.sh again in' Setup.qml || fail "Setup.qml doesn't ask for the installer again"

@@ -7,10 +7,8 @@ are for release v0.1.15.
 ## Shape
 
 - **Root plugin** `manifest.json` → `Setup.qml` (`gleasonmt.overtake-mode`, a
-  service). It only checks for `~/.local/bin/overtake` and, if it's missing,
-  sends a notification at each shell start, until it's installed, saying where
-  to run `./install.sh`. Nothing else.
-- **The suite**, set up by `./install.sh`: its own plugins (`plugins/overtake.*`,
+  service). It only checks for `~/.local/bin/overtake` and its recorded version and, if it's missing or older than this folder, sends a notification at each shell start, until that's done, saying where to run `./install.sh`. Nothing else.
+- **Everything else**, set up by `./install.sh`: its own plugins (`plugins/overtake.*`,
   manifests two folders down, copied into `~/.config/omarchy/plugins`), patched
   copies of five Omarchy plugins built from the installed Omarchy
   (`patches/apply.py`), the `overtake` command (`bin/overtake`, bash), Hyprland
@@ -23,11 +21,9 @@ are for release v0.1.15.
 | Capability | Where | What it is |
 | --- | --- | --- |
 | `installer` | `install.sh`, `uninstall.sh`, `Setup.qml` (by file name) | The installer and uninstaller described below; `Setup.qml` is the reminder above. No sudo, no package installs, nothing downloaded. |
-| `remote-build` | `README.md:29` (the bot also shows `README.md:1`: it numbers lines inside each fenced shell block) | The README's install steps clone this repository and run its own `./install.sh`. Nothing outside the repository is fetched or built. |
+| `remote-build` | `README.md:29` and `:60`, install and update (the bot also shows `README.md:1`: it numbers lines inside each fenced shell block) | The README's install and update steps clone or fetch this repository and run its own `./install.sh`. Nothing outside the repository is fetched or built. |
 
-Overtake itself runs no `systemctl`, `systemd-run`, `sudo` or `pkexec`. Two
-Settings rows, only when clicked, call Omarchy's own `omarchy-dns` (which asks
-for elevation) and `timedatectl set-ntp` (polkit). Sleep runs
+Overtake itself runs no `systemctl`, `systemd-run`, `sudo` or `pkexec`. A few Settings rows, only when clicked, run Omarchy's own commands, which ask for elevation themselves: `omarchy-dns`, and in a terminal `omarchy-update`, `omarchy-update-firmware`, `omarchy-setup-security-fingerprint` and `passwd`. `timedatectl set-ntp` goes through polkit. Sleep runs
 Omarchy's own Suspend menu entry by its route (`omarchy-menu summon
 system.suspend`), or opens Omarchy's system menu instead if the user has turned
 Suspend off there (Toggle > Suspend) or Omarchy has turned sleep off on this
@@ -38,9 +34,7 @@ links open through `omarchy-launch-browser`.
 Not a baseline capability, but listed for review: `install.sh` adds one
 Omarchy hook, `~/.config/omarchy/hooks/post-update.d/overtake.hook` (three
 lines). Omarchy runs it as the user near the end of `omarchy update`; it runs
-`~/.local/bin/overtake build-copies update`, which never calls `sudo`,
-downloads nothing, and only rebuilds Overtake's own
-`~/.config/omarchy/plugins/overtake.*` copies from the installed Omarchy.
+`~/.local/bin/overtake build-copies update`, which never calls `sudo`, downloads nothing, and rebuilds Overtake's own `~/.config/omarchy/plugins/overtake.*` copies from the installed Omarchy; one whose patch no longer fits is removed, Omarchy's own is switched back on (in `shell.json` if the shell isn't running), and a notification says so.
 `overtake resume` (at login) runs the same check, for updates made another
 way. `./uninstall.sh` removes the hook.
 
@@ -52,15 +46,13 @@ Precedents: [macOS Dock #13499](https://github.com/omacom/omarchy-plugin-marketp
 ## Install and uninstall
 
 - `install.sh`: `plan()` (line 75) prints every file it will add and every
-  existing file it will change; nothing is written before the prompt (line 140)
+  existing file it will change; nothing is written before the prompt (line 142)
   or `--yes`, and it refuses without a terminal. `--dry-run` only prints.
 - **Omarchy mode is Omarchy as it ships.** Overtake's bar, its copies of
   Omarchy's notifications and battery services, its shortcuts, window rules
   and looks apply only while Classic or Studio is on; switching to Omarchy
   puts each one back (`turn_off`, `switch_copies off`). What stays in every
-  mode: the mode shortcut and a login line (`overtake resume`, which in
-  Omarchy mode only checks that the patched copies still match the installed
-  Omarchy), both in marked blocks; the Overtake Mode entry in the Omarchy
+  mode: the mode shortcut and a login line (`overtake resume`, which in every mode checks the patched copies against the installed Omarchy and rebuilds them if needed; in Omarchy mode that is all it does, apart from retrying a notice the shell wasn't up for), both in marked blocks; the Overtake Mode entry in the Omarchy
   menu; the post-update hook; and a Trash entry in the app launcher. There are no
   optional extras: an update removes the link handler, image viewer,
   Appearance menus and Claude Code name tags that earlier versions offered,
@@ -69,12 +61,11 @@ Precedents: [macOS Dock #13499](https://github.com/omacom/omarchy-plugin-marketp
   (`bindings.lua`, `autostart.lua`, `omarchy-menu.jsonc`). The README's
   [What it installs](README.md#what-it-installs) table lists every path.
 - `uninstall.sh` (also `overtake uninstall`, from a copy in
-  `~/.local/share/overtake`) prints what it will do and asks (line 64). It
+  `~/.local/share/overtake`) prints what it will do and asks (line 65). It
   switches back to Omarchy first (also if a switch failed halfway), removes the
-  marked blocks, re-enables Omarchy's notifications/battery unless the user had
-  turned them off before installing (recorded at `install.sh:235`), restores
+  marked blocks, re-enables only those of Omarchy's own that Overtake's copy switched off (Omarchy's `cloneSourceRestores` record), never one the user turned off before installing (recorded at `install.sh:256`) or since, restores
   anything an earlier version changed (the exact earlier `mimeapps.list`
-  lines, recorded per type, `uninstall.sh:152`; the link handler), and deletes
+  lines, recorded per type, `uninstall.sh:167`; the link handler), and deletes
   its own files. `--purge` also removes
   settings and wallpapers.
 - **Why patched copies of Omarchy's notifications and battery services:**
@@ -85,12 +76,8 @@ Precedents: [macOS Dock #13499](https://github.com/omacom/omarchy-plugin-marketp
   of Omarchy's single 10% warning. The notifications patch changes one file,
   `Service.qml`. The copies
   are built from the installed Omarchy by exact replacements
-  (`patches/apply.py`, `build_copies` in `bin/overtake:204`), at install and
-  again after every `omarchy update` (the hook above; the shell reloads a
-  changed plugin folder by itself) and at login, so they never fall behind
-  Omarchy's code. If
-  a patch no longer fits, that copy is removed, Omarchy's own is switched back
-  on, and a notification says so. The copies are enabled only while Classic
+  (`patches/apply.py`, `build_copies` in `bin/overtake:240`), at install and
+  again after every `omarchy update` (the hook above; the shell reloads a changed plugin folder by itself) and at login, so they follow Omarchy's code. If a patch no longer fits, that copy is removed, Omarchy's own is switched back on until an Overtake update supports that Omarchy, and a notification says so (held until the shell can show it, if it isn't up yet). The copies are enabled only while Classic
   or Studio is on; in Omarchy mode Omarchy's own services run. Uninstall
   leaves off any of Omarchy's own the user had turned off.
 - While a mode is on, `overtake` swaps the bar layout in `shell.json`, adds a
@@ -98,26 +85,22 @@ Precedents: [macOS Dock #13499](https://github.com/omacom/omarchy-plugin-marketp
   workspace set to Omarchy 4.5's floating layout in Omarchy's own record
   (`~/.local/state/omarchy/workspace-layouts`; Overtake floats every window
   itself, with its own title bars and Dock); all of it is put back when
-  switching to Omarchy, a layout you changed meanwhile excepted. Both files are replaced whole through a temp
-  file next to them and a rename (`replace_with`, `bin/overtake:292`), as
-  Omarchy's own `omarchy-shell-config` does.
+  switching to Omarchy, a layout you changed meanwhile excepted. Both files are replaced whole through a temp file next to them and a rename (`replace_with`, `bin/overtake:343`), keeping their mode.
 
 ## Untrusted input and private data
 
 - **Rich text:** every `Text` item (136) uses
   `textFormat: Text.PlainText`; there are no `ToolTip`, `Label` or `TextEdit`.
-- **Process arguments:** window titles, window names and notification text
-  never go into another process's argv:
+- **Process arguments:** window titles, window names and notification text (including a verification code you copy) never go into another process's argv:
   - jq gets them through `--slurpfile`/`--rawfile` from `<(printf …)`
-    (`remember_layout` :971, `relayout` :993, `set_name` :1287);
+    (`remember_layout` :1036, `relayout` :1058, `set_name` :1352);
   - battery alerts (which name the device) go to `overtake notify-stdin` on
     stdin and from there over D-Bus, never through `notify-send`'s arguments;
   - the bar's settings (which can name your cities) reach jq through a file
     descriptor, not the command line;
-  - names reach `overtake` on stdin (`name … -` :1808; QML:
-    `WindowControls.qml:133`); notification text never leaves the shell
-    (the notification center doesn't pass it to anything);
-  - Copy URL passes the page title in the environment (`copy_url` :1205) and
+  - names reach `overtake` on stdin (`name … -` :1881; QML:
+    `WindowControls.qml:134`); the notification center passes no notification text to anything; a copied code goes to `wl-copy` on stdin (the patched copy replaces Omarchy's `wl-copy --sensitive -- <code>`, whose clipboard server would keep it in its command line);
+  - Copy URL passes the page title in the environment (`copy_url` :1270) and
     reads browser history read-only in place;
   - Spotlight lists the home folder once per opening and matches typed text
     in-process (`Spotlight.qml:181`); its calculator is a small parser
@@ -128,16 +111,16 @@ Precedents: [macOS Dock #13499](https://github.com/omacom/omarchy-plugin-marketp
   with `omarchy-hyprland-focus-app`); a web notification's site address
   when it's opened (`https://<host>/`, as Omarchy's toasts open it).
 - **Shell and Lua:** window addresses must match `^0x[0-9a-fA-F]+$` before any
-  command runs (`bin/overtake:1723`); workspace names with quotes,
+  command runs (`bin/overtake:1788`); workspace names with quotes,
   backslashes, `;` (which `hyprctl --batch` splits on) or control characters
-  are refused before reaching Hyprland's Lua (`lua_safe` :869);
+  are refused before reaching Hyprland's Lua (`lua_safe` :934);
   Settings shell-quotes font and theme names (`Settings.qml:47`).
 - **Opening things from other apps' text:** clicking a notification in the
   notification center runs the notification's own action exactly as Omarchy's
   toasts do (`notification-center/Panel.qml`, the same checks as Omarchy's
   `parseExecArgv`, run through `bash -lc 'exec "$@"'`). Without one, it
   does what Omarchy's own toasts do: the sender's open window comes forward
-  (`notification_open` :1107); failing that, a browser's web notification
+  (`notification_open` :1172); failing that, a browser's web notification
   (Omarchy's `web:<host>` group, a plain hostname only) opens
   `https://<host>/` through `Qt.openUrlExternally`, as Omarchy does. Nothing is opened
   or launched from the message text.
@@ -149,7 +132,7 @@ Precedents: [macOS Dock #13499](https://github.com/omacom/omarchy-plugin-marketp
   The Control Center shows no album art: decoding a player's picture would
   happen inside the shell.
 - **Network:** one request, `wttr.in` for sunrise/sunset, only in the optional
-  Day & Night wallpaper mode (`sun_times` :429); documented in the README.
+  Day & Night wallpaper mode (`sun_times` :482); documented in the README.
 - **Local reads** (browser history for Copy URL, recent files, files under
   home for search) are listed in the README's
   Privacy section and never leave the machine.
@@ -158,7 +141,7 @@ Precedents: [macOS Dock #13499](https://github.com/omacom/omarchy-plugin-marketp
   before anything is written, and tightened at install and at every start if
   an older version left them open; edits to existing files keep their mode
   (temp file next to them, then a rename); no `/tmp` state; the slideshow's saved pid is checked against `/proc/<pid>/cmdline`
-  before it's stopped (`stop_slideshow` :478).
+  before it's stopped (`stop_slideshow` :531).
 - **Background work:** in Omarchy mode, none beyond one check at login that
   the patched copies match the installed Omarchy (and `overtake status` when
   the Omarchy menu opens). In Classic and Studio: the mode, the Trash and Do Not Disturb
@@ -167,7 +150,7 @@ Precedents: [macOS Dock #13499](https://github.com/omacom/omarchy-plugin-marketp
   (title changes are ignored). In-process timers in Overtake's
   notifications copy (so only in Classic and Studio): an expiry check of history every minute, and
   a read-back of the history file a second after each write, rewritten 5 s later only while it
-  doesn't match. Process spawns that remain: `overtake remember` while Classic or
+  doesn't match. The wallpaper slideshow is one background loop (`slideshow_loop`, `bin/overtake:567`, while Classic or Studio is on): it wakes every 15 minutes (Rotate) or every 5 minutes (Day & Night, whose wttr.in lookup is cached for the day). Process spawns that remain: `overtake remember` while Classic or
   Studio is on, only when a window has moved, resized, opened or closed
   (checked in-process every 5 s), and one status probe (Wi-Fi, Bluetooth, night
   light…) every 2 s only while the Control Center is open. Battery alerts
@@ -188,21 +171,21 @@ plugins (pinned commit; see the Actions tab for the run on this release).
 
 | Boundary | How Overtake holds it | Test |
 | --- | --- | --- |
-| Private text vs other accounts' `ps` | stdin, `--rawfile`/`--slurpfile`, fds, the environment, D-Bus from a helper; never argv | `t-argv-privacy.sh`: a marker in window titles, classes, the bar's settings, a window name, a battery alert; every child's argv is logged and must not contain it (a planted `--argjson` leak makes it fail) |
-| Private files vs other accounts | Overtake's folders 0700 before any write; older 0755 folders tightened at install and startup; edits keep the file's mode | `t-lifecycle.sh` (starts from a 0755 folder an older version would have left) |
+| Private text vs other accounts' `ps` | stdin, `--rawfile`/`--slurpfile`, fds, the environment, D-Bus from a helper; never argv | `t-argv-privacy.sh`: a marker in window titles, classes, the bar's settings, a window name, a battery alert; the argv of every stubbed or wrapped tool it starts is logged and must not contain it (checked by planting an `--argjson` leak, which makes it fail) |
+| Private files vs other accounts | Overtake's folders 0700 before anything in the shell watches or writes in them (each file's `OvertakeFolders` runs `overtake status` first, at start and before every write, so a deleted folder can't come back 0755); older 0755 folders tightened at install and startup | `t-folders.sh` (statically, and a deleted folder in real Quickshell); `t-lifecycle.sh` (folders 0700 after install and after a start, from 0755) |
 | Names apps and devices choose | null-prototype maps and own-key lookups; `__proto__`, `constructor`, `laptop` can't reach built-ins or another device's slot | `t-qml-logic.js` (runs the real functions from the QML files) |
-| Rich text and remote images | every `Text` is `Text.PlainText` (checked item by item); no Label/ToolTip/TextEdit/TextArea; no album art; icons by plain theme name | `t-plain-text.py` |
-| Notification clicks | the action with Omarchy's `parseExecArgv` rules, else the sender's window, else a browser's site; nothing opened from message text | `t-qml-logic.js` (site lookup refuses app names and numeric hosts) |
-| Omarchy's own files | marked blocks, mode-keeping replacements, floating layouts paused and restored, everything restored on uninstall | `t-lifecycle.sh` (byte for byte; `shell.json` by content, as jq rewrites it) |
-| Omarchy updates | copies rebuilt from the new Omarchy; one whose patch no longer fits is dropped, Omarchy's own used | `t-patches.sh` |
-| Omarchy mode stays stock | Overtake's notifications and battery copies switched on only with Classic/Studio, off (and the bar back) when switching to Omarchy; switched off in `shell.json` itself when no shell is running | `t-omarchy-mode.sh` |
-| Upgrades from v0.1.11 | the four optional extras that release offered are taken back out exactly (`mimeapps.list` and the link line byte for byte) | `t-upgrade-extras.sh` |
+| Rich text and remote images | every `Text` is `Text.PlainText` (checked item by item); no Label/ToolTip/TextEdit/TextArea; no album art; desktop-entry icons are shown as Omarchy's own launcher and Dock show them | `t-plain-text.py` (every `Text` is PlainText; no rich-text item types) |
+| Notification clicks | the action with Omarchy's `parseExecArgv` rules, else a browser's site, else the sender's window; nothing opened from message text | `t-qml-logic.js` (site lookup refuses app names and numeric hosts) |
+| Omarchy's own files | marked blocks, mode-keeping replacements, floating layouts paused and restored, everything restored on uninstall (a `shell.toml` left with only white space is deleted, which v0.1.0–0.1.11 left behind empty) | `t-lifecycle.sh` (byte for byte; `shell.json` by content, as jq rewrites it) |
+| Omarchy updates | copies rebuilt from the new Omarchy; one whose patch no longer fits is dropped | `t-patches.sh` (all five build; a changed plugin drops only its copy) |
+| Omarchy mode stays stock | Overtake's notifications and battery copies switched on only with Classic/Studio, off (and the bar back) when switching to Omarchy; switched off in `shell.json` itself when no shell is running | `t-omarchy-mode.sh`, `t-lifecycle-details.sh` |
+| Upgrades from v0.1.11 | the four optional extras that release offered are taken back out exactly (`mimeapps.list` and the link line byte for byte); the names typed for the name tags and their `shell.json` entry are deleted; v0.1.11 on/off, then upgrade, then uninstall restores exactly | `t-upgrade-extras.sh` |
+| Notices and hand-backs | a dropped copy asks for an Overtake update, not a reinstall; a failed rebuild is reported as that; a login notice waits for the shell; uninstall re-enables only what the copies switched off | `t-lifecycle-details.sh` |
 | Startup repair | folders an older version left open are tightened at the next `overtake` start | `t-lifecycle.sh` |
 | A compromised wttr.in | at most 256 KB read; only real times reach `date` or the cache, else 07:00/19:00 | `t-sun-times.sh` (fails if the cap is removed) |
-| Notification history (the maintainer's notification-plugin checks) | Clear all and remove written at once (a shutdown right after can't lose them); every history write read back a second later and, if the file doesn't match, written again about every 6 s (read back 1 s after a write, retried 5 s later) until it does, while the shell keeps running: switching to Omarchy mode before then hands over to Omarchy's own, which reads what is on disk, and likewise a shell restart or logout before the disk has room; history past Omarchy's one day pruned every minute and never listed; nothing removed before history has loaded | `t-notifications.sh`: Omarchy's own Store.js and the copy's own functions, timers and history-file handlers, against a FileView that behaves as Quickshell 0.3 was measured to (a write refused at open emits saveFailed; one that fails at commit, e.g. disk full, only logs and emits saved; a reload inside a save signal does nothing; a repeat of the last attempted text is skipped). A reload with the bytes it already holds keeps its text; a failed load lets any text be written; and the libraries' JSON.stringify leaves an unpaired UTF-16 half raw, as QML's does. Covers both failure kinds then room again, at most one write per ~6 s while failing, a file deleted mid-failure, and a body cut mid-emoji not rewritten forever. Fails on v0.1.14, on a retry wired to saveFailed alone, and on a compare that doesn't allow for the unpaired half |
+| Notification history (the maintainer's notification-plugin checks) | Clear all and remove are written at once, without waiting for the save timer, and also in place, which only shrinks the file, so a removal sticks even on a full disk and across a restart; on a read-only disk it can't, and the center says so. Clear all is the service's `forgetAll`: also a silenced copy just filed and cards still on screen. Each history write is read back a second later and written again about every 6 s until the file matches. History past Omarchy's one day pruned every minute and never listed; nothing removed before history has loaded | `t-notifications-qs.sh`: the real patched copy in real Quickshell, on a private bus and a real full disk (a small tmpfs), covering a copied code on stdin, Clear all then a restart with the disk still full, a silenced copy, a card on screen. `t-notifications.sh`: the copy's own functions, timers and file handlers over a FileView model of Quickshell's measured behaviour (the model writes synchronously; real writes are asynchronous, which the real-Quickshell test covers), for the failure orderings. Each was checked by removing its fix |
 
-Run them yourself (scratch homes, stubbed desktop commands, nothing touches
-your session): `tests/run.sh`.
+Run them yourself (scratch homes, stubbed desktop commands, nothing touches your session): `tests/run.sh`. The real-Quickshell parts need `qs` and are skipped in CI, so they were run locally on this commit.
 
 ## Trying it without touching your desktop
 

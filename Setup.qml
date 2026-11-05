@@ -32,12 +32,18 @@ Item {
     printErrors: false
   }
 
-  // This folder's version when the installed one differs (or was never
-  // recorded, by a release before 0.1.15), else "".
+  // This folder's version when it is newer than the installed one (or that
+  // was never recorded, by a release before 0.1.15), else "".
   function versionToInstall(manifestText, installedText) {
-    var own = ""
+    var own = "", had = String(installedText || "").trim()
     try { own = String(JSON.parse(manifestText).version || "") } catch (e) {}
-    return own !== "" && own !== String(installedText || "").trim() ? own : ""
+    if (own === "") return ""
+    var a = own.split("."), b = had.split(".")
+    for (var i = 0; i < Math.max(a.length, b.length); i++) {
+      var d = (parseInt(a[i]) || 0) - (parseInt(b[i]) || 0)
+      if (d !== 0) return d > 0 ? own : ""
+    }
+    return ""
   }
 
   Process {
