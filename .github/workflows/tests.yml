@@ -1,0 +1,41 @@
+name: tests
+
+# Every push and tag runs the whole suite (tests/run.sh) against Omarchy's own
+# shell plugins at a pinned release. Actions are pinned to full commit SHAs.
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out Overtake Mode
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Check out Omarchy 4.5.0 (the plugins the patches apply to)
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: omacom/omarchy
+          ref: ac2690cd7be4f47e4a255f5e2e78d904d436b068 # v4.5.0
+          path: omarchy
+          persist-credentials: false
+          sparse-checkout: shell/plugins
+
+      - name: Set up Node
+        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        with:
+          node-version: 22
+
+      - name: Install test tools
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq jq qt6-declarative-dev-tools file
+
+      - name: Run the tests
+        env:
+          OMARCHY_SRC: ${{ github.workspace }}/omarchy/shell/plugins
+        run: tests/run.sh
