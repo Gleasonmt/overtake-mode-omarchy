@@ -121,7 +121,7 @@ Precedents: [macOS Dock #13499](https://github.com/omacom/omarchy-plugin-marketp
   - Copy URL passes the page title in the environment (`copy_url` :1215) and
     reads browser history read-only in place;
   - Spotlight lists the home folder once per opening and matches typed text
-    in-process (`Spotlight.qml:180`); its calculator is a small parser
+    in-process (`Spotlight.qml:181`); its calculator is a small parser
     (`Spotlight.qml:104`), no eval.
 - **What still goes into process arguments**, and why: file paths a click
   opens (`xdg-open` needs the path); a notification's app name
@@ -145,8 +145,11 @@ Precedents: [macOS Dock #13499](https://github.com/omacom/omarchy-plugin-marketp
   `https://<host>/` through `Qt.openUrlExternally`, as Omarchy does. Nothing is opened
   or launched from the message text. `open-url` (:1081) drops
   option-like arguments.
-- **Images:** notification icons, and icons looked up from an app's window
-  class, are theme icons by plain name only (never a path the app chose).
+- **Images:** in the notification center, and for icons looked up from an
+  app's window class, icons are theme icons by plain name only (never a path
+  the app chose). Toasts are drawn by Overtake's copy of Omarchy's
+  notifications service, which shows a sender's picture exactly as Omarchy's
+  own does (its `Security.localImageUrl` checks, unchanged in the copy).
   The Control Center shows no album art: decoding a player's picture would
   happen inside the shell.
 - **Network:** one request, `wttr.in` for sunrise/sunset, only in the optional

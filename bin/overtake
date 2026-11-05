@@ -1245,7 +1245,7 @@ PY
 )
   if [[ -n $url ]]; then
     printf '%s' "$url" | wl-copy
-    notify $'\uf0c5' "Copied the page address"
+    notify $'\uf0c5' "Copied the newest address with this page's title"
   else
     notify $'\uf0c5' "Couldn't find this page's address yet (try again in a few seconds)"
   fi

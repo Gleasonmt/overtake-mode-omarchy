@@ -353,7 +353,9 @@ Overtake's own folders (`~/.config/overtake`, `~/.local/state/overtake`,
 What it reads on your machine, and keeps there:
 
 - **Copy URL** (a browser window's title bar menu) looks the page up by its
-  title in Chromium's, Chrome's or Brave's history database.
+  title in Chromium's, Chrome's or Brave's history database (read-only, in
+  place) and copies the newest address with that title, so two open pages
+  with the same title can give the other one's address.
 - **Name tags** (optional, `--name-tags`) read `~/.claude/sessions/*.json` (just each Claude Code
   session's process id and session id), to find which window a session runs
   in and keep its name with it.

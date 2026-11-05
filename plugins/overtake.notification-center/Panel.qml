@@ -20,6 +20,9 @@ import qs.Ui
 // the date and time instead, as in a menu bar, with a dot for new ones.
 Panel {
   id: root
+  // Overtake's folders exist and are yours only before anything here writes
+  // to them (the command creates or tightens them to 0700 at start).
+  Component.onCompleted: Quickshell.execDetached(["overtake", "status"])
   moduleName: "overtake.notification-center"
   ipcTarget: "overtake.notification-center"
 
@@ -92,21 +95,23 @@ Panel {
     watchChanges: true
     printErrors: false
     onFileChanged: reload()
-    onLoaded: root.entries = root.parseHistory(text())
+    onLoaded: { root.entries = root.parseHistory(text()); root.hiddenKeys = root.lastHiddenKeys }
     onLoadFailed: root.entries = []
   }
   function reload() { historyView.reload() }
+  property var hiddenKeys: []      // history rows the panel doesn't show (Omarchy's own feedback)
+  property var lastHiddenKeys: []
   function parseHistory(raw) {
     var list
     try { list = JSON.parse(String(raw || "").trim() || "[]") } catch (e) { return [] }
     if (!Array.isArray(list)) return []
-    var out = []
+    var out = [], hidden = []
     list.forEach(function(e) {
       if (!e || typeof e !== "object" || typeof e.key !== "string") return
       // Omarchy's own "you just did that" toasts (Overtake Mode on, silenced
       // notifications, ...) are feedback, not something to come back to,
       // unless they carry an action (a screenshot's "click to edit").
-      if (e.app === "omarchy-action" && !e.execArgv) return
+      if (e.app === "omarchy-action" && !e.execArgv) { hidden.push(e.key); return }
       var entry = Object.assign({}, e)
       if (entry.app === "omarchy-action") entry.app = "Omarchy"
       // When it arrived, in ms (Omarchy writes seconds; the seen file is ms).
@@ -114,6 +119,7 @@ Panel {
       out.push(entry)
     })
     out.sort(function(a, b) { return b.timestamp - a.timestamp })
+    lastHiddenKeys = hidden
     return out
   }
 
@@ -191,9 +197,11 @@ Panel {
   }
   function remove(entry) { removeAll([entry]) }
 
-  // Clear all takes out what the panel shows, not anything that arrived
-  // since it last read the file.
-  function clearAll() { removeAll(entries.slice()) }
+  // Clear all takes out what the panel read (what it shows, and Omarchy's own
+  // feedback it hides), not anything that arrived since.
+  function clearAll() {
+    removeAll(entries.slice().concat(hiddenKeys.map(function(k) { return { key: k } })))
+  }
   // Removals wait their turn: one call at a time, the rest queued.
   property var pendingKeys: []
   function sendPending() {

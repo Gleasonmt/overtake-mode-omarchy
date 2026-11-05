@@ -9,6 +9,9 @@ import Quickshell.Io
 // creates the flag file); Settings opens on request.
 Item {
   id: root
+  // Overtake's folders exist and are yours only before anything here writes
+  // to them (the command creates or tightens them to 0700 at start).
+  Component.onCompleted: Quickshell.execDetached(["overtake", "status"])
 
   property var shell: null
 

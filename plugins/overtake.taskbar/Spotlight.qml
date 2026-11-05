@@ -177,12 +177,15 @@ Item {
   }
   Process {
     id: fileList
-    command: ["fd", "--max-depth", "6", "--max-results", "100000", ".", root.home]
+    // (at most 20,000 names and 4 MB, whatever the folder holds)
+    command: ["sh", "-c", "fd --max-depth 6 --max-results 20000 . \"$1\" | head -c 4194304", "sh", root.home]
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: {
         if (!root.open) return   // (closed while fd ran: nothing to keep)
-        var list = text.split("\n").filter(function(l) { return l })
+        var list = text.split("\n")
+        if (text.length >= 4194304) list.pop()   // (a name cut off at the limit)
+        list = list.filter(function(l) { return l })
         root.fileNames = list.map(function(l) { var c = l.replace(/\/$/, ""); return c.slice(c.lastIndexOf("/") + 1).toLowerCase() })
         root.fileIndex = list
         root.filterFiles()

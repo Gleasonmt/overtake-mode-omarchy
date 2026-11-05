@@ -202,7 +202,7 @@ Item {
         { type: "link", title: "Apps that keep their own buttons", detail: "Apps that don't get Overtake Mode's title bar", run: "omarchy-launch-editor ~/.config/overtake/no-controls.txt" }
       ]},
       { title: "Snap", rows: [
-        { type: "toggle", title: "Fill free snap spots", detail: "A window opened next to snapped windows goes into the half or quarter they leave free", state: "test ! -e ~/.local/state/overtake/no-fill", on: "rm -f ~/.local/state/overtake/no-fill", off: "mkdir -p ~/.local/state/overtake && touch ~/.local/state/overtake/no-fill" }
+        { type: "toggle", title: "Fill free snap spots", detail: "A window opened next to snapped windows goes into the half or quarter they leave free", state: "test ! -e ~/.local/state/overtake/no-fill", on: "rm -f ~/.local/state/overtake/no-fill", off: "mkdir -p -m 700 ~/.local/state/overtake && touch ~/.local/state/overtake/no-fill" }
       ]},
       { title: "Keyboard shortcuts", rows: [
         { type: "info", title: "Start", value: "echo 'Super key, or Super+S to search'" },
