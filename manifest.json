@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "gleasonmt.overtake-mode",
   "name": "Overtake Mode",
-  "version": "0.1.11",
+  "version": "0.1.12",
   "author": "Gleasonmt",
   "description": "Two desktops you can switch on and off inside Omarchy: Classic (taskbar, Start menu, title bars, snap layouts) and Studio (menu bar, Dock, Spotlight). One shortcut steps through Omarchy, Classic and Studio. Set up with ./install.sh.",
   "license": "MIT",
