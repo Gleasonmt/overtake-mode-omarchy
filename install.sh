@@ -17,7 +17,7 @@
 set -euo pipefail
 
 REPO=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-OMARCHY_PLUGINS=/usr/share/omarchy/shell/plugins
+OMARCHY_PLUGINS=${OVERTAKE_OMARCHY_PLUGINS:-${OMARCHY_PATH:-/usr/share/omarchy}/shell/plugins}   # (the same setting bin/overtake reads)
 PLUGINS="$HOME/.config/omarchy/plugins"
 HYPR="$HOME/.config/hypr"
 MENU="$HOME/.config/omarchy/extensions/omarchy-menu.jsonc"
