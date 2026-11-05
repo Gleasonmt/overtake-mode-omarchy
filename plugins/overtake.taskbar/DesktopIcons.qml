@@ -391,6 +391,7 @@ Item {
               border.width: 1
               border.color: Commons.Color.accent
               TextInput {
+                maximumLength: 120   // (a paste of any size stops here)
                 id: nameInput
                 anchors.fill: parent
                 anchors.margins: Style.space(3)

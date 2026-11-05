@@ -2,13 +2,14 @@
 
 Notes for marketplace reviewers: what the automated baseline will report, where
 to find each thing it points at, and how to check the rest quickly. Line numbers
-are for release v0.1.10.
+are for release v0.1.11.
 
 ## Shape
 
 - **Root plugin** `manifest.json` → `Setup.qml` (`gleasonmt.overtake-mode`, a
   service). It only checks for `~/.local/bin/overtake` and, if it's missing,
-  sends one notification saying where to run `./install.sh`. Nothing else.
+  sends a notification at each shell start, until it's installed, saying where
+  to run `./install.sh`. Nothing else.
 - **The suite**, set up by `./install.sh`: its own plugins (`plugins/overtake.*`,
   manifests two folders down, copied into `~/.config/omarchy/plugins`), patched
   copies of five Omarchy plugins built from the installed Omarchy
@@ -24,7 +25,9 @@ are for release v0.1.10.
 | `installer` | `install.sh`, `uninstall.sh`, `Setup.qml` (by file name) | The installer and uninstaller described below; `Setup.qml` is the reminder above. No sudo, no package installs, nothing downloaded. |
 | `remote-build` | `README.md:29` (the bot also shows `README.md:1`: it numbers lines inside each fenced shell block) | The README's install steps clone this repository and run its own `./install.sh`. Nothing outside the repository is fetched or built. |
 
-There is no `systemctl`, `systemd-run`, `sudo` or `pkexec` anywhere. Sleep runs
+Overtake itself runs no `systemctl`, `systemd-run`, `sudo` or `pkexec`. Two
+Settings rows, only when clicked, call Omarchy's own `omarchy-dns` (which asks
+for elevation) and `timedatectl set-ntp` (polkit). Sleep runs
 Omarchy's own Suspend menu entry by its route (`omarchy-menu summon
 system.suspend`), or opens Omarchy's system menu instead if the user has turned
 Suspend off there (Toggle > Suspend) or Omarchy has turned sleep off on this
@@ -68,7 +71,7 @@ Precedents: [macOS Dock #13499](https://github.com/omacom/omarchy-plugin-marketp
   `~/.local/share/overtake`) prints what it will do and asks (line 63). It
   switches back to Omarchy first (also if a switch failed halfway), removes the
   marked blocks, re-enables Omarchy's notifications/battery unless the user had
-  turned them off before installing (recorded at `install.sh:325`), restores
+  turned them off before installing (recorded at `install.sh:328`), restores
   the exact earlier `mimeapps.list` lines (recorded per type, `uninstall.sh:147`)
   and the link handler, and deletes its own files. `--purge` also removes
   settings and wallpapers.
@@ -80,7 +83,7 @@ Precedents: [macOS Dock #13499](https://github.com/omacom/omarchy-plugin-marketp
   of Omarchy's single 10% warning. The notifications patch changes one file,
   `Service.qml`. The copies
   are built from the installed Omarchy by exact replacements
-  (`patches/apply.py`, `build_copies` in `bin/overtake:199`), at install and
+  (`patches/apply.py`, `build_copies` in `bin/overtake:206`), at install and
   again after every `omarchy update` (the hook above; the shell reloads a
   changed plugin folder by itself) and at login, so they never fall behind
   Omarchy's code. If
@@ -96,7 +99,7 @@ Precedents: [macOS Dock #13499](https://github.com/omacom/omarchy-plugin-marketp
   (`~/.local/state/omarchy/workspace-layouts`; Overtake floats every window
   itself, with its own title bars and Dock); all of it is put back when
   switching to Omarchy, a layout you changed meanwhile excepted. Both files are replaced whole through a temp
-  file next to them and a rename (`replace_with`, `bin/overtake:286`), as
+  file next to them and a rename (`replace_with`, `bin/overtake:293`), as
   Omarchy's own `omarchy-shell-config` does.
 
 ## Untrusted input and private data
@@ -106,16 +109,16 @@ Precedents: [macOS Dock #13499](https://github.com/omacom/omarchy-plugin-marketp
 - **Process arguments:** window titles, window names, Claude Code session ids
   and notification text never go into another process's argv:
   - jq gets them through `--slurpfile`/`--rawfile` from `<(printf …)`
-    (`remember_layout` :931, `relayout` :953, `claude_windows` :1275,
-    `sync_session_names` :1302, `set_name` :1338);
+    (`remember_layout` :942, `relayout` :964, `claude_windows` :1286,
+    `sync_session_names` :1313, `set_name` :1349);
   - battery alerts (which name the device) go to `overtake notify-stdin` on
     stdin and from there over D-Bus, never through `notify-send`'s arguments;
   - the bar's settings (which can name your cities) reach jq through a file
     descriptor, not the command line;
-  - names reach `overtake` on stdin (`name … -` :1877; QML:
+  - names reach `overtake` on stdin (`name … -` :1902; QML:
     `session-names/Service.qml:235`); notification text never leaves the
     shell (the notification center doesn't pass it to anything);
-  - Copy URL passes the page title in the environment (`copy_url` :1202) and
+  - Copy URL passes the page title in the environment (`copy_url` :1213) and
     reads browser history read-only in place;
   - Spotlight lists the home folder once per opening and matches typed text
     in-process (`Spotlight.qml:180`); its calculator is a small parser
@@ -128,26 +131,26 @@ Precedents: [macOS Dock #13499](https://github.com/omacom/omarchy-plugin-marketp
   `overtake name here "<name>"` when a user types it that way on purpose (the documented form, `echo name | overtake name here
   -`, keeps it out).
 - **Shell and Lua:** window addresses must match `^0x[0-9a-fA-F]+$` before any
-  command runs (`bin/overtake:1808`); workspace names with quotes,
+  command runs (`bin/overtake:1819`); workspace names with quotes,
   backslashes, `;` (which `hyprctl --batch` splits on) or control characters
-  are refused before reaching Hyprland's Lua (`lua_safe` :829);
+  are refused before reaching Hyprland's Lua (`lua_safe` :840);
   Settings shell-quotes font and theme names (`Settings.qml:47`).
 - **Opening things from other apps' text:** clicking a notification in the
   notification center runs the notification's own action exactly as Omarchy's
   toasts do (`notification-center/Panel.qml`, the same checks as Omarchy's
   `parseExecArgv`, run through `bash -lc 'exec "$@"'`). Without one, it
   does what Omarchy's own toasts do: the sender's open window comes forward
-  (`notification_open` :1101); failing that, a browser's web notification
+  (`notification_open` :1112); failing that, a browser's web notification
   (Omarchy's `web:<host>` group, a plain hostname only) opens
   `https://<host>/` through `Qt.openUrlExternally`, as Omarchy does. Nothing is opened
-  or launched from the message text. `open-url` (:1068) drops
+  or launched from the message text. `open-url` (:1079) drops
   option-like arguments.
 - **Images:** notification icons, and icons looked up from an app's window
   class, are theme icons by plain name only (never a path the app chose).
   The Control Center shows no album art: decoding a player's picture would
   happen inside the shell.
 - **Network:** one request, `wttr.in` for sunrise/sunset, only in the optional
-  Day & Night wallpaper mode (`sun_times` :417); documented in the README.
+  Day & Night wallpaper mode (`sun_times` :426); documented in the README.
 - **Local reads** (browser history for Copy URL, `~/.claude/sessions` for name
   tags, recent files, files under home for search) are listed in the README's
   Privacy section and never leave the machine.
@@ -156,7 +159,7 @@ Precedents: [macOS Dock #13499](https://github.com/omacom/omarchy-plugin-marketp
   before anything is written, and tightened at install and at every start if
   an older version left them open; edits to existing files keep their mode
   (temp file next to them, then a rename); no `/tmp` state; the slideshow's saved pid is checked against `/proc/<pid>/cmdline`
-  before it's stopped (`stop_slideshow` :462).
+  before it's stopped (`stop_slideshow` :473).
 - **Background work:** the mode, Claude Code sessions, the Trash and Do Not
   Disturb (Omarchy's `notifications/history.json` and `quiet.json`) are watched, not polled
   (`session-names/Service.qml:82`), and Hyprland window events trigger at

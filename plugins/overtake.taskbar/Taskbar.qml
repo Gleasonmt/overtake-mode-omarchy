@@ -158,7 +158,7 @@ Panel {
   // order, across every workspace.
   readonly property var allGroups: {
     var order = []
-    var byKey = {}
+    var byKey = Object.create(null)   // (keyed by app ids, which apps choose)
 
     for (var i = 0; i < root.pinned.length; i++) {
       var id = String(root.pinned[i])
@@ -407,7 +407,7 @@ Panel {
     var to = root.dropIndex > from ? root.dropIndex - 1 : root.dropIndex
     keys.splice(from, 1)
     keys.splice(to, 0, root.dragKey)
-    var pins = {}
+    var pins = Object.create(null)
     root.pinned.forEach(function(id) { pins[String(id)] = true })
     var pinnedCount = Object.keys(pins).length
     if (!pins[root.dragKey] && to > pinnedCount) return   // an unpinned app among the unpinned: nothing to keep

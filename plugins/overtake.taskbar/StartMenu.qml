@@ -101,7 +101,7 @@ Item {
     .sort(function(a, b) { return a.name.toLowerCase().localeCompare(b.name.toLowerCase()) })
 
   readonly property var appsById: {
-    var out = {}
+    var out = Object.create(null)
     apps.forEach(function(a) { out[a.id] = a })
     return out
   }
@@ -271,7 +271,7 @@ Item {
       // One bookmark at a time (its own mime type, never the next one's).
       var re = /<bookmark href="([^"]+)"[^>]*modified="([^"]+)"[\s\S]*?<mime:mime-type type="([^"]+)"/
       var body = text()
-      if (body.length > 4000000) body = body.slice(-4000000)   // (a bounded read: the newest end of a huge file)
+      if (body.length > 4000000) body = body.slice(-4000000)   // (parse only the newest end of a huge file)
       var pieces = body.split("</bookmark>")
       for (var i = 0; i < pieces.length; i++) {
         var m = re.exec(pieces[i])
@@ -361,6 +361,7 @@ Item {
       }
 
       TextField {
+        maximumLength: 256   // (a paste of any size stops here)
         id: search
         anchors.top: parent.top
         width: parent.width

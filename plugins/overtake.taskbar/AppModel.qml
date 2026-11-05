@@ -141,7 +141,7 @@ Item {
   // Pinned apps first (in pin order), then running apps in the order they
   // were opened. Each: { key, entry, appId, pinned, windows }.
   readonly property var groups: {
-    var order = [], byKey = {}
+    var order = [], byKey = Object.create(null)   // (keyed by app ids, which apps choose)
     for (var i = 0; i < root.pinned.length; i++) {
       var id = String(root.pinned[i])
       if (byKey[id]) continue

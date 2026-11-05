@@ -304,6 +304,7 @@ Item {
         }
 
         TextField {
+          maximumLength: 256   // (a paste of any size stops here)
           width: parent.width
           placeholderText: "Find a setting"
           text: root.query

@@ -285,6 +285,7 @@ Item {
           font.pixelSize: 20
         }
         TextInput {
+          maximumLength: 256   // (a paste of any size stops here)
           id: input
           anchors.left: lens.right
           anchors.leftMargin: 12

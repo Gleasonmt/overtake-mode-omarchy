@@ -427,9 +427,11 @@ sun_times() {
   local cache="$STATE_DIR/sun-$(date +%F)" times
   if [[ ! -s $cache ]]; then
     rm -f "$STATE_DIR"/sun-*
-    times=$(curl -fs --max-time 8 'https://wttr.in/?format=j1' |
+    # (at most 256 KB read, whatever the server sends; the two times must look
+    # like "06:52 AM" before they reach date)
+    times=$(curl -fs --max-time 8 --max-filesize 262144 'https://wttr.in/?format=j1' | head -c 262144 |
       jq -r '.weather[0].astronomy[0] | "\(.sunrise)|\(.sunset)"' 2>/dev/null) || true
-    if [[ $times == *"|"* ]]; then
+    if [[ $times =~ ^[0-9]{1,2}:[0-9]{2}\ ?([AaPp][Mm])?\|[0-9]{1,2}:[0-9]{2}\ ?([AaPp][Mm])?$ ]]; then
       echo "$(date -d "${times%%|*}" +%H%M) $(date -d "${times##*|}" +%H%M)" >"$cache"
     else
       echo "0700 1900"
@@ -1871,7 +1873,7 @@ Gio.bus_get_sync(Gio.BusType.SESSION, None).call_sync(
                  str(n.get("summary", ""))[:512], str(n.get("body", ""))[:2048], [],
                  {"urgency": GLib.Variant("y", urgency)}, -1)),
     None, Gio.DBusCallFlags.NONE, 5000, None)
-' ;;
+' 2>/dev/null ;;   # (exit 1, quietly, when there's no notification service)
   screensaver) shift; screensaver_cmd "$@" ;;
   hide-minimized) hide_minimized ;;
   show) [[ -n ${2:-} ]] && show_window "$2" || true ;;

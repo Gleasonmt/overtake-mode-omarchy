@@ -27,6 +27,10 @@ Item {
   readonly property color fg: Commons.Color.foreground
   readonly property color bg: Commons.Color.background
 
+  // The list changing while you confirm (an app opening or closing) cancels
+  // the confirmation, so Force Quit always ends the app you were shown.
+  onItemsChanged: if (confirming) confirming = false
+
   function show() {
     if (open) { open = false; return }
     index = 0
