@@ -16,7 +16,7 @@
 #   overtake minimize|maximize|close [address]  # active window when no address
 #   overtake restore <address> [stay] | restore-all
 #   overtake focus-app <name>      # go to an app's window on its own workspace (restoring it if minimized)
-#   overtake notification-open <app> "" <message|->  # notification center click without its own action (- : message on stdin)
+#   overtake notification-open <app>  # notification center click without its own action: the app's window
 #   overtake minimize-all [monitor]   # clicking the desktop: minimize this workspace's windows
 #   overtake screensaver <on|off|enabled|start|lock|show|showing|preview> [...]  # Settings > Screensaver
 #   overtake hide-minimized   # taskbar: hide the minimized windows' workspace if it gets shown
@@ -28,7 +28,7 @@
 #   overtake snap <left|right|top-left|top-right|bottom-left|bottom-right|full|center> [address]
 #   overtake unsnap <address> # back to the size it had before snapping (unsnap-active: the focused window)
 #   overtake send <1-9> <address> [x y]  # drop on a workspace box: move the window there
-#   overtake start [quick]    # Super+S / Super+X: open the Start menu or its quick-link menu
+#   overtake start [quick|all]  # Super+S / Super+X: open the Start menu, its quick-link menu, or All apps
 #   overtake settings [page]  # Super+I: the Settings window (system, bluetooth, network, ...)
 #   overtake snap-layouts     # SUPER+Z: show the snap layouts for the focused window
 #   overtake uninstall [--purge] [--dry-run] [--yes]  # remove Overtake Mode (runs its uninstall.sh)
@@ -41,7 +41,7 @@
 #   overtake sessions         # name tags: {"<address>": "<session id>"} for windows running Claude Code
 #   overtake fill-gap <address>  # a window opened: snap it into a spot snapped windows leave free
 #   overtake open-url <url>      # links from other apps: open on this workspace, not the browser's last window
-#   overtake ui <spotlight|apps|switcher|switcher-back|switcher-cancel|mission-control|force-quit|app-menu|control-center>
+#   overtake ui <spotlight|apps|app-windows|switcher|switcher-back|switcher-commit|switcher-cancel|mission-control|force-quit|app-menu|control-center>
 #                             # Studio: open one of its panels (Super+Space, Super+Tab, Ctrl+Up, ...)
 #   overtake hide-app|hide-others|quit-app [address]  # Studio: Super+H, Super+Alt+H, Super+Q
 #   overtake resume           # at login: restart the slideshow if the mode is on (and fix-bar)
@@ -182,12 +182,29 @@ copy_plugin_files() {  # copy_plugin_files <source-dir> <manifest-file> <target-
   done < <(jq -r '[(.entryPoints[] | {source: ., target: .}), (.omarchy.clonePaths[]? | {source: .source, target: .target})]
                   | unique_by(.target)[] | [.source, .target] | @tsv' "$dir/$manifest")
 }
+# Hand one plugin back to Omarchy's own in shell.json directly (when the shell
+# can't be asked, as at login before it answers): the copy out of the plugin
+# list, and Omarchy's own back on if the copy had switched it off.
+hand_back_in_shell_json() {  # hand_back_in_shell_json <name>
+  [[ -s $SHELL_JSON ]] || return 0
+  replace_with "$SHELL_JSON" jq --arg copy "overtake.$1" --arg own "omarchy.$1" '
+    ((.cloneSourceRestores // []) | if type == "array" then index($copy) != null else false end) as $restore
+    | (if (.plugins | type) == "array" then .plugins |= map(select((if type == "object" then .id else . end) != $copy)) else . end)
+    | (if (.cloneSourceRestores | type) == "array" then .cloneSourceRestores |= map(select(. != $copy)) else . end)
+    | (if $restore and (.disabledPlugins | type) == "array" then .disabledPlugins |= map(select(. != $own and . != $copy)) else . end)' "$SHELL_JSON" || true
+}
+
 build_copies() {  # build_copies all|update
+  # One build at a time (install, login and the update hook can overlap), and
+  # a build that was stopped halfway leaves nothing behind.
+  exec 7>"$STATE_DIR/.build.lock"
+  flock 7
   local mode=$1 share="$HOME/.local/share/overtake" plugins="$HOME/.config/omarchy/plugins"
   local source_root="${OVERTAKE_OMARCHY_PLUGINS:-${OMARCHY_PATH:-/usr/share/omarchy}/shell/plugins}"
   local spec name src manifest files target tmp f built="" failed="" kept="" ok fits
   [[ -f $share/apply.py ]] || { echo "overtake: the patcher isn't installed; run ./install.sh again" >&2; return 1; }
   mkdir -p "$plugins"
+  rm -rf "${plugins:?}"/.overtake-build.*
   for spec in "${COPY_SPECS[@]}"; do
     IFS='|' read -r name src manifest files <<<"$spec"
     target="$plugins/overtake.$name"
@@ -206,20 +223,24 @@ build_copies() {  # build_copies all|update
         | del(.omarchy.clonePaths)' "$tmp/manifest.json" >"$tmp/manifest.json.new" 2>/dev/null &&
        mv "$tmp/manifest.json.new" "$tmp/manifest.json" &&
        cp "$share/NOTICE.md" "$tmp/NOTICE.md" 2>/dev/null &&
-       { python3 -I "$share/apply.py" "$name" "$tmp" >/dev/null 2>&1 || { [[ $? == 1 ]] && fits=""; false; }; }; then
+       { python3 -I "$share/apply.py" "$name" "$tmp" >/dev/null 2>&1 || { [[ $? == 3 ]] && fits=""; false; }; }; then
       if [[ -d $target ]] && diff -rq "$tmp" "$target" >/dev/null 2>&1; then
         rm -rf "${tmp:?}"            # unchanged: leave the running copy alone
         chmod 755 "$target"          # (copies built by 0.1.8 are 0700)
       else
-        rm -rf "${target:?}"; mv "$tmp" "$target"; built+=" $name"
+        rm -rf "${target:?}"; mv -T "$tmp" "$target"; built+=" $name"
       fi
     else
       rm -rf "${tmp:?}"
-      # Only when Omarchy's code no longer fits the patch (apply.py exit 1, or
+      # Only when Omarchy's code no longer fits the patch (apply.py exit 3, or
       # files it needs are gone); a passing error (disk full, a missing tool)
       # leaves the working copy as it is.
       if [[ -z $fits && -d $target ]]; then     # Omarchy's own back in its place
-        [[ -n ${OVERTAKE_NO_RELOAD:-} ]] || omarchy plugin disable "overtake.$name" >/dev/null 2>&1 || true
+        # through the shell if it answers; otherwise (at login it may not yet)
+        # in shell.json itself, so Omarchy's own isn't left switched off
+        if [[ -n ${OVERTAKE_NO_RELOAD:-} ]] || ! omarchy plugin disable "overtake.$name" >/dev/null 2>&1; then
+          hand_back_in_shell_json "$name"
+        fi
         rm -rf "${target:?}"
       fi
       if [[ -z $fits ]]; then failed+=" $name"; else kept+=" $name"; fi
@@ -500,9 +521,11 @@ mode_lock() {
   for i in $(seq 120); do
     if mkdir "$MODE_LOCK" 2>/dev/null; then
       trap 'rmdir "$MODE_LOCK" 2>/dev/null' EXIT
+      trap 'exit 143' TERM HUP INT   # (so a stopped on/off still lets go of the lock)
       return 0
     fi
-    [[ -n $(find "$MODE_LOCK" -maxdepth 0 -mmin +1 2>/dev/null) ]] && { rmdir "$MODE_LOCK" 2>/dev/null || true; }
+    # left by one that died: older than a minute
+    (( $(date +%s) - $(stat -c %Y "$MODE_LOCK" 2>/dev/null || date +%s) > 60 )) && { rmdir "$MODE_LOCK" 2>/dev/null || true; }
     sleep 0.5
   done
   echo "overtake: another on/off is still running" >&2
@@ -582,7 +605,7 @@ save_taskbar_settings() {
 STUDIO_JSON="$HOME/.config/overtake/studio.json"
 studio_get() {
   local value=""
-  [[ -s $STUDIO_JSON ]] && value=$(jq -r --arg k "$1" '.[$k] // empty' "$STUDIO_JSON" 2>/dev/null)
+  [[ -s $STUDIO_JSON ]] && value=$(jq -r --arg k "$1" 'if type == "object" then .[$k] // empty else empty end' "$STUDIO_JSON" 2>/dev/null || true)
   case $1 in
     dockSize) case ${value:-48} in 40) echo Small ;; 64) echo Large ;; *) echo Medium ;; esac ;;
     dockMagnify) [[ $value != false ]] ;;     # on unless turned off
@@ -599,11 +622,9 @@ studio_set() {
     *) echo "overtake: studio-set takes dockSize small|medium|large, dockMagnify on|off or dockAutohide on|off" >&2; return 1 ;;
   esac
   mkdir -p "$(dirname "$STUDIO_JSON")"
-  [[ -s $STUDIO_JSON ]] || echo '{}' >"$STUDIO_JSON"
-  local tmp
-  tmp=$(mktemp "$STUDIO_JSON.XXXXXX") || return 1
-  jq --arg k "$key" --argjson v "$value" '.[$k] = $v' "$STUDIO_JSON" >"$tmp" && [[ -s $tmp ]] && cat "$tmp" >"$STUDIO_JSON"
-  rm -f "$tmp"
+  # (locked and replaced whole; a damaged file starts over)
+  jq -e . "$STUDIO_JSON" >/dev/null 2>&1 || echo '{}' >"$STUDIO_JSON"
+  json_set "$STUDIO_JSON" '(if type == "object" then . else {} end) | .[$k] = $v' --arg k "$key" --argjson v "$value"
 }
 
 # Switch between Classic and Studio. While the mode is on, the bar, its
@@ -638,6 +659,33 @@ set_style() {
   notify $'\uf0ec' "Overtake mode: ${1^}"
 }
 
+# Omarchy 4.5's floating workspaces bring their own title bars and Dock, which
+# would double Overtake's. While the mode is on, a workspace (or the default)
+# set to floating is tiled in Omarchy's own record instead (Overtake floats
+# every window itself); turning the mode off puts each record back as it was.
+OMARCHY_LAYOUTS="${XDG_STATE_HOME:-$HOME/.local/state}/omarchy/workspace-layouts"
+PAUSED_LAYOUTS="$STATE_DIR/omarchy-floating-layouts"
+pause_floating_layouts() {
+  local f
+  [[ -d $OMARCHY_LAYOUTS ]] || return 0
+  for f in "$OMARCHY_LAYOUTS"/*.lua; do
+    [[ -f $f && ! -L $f ]] && grep -q '"floating"' "$f" || continue
+    mkdir -p -m 700 "$PAUSED_LAYOUTS"
+    [[ -e $PAUSED_LAYOUTS/${f##*/} ]] || cp -p "$f" "$PAUSED_LAYOUTS/${f##*/}"
+    replace_with "$f" sed 's/"floating"/"dwindle"/g' "$f" || true
+  done
+}
+resume_floating_layouts() {
+  local f
+  [[ -d $PAUSED_LAYOUTS ]] || return 0
+  for f in "$PAUSED_LAYOUTS"/*.lua; do
+    [[ -f $f ]] || continue
+    mkdir -p "$OMARCHY_LAYOUTS"
+    cp -p "$f" "$OMARCHY_LAYOUTS/${f##*/}.overtake-tmp" && mv -f "$OMARCHY_LAYOUTS/${f##*/}.overtake-tmp" "$OMARCHY_LAYOUTS/${f##*/}"
+  done
+  rm -rf "${PAUSED_LAYOUTS:?}"
+}
+
 turn_on() {
   [[ -f $FLAG ]] && { echo "Overtake Mode is already on"; fix_bar_widgets; return; }
   mkdir -p -m 700 "$STATE_DIR"
@@ -645,6 +693,7 @@ turn_on() {
     echo "the bar is already Overtake's; keeping the saved Omarchy bar" >&2
   else
     jq '.bar' "$SHELL_JSON" >"$SAVED_BAR"
+    omarchy-version >"$SAVED_BAR.omarchy" 2>/dev/null || true   # (which Omarchy the saved bar is from)
   fi
   readlink -f "$CURRENT_BG" >"$SAVED_BG" 2>/dev/null || true
   save_look omarchy
@@ -661,6 +710,7 @@ turn_on() {
     live_wallpaper_showing || refresh_wallpaper
   fi
   start_slideshow
+  pause_floating_layouts
   float_all
   # Back to their sections and places from last time, once the bar has moved.
   setsid sh -c 'sleep 2; overtake relayout all' </dev/null >/dev/null 2>&1 &
@@ -680,14 +730,24 @@ turn_off() {
   view=$(current_view)
   [[ $(style) == classic ]] && save_taskbar_settings
   save_look "$(style)"
-  if [[ -s $SAVED_BAR ]]; then
+  if [[ -s $SAVED_BAR ]] && ! jq -e 'type == "object"' "$SAVED_BAR" >/dev/null 2>&1; then
+    # you had no bar of your own in shell.json (Omarchy's built-in one): none again
+    replace_with "$SHELL_JSON" jq 'del(.bar)' "$SHELL_JSON"
+  elif [[ -s $SAVED_BAR ]]; then
     set_bar "$(cat "$SAVED_BAR")"
+    # Omarchy updated while the mode was on: its update adjusted Overtake's bar,
+    # not this saved one
+    if [[ -s $SAVED_BAR.omarchy && $(omarchy-version 2>/dev/null) != "$(<"$SAVED_BAR.omarchy")" ]]; then
+      notify $'\uf071' "Omarchy was updated while Overtake Mode was on: your bar is as it was before the update (Appearance > Menu Bar to adjust it)"
+    fi
+    rm -f "$SAVED_BAR.omarchy"
   else
     # no saved bar (state removed?): fall back to Omarchy's default one
     set_bar "$(jq '.bar' "${OMARCHY_PATH:-/usr/share/omarchy}/config/omarchy/shell.json")"
     notify $'\uf071' "Overtake couldn't find your saved bar, so Omarchy's default bar is back"
   fi
   remove_bar_size
+  resume_floating_layouts
   rm -f "$FLAG" "$DESKTOP_RETURN"
   echo off >"$STATE_DIR/mode"
   restore_all
@@ -702,7 +762,7 @@ turn_off() {
   if ! apply_look omarchy && [[ -s $SAVED_BG && -f $(<"$SAVED_BG") && $(readlink -f "$CURRENT_BG") == "$HOME/Pictures/overtake/"* ]]; then
     omarchy-theme-bg-set "$(<"$SAVED_BG")" >/dev/null 2>&1 || true
   fi
-  hyprctl reload >/dev/null
+  hyprctl reload >/dev/null 2>&1 || true   # (outside Hyprland, from a TTY: the rest is still done)
   # Tiling the windows again moves focus from workspace to workspace: end
   # where you were.
   [[ -z $view ]] || hyprctl --batch "$view" >/dev/null 2>&1 || true
@@ -811,6 +871,7 @@ make_room() {
   [[ -n $info && $(jq -r '.floating and .fullscreen == 0' <<<"$info") == true ]] || return 0
   read -r top bottom < <(hyprctl monitors -j | jq -r --argjson id "$(jq .monitor <<<"$info")" \
     '.[] | select(.id == $id) | "\(.y + .reserved[1]) \(.y + (.height / .scale | floor) - .reserved[3])"')
+  [[ -n ${bottom:-} ]] || return 0   # (the monitor just went away)
   read -r x y w h < <(jq -r '.at + .size | map(floor) | join(" ")' <<<"$info")
   want=$((top + SNAP_TITLE_BAR))
   (( y < want )) || return 0
@@ -1023,51 +1084,13 @@ open_url() {
 }
 
 # A notification clicked in the notification center that carries no action of
-# its own: open a file the message names (quoted paths first, as they may
-# hold spaces, then unquoted ones up to a space); else go to the app's window
-# where it lives; else launch the app from its desktop entry (which also
-# reopens one closed to the tray). Exit 1 when none of that is possible.
+# its own: bring the sending app's open window forward, as Omarchy's own toasts
+# do (omarchy-hyprland-focus-app). Nothing is opened or launched from the
+# notification's text. Exit 1 when the app has no open window.
 notification_open() {
-  local app=$1 body=$3 f kind
-  # Like Omarchy's own toasts: the app that sent it, brought forward if it's
-  # open. Overtake never launches anything from a notification.
-  [[ -n $app ]] && focus_app "$app" exact && return 0
-  # Otherwise a file or folder the message names (a screenshot tool's "saved
-  # to '...png'"), picked out in-process (the message text never goes into
-  # another process's arguments): only an ordinary file or folder in your home
-  # folder, never a launcher or a program (the text comes from whichever app
-  # sent the notification), and only kinds that open in a viewer: pictures,
-  # videos, sound, PDFs, plain text and folders (an archive or a .jar opens
-  # with something that can run it, executable bit or not). The name, which
-  # picks the app, says so here; the content must be exactly that type below.
-  while IFS=$'\t' read -r kind f; do
-    [[ $kind == dir ]] || [[ " $kind " == *" $(file --brief --mime-type - <"$f" 2>/dev/null) "* ]] || continue
-    xdg-open "$f" >/dev/null 2>&1 &
-    return 0
-  done < <(OVERTAKE_BODY=$body python3 -I -c '
-import os, re
-home = os.path.realpath(os.path.expanduser("~"))
-types = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg", "gif": "image/gif",
-         "webp": "image/webp", "bmp": "image/bmp", "avif": "image/avif", "heic": "image/heic image/heif",
-         "jxl": "image/jxl", "mp4": "video/mp4", "mkv": "video/x-matroska", "webm": "video/webm",
-         "mov": "video/quicktime", "mp3": "audio/mpeg", "ogg": "audio/ogg", "opus": "audio/ogg",
-         "flac": "audio/flac", "wav": "audio/x-wav audio/wav", "m4a": "audio/mp4 audio/x-m4a",
-         "pdf": "application/pdf", "txt": "text/plain", "log": "text/plain", "md": "text/plain"}
-body = os.environ.get("OVERTAKE_BODY", "")
-quoted = r"\x27(/[^\x27]+)\x27|\x22(/[^\x22]+)\x22"   # in single or double quotes
-found = [a or b for a, b in re.findall(quoted, body)] + re.findall(r"/[^\x27\x22<>\s]+", body)
-for f in found:
-    f = os.path.realpath(f.rstrip(".,;:)"))
-    if not f.startswith(home + "/") or "\t" in f or "\n" in f or not os.path.exists(f):
-        continue
-    if os.path.isdir(f):
-        print("dir\t" + f)
-        continue
-    k = types.get(f.rsplit(".", 1)[-1].lower()) if "." in os.path.basename(f) else None
-    if k and os.path.isfile(f) and not os.access(f, os.X_OK):
-        print(k + "\t" + f)
-' 2>/dev/null || true)
-  return 1
+  local app=$1
+  [[ -n $app ]] || return 1
+  omarchy-hyprland-focus-app "$app" >/dev/null 2>&1 || focus_app "$app" exact
 }
 
 # Clicking empty desktop: minimize every window on the workspace that screen
@@ -1234,7 +1257,7 @@ json_set() {  # json_set <file> <jq filter> [jq args...]
 # names.json as address -> name. An address is gone once its window closes,
 # so a Claude Code window's name is also kept under its session id
 # (session-names.json) and given back to the window that resumes the session
-# (after a reboot hypr-session-restore reopens it with `claude --resume`).
+# (for example after a reboot, with `claude --resume`).
 NAMES="$STATE_DIR/names.json"
 SESSION_NAMES="$STATE_DIR/session-names.json"
 
@@ -1462,6 +1485,7 @@ snap_window() {
   local mx my mw mh rl rt rr rb
   read -r mx my mw mh rl rt rr rb < <(hyprctl monitors -j | jq -r --argjson id "$mon" \
     '.[] | select(.id == $id) | "\(.x) \(.y) \((.width / .scale) | floor) \((.height / .scale) | floor) \(.reserved | join(" "))"')
+  [[ -n ${rb:-} ]] || return 0   # (the monitor just went away)
   local ux=$((mx + rl + SNAP_GAP)) uy=$((my + rt + SNAP_GAP))
   local uw=$((mw - rl - rr - 2 * SNAP_GAP)) uh=$((mh - rt - rb - 2 * SNAP_GAP))
   local hw=$(((uw - SNAP_GAP) / 2)) hh=$(((uh - SNAP_GAP) / 2))
@@ -1567,6 +1591,7 @@ unsnap_window() {
   read -r x y < <(jq -r '"\(.at[0]) \(.at[1])"' <<<"$info")
   read -r mw mh < <(hyprctl monitors -j | jq -r --argjson id "$(jq .monitor <<<"$info")" \
     '.[] | select(.id == $id) | "\((.width / .scale) | floor) \((.height / .scale) | floor)"')
+  [[ -n ${mh:-} ]] || return 0   # (the monitor just went away)
   w=${size% *} h=${size#* }
   [[ $w =~ ^[0-9]+$ && $h =~ ^[0-9]+$ ]] || return 0
   (( w > mw * 7 / 10 )) && w=$((mw * 7 / 10))
@@ -1701,7 +1726,7 @@ bg_picker() {
 
   n=0
   for file in "$HOME/.local/state/omarchy/current/theme/backgrounds"/* "$HOME/.config/omarchy/backgrounds/$theme"/*; do
-    [[ -f $file && ${file,,} =~ \.(png|jpe?g|webp)$ ]] || continue
+    [[ -f $file && ${file,,} =~ \.(png|jpe?g|webp|gif|bmp|mp4|m4v|mov|webm|mkv|avi)$ ]] || continue   # (what Omarchy 4.5 lists, videos too)
     n=$((n + 1))
     base=${file##*/}; base=${base%.*}
     live=""
@@ -1738,7 +1763,7 @@ bg_picker() {
     [[ $name == *-lite || $name == "$theme_base" ]] && continue
     n=0
     for file in "$dir"/backgrounds/*; do
-      [[ -f $file && ${file,,} =~ \.(png|jpe?g|webp)$ ]] || continue
+      [[ -f $file && ${file,,} =~ \.(png|jpe?g|webp|gif|bmp|mp4|m4v|mov|webm|mkv|avi)$ ]] || continue   # (what Omarchy 4.5 lists, videos too)
       base=${file##*/}; base=${base%.*}
       [[ -f $dir/live/$base.frag.qsb ]] && continue   # listed under 2 already
       n=$((n + 1)); suffix=""; (( n > 1 )) && suffix=" $n"
@@ -1812,9 +1837,7 @@ case "${1:-help}" in
   restore-all) restore_all ;;
   minimize-all) minimize_all "${2:-}" ;;
   focus-app) [[ -n ${2:-} ]] && focus_app "$2" ;;
-  notification-open)  # the message text as "-": one line on stdin
-    body=${4:-}; [[ $body == - ]] && { IFS= read -r -t 5 body || true; }
-    notification_open "${2:-}" "${3:-}" "$body" ;;
+  notification-open) notification_open "${2:-}" ;;
   screensaver) shift; screensaver_cmd "$@" ;;
   hide-minimized) hide_minimized ;;
   show) [[ -n ${2:-} ]] && show_window "$2" || true ;;

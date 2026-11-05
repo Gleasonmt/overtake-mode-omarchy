@@ -144,6 +144,8 @@ Overtake Mode will add (./uninstall.sh removes all of it):
                                           whose patch no longer fits)
   ~/.local/state/overtake/, ~/.cache/overtake/
                                           its state (yours only) and the Background lists
+  ~/.cache/omarchy/image-selector/        Background previews, made by Omarchy's own
+                                          picker (left for Omarchy to manage)
 EOF
   [[ $NAME_TAGS == yes ]] && echo "  ~/.config/omarchy/plugins/overtake.session-names   name tags on Claude Code windows"
   [[ $CHANGE_IMAGES ]] && echo "  ~/.local/share/applications/overtake-image-viewer.desktop"
@@ -182,7 +184,7 @@ EOF
   local off=()
   [[ $LINKS == no ]] && have_links && off+=("the link handler")
   [[ $IMAGES == no ]] && have_images && off+=("the image viewer")
-  [[ $STYLE_MENUS == no ]] && have_style_menus && off+=("the Style menus")
+  [[ $STYLE_MENUS == no ]] && have_style_menus && off+=("the Appearance menus")
   [[ $NAME_TAGS == no ]] && have_name_tags && off+=("the name tags")
   if (( ${#off[@]} )); then
     echo
@@ -217,18 +219,18 @@ set_block() {
   local file=$1 prefix=$2 block=$3
   mkdir -p "$(dirname "$file")"
   [[ -f $file ]] || touch "$file"
-  python3 - "$file" "$prefix" "$block" <<'PY'
+  python3 -I - "$file" "$prefix" "$block" <<'PY'
 import sys, re
 path, prefix, block = sys.argv[1:4]
 start, end = f"{prefix} >>> overtake", f"{prefix} <<< overtake"
-text = open(path).read()
+text = open(path, encoding="utf-8", errors="surrogateescape").read()
 new = f"{start} (managed by overtake-mode-omarchy/install.sh)\n{block.rstrip()}\n{end}\n"
 pattern = re.compile(re.escape(start) + r".*?" + re.escape(end) + r"\n?", re.S)
 if pattern.search(text):
     text = pattern.sub(lambda _: new, text, count=1)
 else:
     text = text.rstrip("\n") + ("\n\n" if text.strip() else "") + new
-open(path, "w").write(text)
+open(path, "w", encoding="utf-8", errors="surrogateescape").write(text)
 PY
 }
 
@@ -321,7 +323,10 @@ enable_plugin() {
 # Which of Omarchy's own you had turned off yourself, so ./uninstall.sh leaves
 # those off instead of turning them back on.
 if [[ ! -e $HOME/.local/state/overtake/disabled-before ]]; then
-  jq -r '(.disabledPlugins // [])[] | select(. == "omarchy.notifications" or . == "omarchy.battery")' \
+  # (not one that Overtake's own copy switched off, as an older install may have)
+  jq -r '(if (.cloneSourceRestores | type) == "array" then .cloneSourceRestores else [] end) as $r
+    | (.disabledPlugins // [])[] | select(. == "omarchy.notifications" or . == "omarchy.battery")
+    | select(("overtake." + ltrimstr("omarchy.")) as $c | $r | index($c) | not)' \
     "$HOME/.config/omarchy/shell.json" >"$HOME/.local/state/overtake/disabled-before" 2>/dev/null || true
 fi
 if [[ -z ${OVERTAKE_NO_RELOAD:-} ]]; then
@@ -339,11 +344,11 @@ if [[ ! -s $MENU ]]; then
 fi
 MENU_BLOCK=$(cat "$REPO/menu/omarchy-menu.jsonc")
 [[ $STYLE_MENUS == yes ]] && MENU_BLOCK+=$'\n'$(cat "$REPO/menu/style-menus.jsonc")
-python3 - "$MENU" "$MENU_BLOCK" <<'PY'
+python3 -I - "$MENU" "$MENU_BLOCK" <<'PY'
 import sys, re
 path, block = sys.argv[1:3]
 start, end = "  // >>> overtake", "  // <<< overtake"
-text = open(path).read()
+text = open(path, encoding="utf-8", errors="surrogateescape").read()
 text = re.sub(re.escape(start) + r".*?" + re.escape(end) + r"\n?", "", text, flags=re.S)
 # Right after the opening { (yours stay below it, so an entry of yours with the
 # same id still wins), each line ending in a comma, which Omarchy's JSONC
@@ -364,7 +369,7 @@ opening = lines[first].strip()
 lines[first:first + 1] = ["{", start + " (managed by overtake-mode-omarchy/install.sh)", block, end] + \
     (["  " + opening[1:].strip()] if opening[1:].strip() else [])
 text = "\n".join(lines)
-open(path, "w").write(text)
+open(path, "w", encoding="utf-8", errors="surrogateescape").write(text)
 PY
 say "menu: Overtake Mode in the Omarchy menu"
 
@@ -407,17 +412,20 @@ DESKTOP
 # them to the browser window used last, wherever it is. Route them through
 # Overtake, which opens them on the workspace you're on (and, while the mode
 # is off, passes them straight back to Omarchy's handler). --no-link-handler skips it.
+# Quoted as a desktop file's Exec wants it (\ " ` $ escaped, % doubled),
+# then escaped for sed's replacement.
+bin_quoted="$HOME/.local/bin/overtake"
+bin_quoted=${bin_quoted//\\/\\\\}; bin_quoted=${bin_quoted//\"/\\\"}
+bin_quoted=${bin_quoted//\`/\\\`}; bin_quoted=${bin_quoted//\$/\\\$}; bin_quoted=${bin_quoted//%/%%}
+bin_escaped=$(printf '%s' "$bin_quoted" | sed 's/[\\|&]/\\&/g')
 if [[ $CHANGE_LINKS ]]; then
-  # Quoted as a desktop file's Exec wants it (\ " ` $ escaped, % doubled),
-  # then escaped for sed's replacement.
-  bin_quoted="$HOME/.local/bin/overtake"
-  bin_quoted=${bin_quoted//\\/\\\\}; bin_quoted=${bin_quoted//\"/\\\"}
-  bin_quoted=${bin_quoted//\`/\\\`}; bin_quoted=${bin_quoted//\$/\\\$}; bin_quoted=${bin_quoted//%/%%}
-  bin_escaped=$(printf '%s' "$bin_quoted" | sed 's/[\\|&]/\\&/g')
-  sed -i "s|^Exec=omarchy-launch-browser |Exec=\"$bin_escaped\" open-url |" "$BROWSER_ENTRY"   # (quoted: a home folder may have spaces)
+  sed -i --follow-symlinks "s|^Exec=omarchy-launch-browser |Exec=\"$bin_escaped\" open-url |" "$BROWSER_ENTRY"   # (quoted: a home folder may have spaces)
   say "links: open on the workspace you're on"
+elif [[ $LINKS == yes ]] && have_links; then
+  # an earlier install's line (unquoted before 0.1.10): written again as above
+  sed -i --follow-symlinks "s|^Exec=.*/overtake\"\\? open-url |Exec=\"$bin_escaped\" open-url |" "$BROWSER_ENTRY"
 elif [[ $LINKS == no ]] && have_links; then
-  sed -i 's|^Exec=.*/overtake"\? open-url |Exec=omarchy-launch-browser |' "$BROWSER_ENTRY"
+  sed -i --follow-symlinks 's|^Exec=.*/overtake"\? open-url |Exec=omarchy-launch-browser |' "$BROWSER_ENTRY"
   say "links: back to Omarchy's own handler"
 fi
 
@@ -475,7 +483,7 @@ if [[ -z ${OVERTAKE_NO_RELOAD:-} ]] && hyprctl version >/dev/null 2>&1; then
   omarchy-menu refresh >/dev/null 2>&1 || true
   if [[ $("$HOME/.local/bin/overtake" status) == on ]]; then
     # Updating while the mode is on: switch off and on to pick up the new bar.
-    overtake off >/dev/null && overtake on >/dev/null
+    "$HOME/.local/bin/overtake" off >/dev/null && "$HOME/.local/bin/overtake" on >/dev/null
   fi
 fi
 

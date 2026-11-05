@@ -265,6 +265,7 @@ Super + Shift + 3 / 4 / 5 take over moving a window to workspace 3–5
 | Super + X | Quick links menu |
 | Super + E / I / R | Files / Settings / Run |
 | Super + D | Show desktop |
+| Super + M | Minimize the window |
 | Super + Z | Snap layouts |
 | Super + ← / → | Snap left / right |
 | Super + ↑ / ↓ | Maximize / minimize |
@@ -277,8 +278,12 @@ Super + Shift + 3 / 4 / 5 take over moving a window to workspace 3–5
 | Super + Ctrl + Shift + W | Next mode: Omarchy → Classic → Studio → Omarchy |
 
 These replace a few Omarchy shortcuts only while the mode is on (for example
-Super + S is normally the scratchpad, and Super + I switches input language);
-switching back restores them all.
+Super + S is normally the scratchpad, and Super + I switches input language;
+Studio also takes Super + Shift + W, Super + Shift + T, Super + Ctrl + Space
+and Super + Ctrl + C); switching back restores them all. While the mode is on,
+a workspace you set to Omarchy's floating layout is tiled in Omarchy's record
+(Overtake floats every window itself, with its own title bars and Dock), and
+turning the mode off puts your floating layouts back.
 
 ## Customising
 

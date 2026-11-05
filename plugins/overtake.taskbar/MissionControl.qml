@@ -27,6 +27,13 @@ Item {
     open = true
   }
 
+  // Omarchy 4.5 gives each monitor its own ten workspaces (11–20 on the second,
+  // and so on): the desktops shown are the focused monitor's.
+  readonly property int block: {
+    var m = Hyprland.focusedMonitor
+    var id = m && m.activeWorkspace ? m.activeWorkspace.id : 0
+    return id > 0 ? Math.floor((id - 1) / 10) : 0
+  }
   readonly property var screen: Quickshell.screens.find(function(s) { return Hyprland.focusedMonitor && s.name === Hyprland.focusedMonitor.name }) || Quickshell.screens[0]
   readonly property var workspace: Hyprland.focusedWorkspace
   readonly property var windows: (Hyprland.toplevels.values || []).filter(function(t) {
@@ -84,10 +91,10 @@ Item {
         Rectangle {
           id: space
           required property int index
-          readonly property int number: index + 1
+          readonly property int number: root.block * 10 + index + 1
           readonly property int count: (Hyprland.toplevels.values || []).filter(function(t) { return t.workspace && t.workspace.id === space.number }).length
           readonly property bool current: root.workspace && root.workspace.id === number
-          visible: count > 0 || current || number <= 3
+          visible: count > 0 || current || space.index < 3
           width: 132
           height: 74
           radius: 10
@@ -99,7 +106,7 @@ Item {
             anchors.centerIn: parent
             anchors.verticalCenterOffset: -6
             textFormat: Text.PlainText
-            text: "Desktop " + space.number
+            text: "Desktop " + (space.index + 1)
             color: root.fg
             font.family: Style.font.family
             font.pixelSize: Style.font.bodySmall

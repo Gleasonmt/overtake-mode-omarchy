@@ -440,7 +440,9 @@ Item {
         valueProbe.exec(["omarchy-theme-current"])
       }
     }
-    Component.onCompleted: refresh()
+    // Read when the window opens (not at every shell start, and never stale).
+    Component.onCompleted: if (root.open) refresh()
+    Connections { target: root; function onOpenChanged() { if (root.open) card.refresh() } }
     Timer { id: refreshLater; interval: 900; onTriggered: card.refresh() }
     function act(command) { root.sh(command); refreshLater.restart() }
     function label(option) { return row.labels && row.labels[option] ? row.labels[option] : option }

@@ -407,7 +407,7 @@ Item {
                 }
                 Keys.onPressed: function(event) {
                   if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-                    var label = text.trim()
+                    var label = text.replace(/[\r\n\t]+/g, " ").trim()   // (one line per icon in desktop-icons.txt)
                     var own = root.labelFor({ id: tile.modelData.id, label: "" })
                     root.writeIcons(DesktopList.rename(root.iconsText, tile.modelData.id, label === own ? "" : label))
                     root.renaming = ""

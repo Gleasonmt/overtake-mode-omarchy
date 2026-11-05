@@ -22,7 +22,7 @@ are for release v0.1.10.
 | Capability | Where | What it is |
 | --- | --- | --- |
 | `installer` | `install.sh`, `uninstall.sh`, `Setup.qml` (by file name) | The installer and uninstaller described below; `Setup.qml` is the reminder above. No sudo, no package installs, nothing downloaded. |
-| `remote-build` | `README.md:29` (and the same fenced block) | The README's install steps clone this repository and run its own `./install.sh`. Nothing outside the repository is fetched or built. |
+| `remote-build` | `README.md:29` (the bot also shows `README.md:1`: it numbers lines inside each fenced shell block) | The README's install steps clone this repository and run its own `./install.sh`. Nothing outside the repository is fetched or built. |
 
 There is no `systemctl`, `systemd-run`, `sudo` or `pkexec` anywhere. Sleep runs
 Omarchy's own Suspend menu entry by its route (`omarchy-menu summon
@@ -49,7 +49,7 @@ Precedents: [macOS Dock #13499](https://github.com/omacom/omarchy-plugin-marketp
 ## Install and uninstall
 
 - `install.sh`: `plan()` (line 127) prints every file it will add and every
-  existing file it will change; nothing is written before the prompt (line 207)
+  existing file it will change; nothing is written before the prompt (line 209)
   or `--yes`, and it refuses without a terminal. `--dry-run` only prints.
 - **Optional extras are off unless chosen** (asked one by one in a terminal, or
   `--link-handler`, `--image-viewer`, `--style-menus`, `--name-tags`): the
@@ -68,7 +68,7 @@ Precedents: [macOS Dock #13499](https://github.com/omacom/omarchy-plugin-marketp
   `~/.local/share/overtake`) prints what it will do and asks (line 63). It
   switches back to Omarchy first (also if a switch failed halfway), removes the
   marked blocks, re-enables Omarchy's notifications/battery unless the user had
-  turned them off before installing (recorded at `install.sh:323`), restores
+  turned them off before installing (recorded at `install.sh:325`), restores
   the exact earlier `mimeapps.list` lines (recorded per type, `uninstall.sh:147`)
   and the link handler, and deletes its own files. `--purge` also removes
   settings and wallpapers.
@@ -80,7 +80,7 @@ Precedents: [macOS Dock #13499](https://github.com/omacom/omarchy-plugin-marketp
   of Omarchy's single 10% warning. The notifications patch changes one file,
   `Service.qml`. The copies
   are built from the installed Omarchy by exact replacements
-  (`patches/apply.py`, `build_copies` in `bin/overtake:185`), at install and
+  (`patches/apply.py`, `build_copies` in `bin/overtake:197`), at install and
   again after every `omarchy update` (the hook above; the shell reloads a
   changed plugin folder by itself) and at login, so they never fall behind
   Omarchy's code. If
@@ -93,7 +93,7 @@ Precedents: [macOS Dock #13499](https://github.com/omacom/omarchy-plugin-marketp
 - While a mode is on, `overtake` swaps the bar layout in `shell.json`, adds a
   marked block to `shell.toml` and sets GTK's `button-layout`; all of it is put
   back when switching to Omarchy. Both files are replaced whole through a temp
-  file next to them and a rename (`replace_with`, `bin/overtake:262`), as
+  file next to them and a rename (`replace_with`, `bin/overtake:283`), as
   Omarchy's own `omarchy-shell-config` does.
 
 ## Untrusted input and private data
@@ -103,61 +103,61 @@ Precedents: [macOS Dock #13499](https://github.com/omacom/omarchy-plugin-marketp
 - **Process arguments:** window titles, window names, Claude Code session ids
   and notification text never go into another process's argv:
   - jq gets them through `--slurpfile`/`--rawfile` from `<(printf …)`
-    (`remember_layout` :859, `relayout` :881, `claude_windows` :1241,
-    `sync_session_names` :1268, `set_name` :1304);
-  - names and notification text reach `overtake` on stdin (`name … -` :1843,
-    `notification-open … -` :1815; QML: `session-names/Service.qml:235`,
-    `notification-center/Panel.qml:243`);
-  - Copy URL passes the page title in the environment (`copy_url` :1168) and
+    (`remember_layout` :920, `relayout` :942, `claude_windows` :1264,
+    `sync_session_names` :1291, `set_name` :1327);
+  - names reach `overtake` on stdin (`name … -` :1866; QML:
+    `session-names/Service.qml:235`); notification text never leaves the
+    shell (the notification center doesn't pass it to anything);
+  - Copy URL passes the page title in the environment (`copy_url` :1191) and
     reads browser history read-only in place;
   - Spotlight lists the home folder once per opening and matches typed text
-    in-process (`Spotlight.qml:179`); its calculator is a small parser
+    in-process (`Spotlight.qml:180`); its calculator is a small parser
     (`Spotlight.qml:104`), no eval.
 - **What still goes into process arguments**, and why: file paths a click
   opens (`xdg-open` needs the path); a notification's app name
-  (`overtake notification-open`, to find its window by exact class; the
-  message text itself goes on stdin); a device's name in a battery alert
-  (`notify-send`'s title); and `overtake name here "<name>"` when a user types
+  (`overtake notification-open`, to find its window, as Omarchy's toasts do
+  with `omarchy-hyprland-focus-app`); a device's name in a battery alert
+  (`notify-send`'s title, after `--`); and `overtake name here "<name>"` when a user types
   it that way on purpose (the documented form, `echo name | overtake name here
   -`, keeps it out).
 - **Shell and Lua:** window addresses must match `^0x[0-9a-fA-F]+$` before any
-  command runs (`bin/overtake:1772`); workspace names with quotes,
+  command runs (`bin/overtake:1797`); workspace names with quotes,
   backslashes, `;` (which `hyprctl --batch` splits on) or control characters
-  are refused before reaching Hyprland's Lua (`lua_safe` :758);
+  are refused before reaching Hyprland's Lua (`lua_safe` :818);
   Settings shell-quotes font and theme names (`Settings.qml:47`).
 - **Opening things from other apps' text:** clicking a notification in the
   notification center runs the notification's own action exactly as Omarchy's
   toasts do (`notification-center/Panel.qml`, the same checks as Omarchy's
   `parseExecArgv`, run through `bash -lc 'exec "$@"'`). Without one, it
-  brings the sender's open window forward, as Omarchy's own does; failing
-  that, it opens a folder or file the message names only if it's under
-  `$HOME`, not executable, and (for a file) its extension and its exact
-  content type agree on a picture, video, sound, PDF or plain text
-  (`notification_open` :1030). It never launches an app. `open-url` (:996)
-  drops option-like arguments.
+  does what Omarchy's own toasts do: a web notification opens its site
+  (`https://<host>/`, a plain hostname only), otherwise the sender's open
+  window comes forward (`notification_open` :1090). Nothing is opened
+  or launched from the message text. `open-url` (:1057) drops
+  option-like arguments.
 - **Images:** notification icons are theme icons by plain name only (as
   Omarchy keeps them in history), and album art loads local files only
-  (`ControlCenter.qml:260`).
+  (`ControlCenter.qml:262`).
 - **Network:** one request, `wttr.in` for sunrise/sunset, only in the optional
-  Day & Night wallpaper mode (`sun_times` :393); documented in the README.
+  Day & Night wallpaper mode (`sun_times` :414); documented in the README.
 - **Local reads** (browser history for Copy URL, `~/.claude/sessions` for name
   tags, recent files, files under home for search) are listed in the README's
   Privacy section and never leave the machine.
 - **Files:** state lives in `~/.local/state/overtake`, created 0700; no `/tmp`
   state; the slideshow's saved pid is checked against `/proc/<pid>/cmdline`
-  before it's stopped (`stop_slideshow` :438).
+  before it's stopped (`stop_slideshow` :459).
 - **Background work:** the mode, Claude Code sessions, the Trash and Do Not
   Disturb (Omarchy's `notifications/history.json` and `quiet.json`) are watched, not polled
   (`session-names/Service.qml:82`), and Hyprland window events trigger at
   most one refresh per 100 ms (title changes are ignored). Process spawns
   that remain: `overtake sessions` every 15 s while Claude Code runs (and
-  when a window opens or closes then), `overtake remember` every 5 s while
-  Classic or Studio is on, and one status probe (Wi-Fi, Bluetooth, night
+  when a window opens or closes then), `overtake remember` while Classic or
+  Studio is on, only when a window has moved, resized, opened or closed
+  (checked in-process every 5 s), and one status probe (Wi-Fi, Bluetooth, night
   light…) every 2 s only while the Control Center is open. Battery alerts
   read UPower in-process (on its change events, and every 30 s). In-process Hyprland IPC polling
   that remains: window geometry every 1.5 s while a window has a name tag;
   in Classic and Studio every 400 ms (Hyprland sends no event for resizes),
-  and while a floating window has focus every 250 ms, 80 ms once it's
+  and while a floating window has focus every 500 ms, 80 ms once it's
   moving (to follow an app dragging its own window).
 
 ## Trying it without touching your desktop

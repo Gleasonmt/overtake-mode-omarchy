@@ -257,7 +257,9 @@ Panel {
             // website playing in the browser), and loading it would fetch it
             source: {
               var url = root.player && root.player.trackArtUrl ? String(root.player.trackArtUrl) : ""
-              return /^(file|image):\/\//.test(url) ? url : ""
+              // (and never a device or kernel file, which could stall the loader)
+              if (/^file:\/\/\/(?:proc|sys|dev|run)(?:\/|$)/.test(url) && !/^file:\/\/\/run\/user\/[0-9]+\//.test(url)) return ""
+              return /^(file|image):\/\//.test(url) && url.indexOf("..") === -1 ? url : ""
             }
             sourceSize.width: 96
             sourceSize.height: 96

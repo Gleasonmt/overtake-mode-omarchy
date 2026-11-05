@@ -80,12 +80,12 @@ fi
 
 remove_block() {  # remove_block <file> <comment prefix>
   [[ -f $1 ]] || return 0
-  python3 - "$1" "$2" <<'PY'
+  python3 -I - "$1" "$2" <<'PY'
 import sys, re
 path, prefix = sys.argv[1:3]
-text = open(path).read()
+text = open(path, encoding="utf-8", errors="surrogateescape").read()
 text = re.sub(r"\n*" + re.escape(f"{prefix} >>> overtake") + r".*?" + re.escape(f"{prefix} <<< overtake") + r"\n?", "\n", text, flags=re.S)
-open(path, "w").write(text)
+open(path, "w", encoding="utf-8", errors="surrogateescape").write(text)
 PY
 }
 remove_block "$HYPR/bindings.lua" "--"
@@ -128,11 +128,11 @@ fi
 # The bar-size block Overtake adds to shell.toml
 SHELL_TOML="$HOME/.config/omarchy/shell.toml"
 if [[ -f $SHELL_TOML ]]; then
-  python3 - "$SHELL_TOML" <<'PY'
+  python3 -I - "$SHELL_TOML" <<'PY'
 import sys, re
 p = sys.argv[1]
-t = open(p).read()
-open(p, "w").write(re.sub(r"\n?# >>> overtake.*?# <<< overtake\n?", "\n", t, flags=re.S))
+t = open(p, encoding="utf-8", errors="surrogateescape").read()
+open(p, "w", encoding="utf-8", errors="surrogateescape").write(re.sub(r"\n?# >>> overtake.*?# <<< overtake\n?", "\n", t, flags=re.S))
 PY
 fi
 
@@ -163,7 +163,7 @@ for t in image/png image/jpeg image/jpg image/gif image/bmp image/webp image/tif
   fi
 done
 # Links back to Omarchy's own handler
-sed -i 's|^Exec=.*/overtake"\? open-url |Exec=omarchy-launch-browser |' "$HOME/.local/share/applications/omarchy-browser.desktop" 2>/dev/null || true
+sed -i --follow-symlinks 's|^Exec=.*/overtake"\? open-url |Exec=omarchy-launch-browser |' "$HOME/.local/share/applications/omarchy-browser.desktop" 2>/dev/null || true
 rm -f "$HOME/.local/share/applications/overtake-image-viewer.desktop"
 rm -f "$HOME/.local/share/applications/overtake-trash.desktop"
 rm -f "$HOME/.config/omarchy/hooks/post-update.d/overtake.hook"
@@ -175,7 +175,7 @@ rm -rf "${PLUGINS:?}/overtake.taskbar" "${PLUGINS:?}/overtake.workspaces" \
        "${PLUGINS:?}/overtake.bluetooth" "${PLUGINS:?}/overtake.audio" \
        "${PLUGINS:?}/overtake.notifications" "${PLUGINS:?}/overtake.notification-center" \
        "${PLUGINS:?}/overtake.battery" "${PLUGINS:?}/overtake.menubar" "${PLUGINS:?}/overtake.control-center" \
-       "${PLUGINS:?}/overtake.session-names" \
+       "${PLUGINS:?}/overtake.session-names" "${PLUGINS:?}"/.overtake-build.* \
        "$HOME/.local/state/overtake" "${XDG_CACHE_HOME:-$HOME/.cache}/overtake" "$HOME/.local/share/overtake"
 
 if [[ $PURGE ]]; then
