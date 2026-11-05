@@ -112,7 +112,7 @@ Panel {
         { label: "Mode: Classic", run: function() { overtake(["style", "classic"]) } },
         { label: "Omarchy Desktop", run: function() { overtake(["off"]) } },
         { separator: true },
-        { label: "Sleep", run: function() { sh("if omarchy-toggle-enabled suspend-off; then omarchy-menu toggle system; else omarchy-menu summon system.suspend; fi") } },
+        { label: "Sleep", run: function() { sh("if omarchy-toggle-enabled suspend-off || omarchy-sleep-disabled; then omarchy-menu toggle system; else omarchy-menu summon system.suspend; fi") } },
         { label: "Restart…", run: function() { sh("omarchy-menu toggle system") } },
         { label: "Shut Down…", run: function() { sh("omarchy-menu toggle system") } },
         { separator: true },

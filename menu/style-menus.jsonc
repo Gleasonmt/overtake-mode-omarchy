@@ -1,10 +1,10 @@
   // Optional (./install.sh --style-menus): Overtake's own Style > Background
   // and Style > Theme, replacing Omarchy's in every mode.
-  // Style > Background: the theme's backgrounds plus Overtake's wallpapers (overtake bg-picker).
-  "style.background": {"icon":"","label":"Background","aliases":["background","wallpaper"],"action":"background=$(overtake bg-picker); [[ -n $background ]] && omarchy-theme-bg-set \"$background\""},
+  // Appearance > Background: the theme's backgrounds plus Overtake's wallpapers (overtake bg-picker).
+  "appearance.background": {"icon":"","label":"Background","aliases":["background","wallpaper"],"action":"background=$(overtake bg-picker); [[ -n $background ]] && omarchy-theme-bg-set \"$background\""},
 
-  // Style > Theme as folders: Omarchy's themes, yours, or all (overtake theme-picker).
-  "style.theme": {"icon": "󰸌", "label": "Theme", "aliases": ["theme", "themes"]},
-  "style.theme.omarchy": {"icon": "", "iconFont": "omarchy", "label": "Omarchy themes", "description": "The themes that come with Omarchy", "action": "theme=$(overtake theme-picker omarchy); [[ -n $theme ]] && omarchy-theme-set \"$theme\""},
-  "style.theme.custom": {"icon": "", "label": "Your themes", "description": "Themes you've added (~/.config/omarchy/themes)", "action": "theme=$(overtake theme-picker custom); [[ -n $theme ]] && omarchy-theme-set \"$theme\""},
-  "style.theme.all": {"icon": "", "label": "All themes", "description": "Every theme in one list", "action": "theme=$(overtake theme-picker all); [[ -n $theme ]] && omarchy-theme-set \"$theme\""},
+  // Appearance > Theme as folders: Omarchy's themes, yours, or all (overtake theme-picker).
+  "appearance.theme": {"icon": "󰸌", "label": "Theme", "aliases": ["theme", "themes"], "action": ""},
+  "appearance.theme.omarchy": {"icon": "", "iconFont": "omarchy", "label": "Omarchy themes", "description": "The themes that come with Omarchy", "action": "theme=$(overtake theme-picker omarchy); [[ -n $theme ]] && omarchy-theme-set \"$theme\""},
+  "appearance.theme.custom": {"icon": "", "label": "Your themes", "description": "Themes you've added (~/.config/omarchy/themes)", "action": "theme=$(overtake theme-picker custom); [[ -n $theme ]] && omarchy-theme-set \"$theme\""},
+  "appearance.theme.all": {"icon": "", "label": "All themes", "description": "Every theme in one list", "action": "theme=$(overtake theme-picker all); [[ -n $theme ]] && omarchy-theme-set \"$theme\""},

@@ -163,7 +163,7 @@ for t in image/png image/jpeg image/jpg image/gif image/bmp image/webp image/tif
   fi
 done
 # Links back to Omarchy's own handler
-sed -i 's|^Exec=.*/overtake open-url |Exec=omarchy-launch-browser |' "$HOME/.local/share/applications/omarchy-browser.desktop" 2>/dev/null || true
+sed -i 's|^Exec=.*/overtake"\? open-url |Exec=omarchy-launch-browser |' "$HOME/.local/share/applications/omarchy-browser.desktop" 2>/dev/null || true
 rm -f "$HOME/.local/share/applications/overtake-image-viewer.desktop"
 rm -f "$HOME/.local/share/applications/overtake-trash.desktop"
 rm -f "$HOME/.config/omarchy/hooks/post-update.d/overtake.hook"
