@@ -32,6 +32,7 @@
 #   overtake settings [page]  # Super+I: the Settings window (system, bluetooth, network, ...)
 #   overtake snap-layouts     # SUPER+Z: show the snap layouts for the focused window
 #   overtake uninstall [--purge] [--dry-run] [--yes]  # remove Overtake Mode (runs its uninstall.sh)
+#   overtake build-copies [all|update]  # (re)build the patched copies of Omarchy's plugins from the installed Omarchy
 #   overtake taskbar-position <left|center>  # right-click Start: where the taskbar sits on the bar
 #   overtake copy-url <address>  # title bar menu: copy a browser window's page address
 #   overtake rename [address]    # taskbar menu, SUPER+ALT+N: bring a window up with its name ready to edit
@@ -150,6 +151,64 @@ TOML_BEGIN="# >>> overtake (managed by ~/.local/bin/overtake)"
 TOML_END="# <<< overtake"
 
 notify() { omarchy-notification-send -g "$1" "$2" >/dev/null 2>&1 || true; }
+
+# ---------- Overtake's patched copies of five Omarchy plugins ----------
+# Built from the installed Omarchy and patched (patches/apply.py, kept in
+# ~/.local/share/overtake). `build-copies all` is the installer's step;
+# `build-copies update` runs after every `omarchy update` (a post-update hook)
+# so the copies follow Omarchy's own code: rebuilt from the new Omarchy, and
+# where a patch no longer fits, the copy is removed and Omarchy's own is used.
+COPY_SPECS=(
+  "workspaces|bar/widgets|Workspaces.manifest.json|Workspaces.qml"
+  "bluetooth|panels/bluetooth|manifest.json|Panel.qml Model.js"
+  "audio|panels/audio|manifest.json|Panel.qml Model.js"
+  "notifications|notifications|manifest.json|Service.qml NotificationLogic.js components"
+  "battery|services/battery|manifest.json|Service.qml BatteryModel.js"
+)
+build_copies() {  # build_copies all|update
+  local mode=$1 share="$HOME/.local/share/overtake" plugins="$HOME/.config/omarchy/plugins"
+  local source_root="${OVERTAKE_OMARCHY_PLUGINS:-${OMARCHY_PATH:-/usr/share/omarchy}/shell/plugins}"
+  local spec name src manifest files target tmp f built="" failed="" ok
+  [[ -f $share/apply.py ]] || { echo "overtake: the patcher isn't installed; run ./install.sh again" >&2; return 1; }
+  mkdir -p "$plugins"
+  for spec in "${COPY_SPECS[@]}"; do
+    IFS='|' read -r name src manifest files <<<"$spec"
+    target="$plugins/overtake.$name"
+    [[ $mode == all || -d $target ]] || continue
+    tmp=$(mktemp -d "$plugins/.overtake-build.XXXXXX")   # (a dot folder: the shell doesn't load it)
+    ok=1
+    cp -L "$source_root/$src/$manifest" "$tmp/manifest.json" 2>/dev/null || ok=""
+    for f in $files; do cp -rL "$source_root/$src/$f" "$tmp/" 2>/dev/null || ok=""; done
+    if [[ $ok ]] && jq --arg id "overtake.$name" --arg name "Overtake ${name^}" --arg from "omarchy.$name" '
+        .id = $id | .name = $name
+        | .author = ((.author // "Omarchy") + ", patched by Overtake Mode")
+        | if (.barWidget | type) == "object" then .barWidget.displayName = $name else . end
+        | .omarchy = ((if (.omarchy | type) == "object" then .omarchy else {} end) + { clonedFrom: $from })
+        | del(.omarchy.clonePaths)' "$tmp/manifest.json" >"$tmp/manifest.json.new" 2>/dev/null &&
+       mv "$tmp/manifest.json.new" "$tmp/manifest.json" &&
+       cp "$share/NOTICE.md" "$tmp/NOTICE.md" 2>/dev/null &&
+       python3 -I "$share/apply.py" "$name" "$tmp" >/dev/null 2>&1; then
+      if [[ -d $target ]] && diff -rq "$tmp" "$target" >/dev/null 2>&1; then
+        rm -rf "${tmp:?}"            # unchanged: leave the running copy alone
+      else
+        rm -rf "${target:?}"; mv "$tmp" "$target"; built+=" $name"
+      fi
+    else
+      rm -rf "${tmp:?}"
+      if [[ -d $target ]]; then     # Omarchy's own back in its place
+        [[ -n ${OVERTAKE_NO_RELOAD:-} ]] || omarchy plugin disable "overtake.$name" >/dev/null 2>&1 || true
+        rm -rf "${target:?}"
+      fi
+      failed+=" $name"
+    fi
+  done
+  echo "Overtake Mode: patched copies of Omarchy's plugins $([[ -n $built ]] && echo "built:$built" || echo unchanged)"
+  [[ -z $failed ]] || echo "Overtake Mode: left out, Omarchy's own is used:$failed"
+  if [[ $mode == update && -n $failed ]]; then
+    notify $'\uf0ec' "Overtake Mode: after this Omarchy update, Omarchy's own${failed// /, } is used (Overtake's changes no longer fit it)"
+  fi
+  return 0
+}
 
 # Taller taskbar (Omarchy default is 26) in Classic, a slim menu bar in
 # Studio, kept in a marked block of the machine-level shell.toml so turning
@@ -945,32 +1004,37 @@ open_url() {
 # reopens one closed to the tray). Exit 1 when none of that is possible.
 notification_open() {
   local app=$1 icon=$2 body=$3 f name d entry kind
-  while IFS= read -r f; do
-    f=${f%[.,;:)]}
-    # only an ordinary file or folder in your home folder, never a launcher or
-    # a program (the text comes from whichever app sent the notification)
-    f=$(realpath -e -- "$f" 2>/dev/null) || continue
-    [[ $f == "$HOME"/* ]] || continue
-    # and only kinds that open in a viewer: pictures, videos, sound, PDFs,
-    # plain text and folders (an archive or a .jar opens with something that
-    # can run it, executable bit or not). Both the name, which picks the app,
-    # and the content must say so.
-    if [[ ! -d $f ]]; then
-      [[ -f $f && ! -x $f ]] || continue
-      case ${f,,} in
-        *.png|*.jpg|*.jpeg|*.gif|*.webp|*.bmp|*.avif|*.heic|*.jxl) kind=image/ ;;
-        *.mp4|*.mkv|*.webm|*.mov) kind=video/ ;;
-        *.mp3|*.ogg|*.opus|*.flac|*.wav|*.m4a) kind=audio/ ;;
-        *.pdf) kind=application/pdf ;;
-        *.txt|*.log|*.md) kind=text/plain ;;
-        *) continue ;;
-      esac
-      [[ $(file --brief --mime-type -- "$f" 2>/dev/null) == "$kind"* ]] || continue
-    fi
+  # Paths the message names, picked out in-process (the message text never
+  # goes into another process's arguments): only an ordinary file or folder in
+  # your home folder, never a launcher or a program (the text comes from
+  # whichever app sent the notification), and only kinds that open in a viewer:
+  # pictures, videos, sound, PDFs, plain text and folders (an archive or a .jar
+  # opens with something that can run it, executable bit or not). The name,
+  # which picks the app, says so here; the content must agree below.
+  while IFS=$'\t' read -r kind f; do
+    [[ $kind == dir ]] || [[ $(file --brief --mime-type - <"$f" 2>/dev/null) == "$kind"* ]] || continue
     xdg-open "$f" >/dev/null 2>&1 &
     return 0
-  done < <({ grep -oE "'/[^']+'" <<<"$body" | tr -d "'"; grep -oE '"/[^"]+"' <<<"$body" | tr -d '"'
-             grep -oE "/[^'\"<> ]+" <<<"$body"; } || true)
+  done < <(OVERTAKE_BODY=$body python3 -I -c '
+import os, re
+home = os.path.realpath(os.path.expanduser("~"))
+kinds = {"image/": "png jpg jpeg gif webp bmp avif heic jxl", "video/": "mp4 mkv webm mov",
+         "audio/": "mp3 ogg opus flac wav m4a", "application/pdf": "pdf", "text/plain": "txt log md"}
+kind_of = {ext: k for k, exts in kinds.items() for ext in exts.split()}
+body = os.environ.get("OVERTAKE_BODY", "")
+quoted = r"\x27(/[^\x27]+)\x27|\x22(/[^\x22]+)\x22"   # in single or double quotes
+found = [a or b for a, b in re.findall(quoted, body)] + re.findall(r"/[^\x27\x22<>\s]+", body)
+for f in found:
+    f = os.path.realpath(f.rstrip(".,;:)"))
+    if not f.startswith(home + "/") or "\t" in f or "\n" in f or not os.path.exists(f):
+        continue
+    if os.path.isdir(f):
+        print("dir\t" + f)
+        continue
+    k = kind_of.get(f.rsplit(".", 1)[-1].lower()) if "." in os.path.basename(f) else None
+    if k and os.path.isfile(f) and not os.access(f, os.X_OK):
+        print(k + "\t" + f)
+' 2>/dev/null || true)
   [[ -n $app ]] && focus_app "$app" && return 0
   for name in "$app" "$icon"; do
     # a plain desktop file name only: it's matched as a pattern below
@@ -1016,6 +1080,12 @@ screensaver_cmd() {
       omarchy-shell shell reloadConfig >/dev/null 2>&1 || true ;;
     show)
       local omarchy="${OMARCHY_PATH:-/usr/share/omarchy}"
+      # Your own art is kept once before Overtake first replaces it
+      # (uninstall.sh puts it back).
+      if [[ ${2:-} == omarchy || ${2:-} == wallpaper ]] && [[ -s $SCREENSAVER_ART && ! -e $SCREENSAVER_ART.before-overtake ]] &&
+         ! cmp -s "$SCREENSAVER_ART" "$omarchy/logo.txt"; then
+        cp -p "$SCREENSAVER_ART" "$SCREENSAVER_ART.before-overtake"
+      fi
       case "${2:-}" in
         omarchy) cp "$omarchy/logo.txt" "$SCREENSAVER_ART" ;;
         text) omarchy-launch-editor "$SCREENSAVER_ART" >/dev/null 2>&1; return ;;
@@ -1026,7 +1096,8 @@ screensaver_cmd() {
           # dark shapes as the dots.
           local bg tmp mean
           bg=$(readlink -f "$CURRENT_BG")
-          tmp=$(mktemp --suffix=.png)
+          mkdir -p -m 700 "$STATE_DIR"
+          tmp=$(mktemp "$STATE_DIR/screensaver.XXXXXX.png")
           mean=$(magick "$bg" -colorspace gray -format '%[fx:mean < 0.4 ? 1 : 0]' info: 2>/dev/null || echo 0)
           if [[ $mean == 1 ]]; then magick "$bg" -negate "$tmp"; else cp "$bg" "$tmp"; fi
           omarchy-transcode-ascii "$tmp" "$SCREENSAVER_ART" >/dev/null || { rm -f "$tmp"; return 1; }
@@ -1146,6 +1217,8 @@ SESSION_NAMES="$STATE_DIR/session-names.json"
 
 claude_windows() {  # {"<address>": "<session id>"}: the window each running Claude Code is in
   local sessions windows
+  # ~/.claude is read only when the name tags were chosen (--name-tags)
+  [[ -d $HOME/.config/omarchy/plugins/overtake.session-names ]] || { echo '{}'; return 0; }
   # Claude Code registers each running session as ~/.claude/sessions/<pid>.json.
   # (each file on its own: one being rewritten mustn't drop all the others)
   local f
@@ -1682,6 +1755,7 @@ esac
 
 case "${1:-help}" in
   help|-h|--help) usage ;;
+  build-copies) build_copies "${2:-update}" ;;   # installer (all) and the post-update hook (update)
   uninstall)
     shift
     [[ -x $HOME/.local/share/overtake/uninstall.sh ]] || { echo "overtake: the uninstaller isn't installed; run ./uninstall.sh from the repository" >&2; exit 1; }

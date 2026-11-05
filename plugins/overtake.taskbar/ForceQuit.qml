@@ -39,6 +39,21 @@ Item {
     return pids
   }
 
+  // Apps that run in one process with this one (a web app and its browser, two
+  // windows of one terminal server): Force Quit ends them too, so say so.
+  function sharedWith(group) {
+    if (!group) return []
+    var pids = pidsOf(group), names = []
+    items.forEach(function(other) {
+      if (other === group) return
+      if (pidsOf(other).some(function(p) { return pids.indexOf(p) !== -1 })) {
+        var name = apps.nameOf(other)
+        if (names.indexOf(name) === -1) names.push(name)
+      }
+    })
+    return names
+  }
+
   function forceQuit() {
     var group = items[index]
     if (!group) return
@@ -179,7 +194,13 @@ Item {
           visible: root.confirming
           textFormat: Text.PlainText
           wrapMode: Text.WordWrap
-          text: root.items[root.index] ? "Force " + root.apps.nameOf(root.items[root.index]) + " to quit? Unsaved changes will be lost." : ""
+          text: {
+            var group = root.items[root.index]
+            if (!group) return ""
+            var shared = root.sharedWith(group)
+            return "Force " + root.apps.nameOf(group) + " to quit? Unsaved changes will be lost."
+              + (shared.length ? " It runs in one process with " + shared.join(", ") + ", which will quit too." : "")
+          }
           color: root.fg
           font.family: Style.font.family
           font.pixelSize: Style.font.caption

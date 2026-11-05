@@ -114,8 +114,8 @@ grouped by app, with per-app Show / Quiet / Off and Do Not Disturb.
   windows). Drop it on one to send it there; you stay where you are.
 - **New windows fill the gaps** — open an app or click a link next to a
   snapped window and it lands in the half or quarter left free (Settings >
-  Overtake Mode turns this off). Links open on the workspace you're on,
-  in the browser window there or a new one.
+  Overtake Mode turns this off). With `--link-handler`, links open on the
+  workspace you're on, in the browser window there or a new one.
 - **Windows stay put** — sections and positions survive docking, undocking,
   and switching back and forth with Omarchy mode.
 - **Settings** — Super + I opens a Settings window for display, sound,
@@ -141,11 +141,13 @@ grouped by app, with per-app Show / Quiet / Off and Do Not Disturb.
 - **Screensaver & lock settings** — Settings → Screensaver & lock (or right-click
   the desktop): on/off, when it starts and when the screen locks, and what it shows:
   Omarchy's logo, your wallpaper turned into screensaver art, an image, or your own text.
-- **Image folders** — opening an image opens its whole folder in the image viewer,
-  so the left and right arrow keys step through the others.
-- **Themes in folders** — Omarchy menu → Style → Theme opens Omarchy themes, Your
-  themes (the ones you added) or All themes, in plain Omarchy too; Settings →
-  Personalization shows your themes first, each section foldable.
+- **Image folders** (optional, `--image-viewer`) — opening an image opens its
+  whole folder in the image viewer, so the left and right arrow keys step
+  through the others.
+- **Themes in folders** — Settings → Personalization shows your themes first,
+  each section foldable. With `--style-menus`, Omarchy menu → Style → Theme
+  opens Omarchy themes, Your themes (the ones you added) or All themes, in
+  plain Omarchy too.
 - **Desktop with right-click menus** — right-click an icon to open, pin to
   Start, rename, move or remove it (and empty the Trash); right-click the
   desktop for icon size, sort, show/hide icons, add a shortcut (Start → right-
@@ -298,16 +300,17 @@ All in `~/.config/overtake/`:
 | `~/.config/omarchy/plugins/overtake.taskbar` | taskbar, Start menu, title bars, desktop icons, Settings; Studio's Dock, Spotlight, App Switcher, Mission Control and Force Quit |
 | `~/.config/omarchy/plugins/overtake.menubar`, `overtake.control-center` | Studio's menu bar, and its Spotlight and Control Center buttons |
 | `~/.config/omarchy/plugins/overtake.{workspaces,bluetooth,audio}` | copies of Omarchy's own widgets, made from your installed Omarchy, with small changes (no gaps in the workspace list; right-click opens the Bluetooth and sound panels instead of turning Bluetooth off or muting) |
-| `~/.config/omarchy/plugins/overtake.notifications` | a copy of Omarchy's notifications with a close button on each card, critical toasts leaving after 15 s instead of never, and a 50-entry history for the notification center. Loaded in both modes: with Overtake Mode off it behaves exactly like Omarchy's own, so switching needs no shell restart |
+| `~/.config/omarchy/plugins/overtake.notifications` | a copy of Omarchy's notifications with a close button on each card, critical toasts leaving after 15 s instead of never, and a 50-entry history for the notification center. Loaded in both modes: with Overtake Mode off it behaves like Omarchy's own (10-entry history, toasts as Omarchy times them), so switching needs no shell restart |
 | `~/.config/omarchy/plugins/overtake.battery` | a copy of Omarchy's battery service; while the mode is on its fixed 10% warning gives way to Overtake's battery alerts, otherwise it's Omarchy's own |
 | `~/.config/omarchy/plugins/overtake.notification-center` | the bell and its panel; it reads Omarchy's notification history folder (`~/.local/state/omarchy/notifications/history`). `omarchy-shell overtake.notification-center toggle` opens it |
 | `~/.config/omarchy/plugins/overtake.session-names` | only with `--name-tags`: the name tags on Claude Code windows (and named ones), loaded in every mode; names live in `~/.local/state/overtake/names.json` and, per Claude session, `session-names.json` |
 | `~/.config/omarchy/extensions/omarchy-menu.jsonc` | between markers: the Overtake Mode menu entry, and with `--style-menus` Overtake's own **Style → Background** (every theme's wallpapers, see above) and **Style → Theme** (Omarchy's themes and yours in separate lists). These two replace Omarchy's in every mode, Omarchy included; uninstalling brings Omarchy's back |
-| `~/.config/omarchy/shell.json` | `overtake.notifications` and `overtake.battery` (and with `--name-tags` `overtake.session-names`) enabled (through `omarchy plugin enable`); if you had Omarchy's own notifications or battery turned off, uninstalling leaves them off |
+| `~/.config/omarchy/shell.json` | `overtake.notifications` and `overtake.battery` (and with `--name-tags` `overtake.session-names`) enabled (through `omarchy plugin enable`), in place of Omarchy's own notifications and battery, which Omarchy switches off while its copy is on, in every mode; if you had Omarchy's own notifications or battery turned off, uninstalling leaves them off |
 | `~/.config/overtake/`, `~/Pictures/overtake/` | your settings and the wallpapers |
 | `~/.local/state/overtake/` | its state: the mode, saved Omarchy bar and looks, window places and names (readable only by you) |
-| `~/.cache/overtake/` | picture previews for Style → Background |
-| `~/.local/share/overtake/uninstall.sh` | a copy of the uninstaller, so `overtake uninstall` works without the repository |
+| `~/.cache/overtake/` | the lists behind Style → Background and Theme (links to the pictures). Their previews are made by Omarchy's own picker (`omarchy-menu-images`) in its cache, `~/.cache/omarchy/image-selector`, as for Omarchy's own Background menu; the installer makes them once in the background so the first opening doesn't wait |
+| `~/.local/share/overtake/` | a copy of the uninstaller, so `overtake uninstall` works without the repository, and of the patcher (`patches/apply.py`, `NOTICE.md`) for rebuilding the copies |
+| `~/.config/omarchy/hooks/post-update.d/overtake.hook` | runs `overtake build-copies update` after `omarchy update`: the copies of Omarchy's plugins are rebuilt from the updated Omarchy before it restarts the shell |
 | `~/.local/share/applications/overtake-trash.desktop` | Trash as an app, for Start, the taskbar and the desktop |
 | `~/.local/share/applications/omarchy-browser.desktop` | its `Exec` line, so links from other apps open on your current workspace; only with `--link-handler`, and only if it's still Omarchy's |
 | `~/.local/share/applications/overtake-image-viewer.desktop`, `xdg-mime` defaults | images open with their folder (`imv-dir`); only for types that open with imv or nothing, only with `--image-viewer`, and only if `imv-dir` is installed |
@@ -344,7 +347,8 @@ What it reads on your machine, and keeps there:
   session's process id and session id), to find which window a session runs
   in and keep its name with it.
 - **Start** lists your recent files from `~/.local/share/recently-used.xbel`;
-  **Spotlight** searches your home folder with `fd` as you type.
+  **Spotlight** lists your home folder with `fd` once each time it opens
+  and matches what you type against that list in-process.
 - Window names, Claude Code session ids and window places are kept in
   `~/.local/state/overtake`, readable only by you. Window titles and names
   are passed between Overtake's parts through pipes, not command lines, so
@@ -379,8 +383,10 @@ then `omarchy plugin remove gleasonmt.overtake-mode`.
   instead of turning Bluetooth off or muting). If Omarchy's originals end up
   back in the bar (disabling a copy does that), Overtake notices within a few
   seconds and swaps its copies back on its own (`overtake fix-bar` does the
-  same by hand). If a copy isn't installed (an Omarchy update the installer
-  couldn't patch), Omarchy's stays and you get a one-time notification.
+  same by hand). After every `omarchy update`, Overtake rebuilds these copies
+  (and its notifications and battery copies) from the new Omarchy, through a
+  post-update hook; one whose changes no longer fit is removed, Omarchy's own
+  is used instead, and a notification says so.
 - Network picking, Bluetooth pairing and detailed sound settings open
   Omarchy's own panels; screen resolution and keyboard layouts open the
   config file.

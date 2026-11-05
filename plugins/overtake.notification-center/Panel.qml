@@ -237,7 +237,16 @@ Panel {
     dnd = !dnd
     Quickshell.execDetached(["omarchy-shell", "notifications", "setDnd", dnd ? "on" : "off"])
   }
-  Timer { interval: 30000; running: true; repeat: true; triggeredOnStart: true; onTriggered: root.refreshDnd() }
+  // Omarchy saves Do Not Disturb to this file on every change: watched, not polled.
+  FileView {
+    path: Quickshell.env("HOME") + "/.local/state/omarchy/notifications.json"
+    watchChanges: true
+    printErrors: false
+    onFileChanged: reload()
+    onLoaded: {
+      try { var s = JSON.parse(text()); if (typeof s.dnd === "boolean") root.dnd = s.dnd } catch (e) {}
+    }
+  }
 
   onOpenedChanged: {
     if (opened) { refreshDnd(); reload(); markSeen() }

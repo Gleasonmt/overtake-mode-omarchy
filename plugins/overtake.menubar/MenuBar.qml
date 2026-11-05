@@ -69,7 +69,7 @@ Panel {
   // keyboard back), as Hyprland's send_key_state, the way Super+key does it.
   function sendKey(mods, key) {
     var addr = root.address
-    if (!addr) return
+    if (!/^0x[0-9a-f]+$/.test(addr)) return   // goes into a command line below
     keyTimer.mods = mods
     keyTimer.key = key
     keyTimer.addr = addr
@@ -171,7 +171,7 @@ Panel {
       case "Window": return windowRows(a, none)
       case "Help": return [
         { label: "Keyboard Shortcuts", shortcut: "Super K", run: function() { sh("omarchy-menu-keybindings") } },
-        { label: "Overtake Mode Help", run: function() { sh("xdg-open https://github.com/Gleasonmt/overtake-mode-omarchy#readme") } },
+        { label: "Overtake Mode Help", run: function() { sh("omarchy-launch-browser https://github.com/Gleasonmt/overtake-mode-omarchy#readme") } },
         { label: "Omarchy Manual", run: function() { sh("omarchy-launch-webapp https://learn.omacom.io/2/the-omarchy-manual") } }
       ]
     }

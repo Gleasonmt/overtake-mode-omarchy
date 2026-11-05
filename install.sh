@@ -126,7 +126,12 @@ Overtake Mode will add (./uninstall.sh removes all of it):
   ~/.local/share/applications/overtake-trash.desktop
   ~/.config/overtake/                     settings (only ones you don't have yet)
   ~/Pictures/overtake/                    wallpapers
-  ~/.local/share/overtake/uninstall.sh    a copy of the uninstaller (`overtake uninstall`)
+  ~/.local/share/overtake/                a copy of the uninstaller (`overtake uninstall`)
+                                          and of the patcher (patches/apply.py, NOTICE.md)
+  ~/.config/omarchy/hooks/post-update.d/overtake.hook
+                                          after `omarchy update`, rebuilds the patched
+                                          copies from the new Omarchy (or drops one
+                                          whose patch no longer fits)
   ~/.local/state/overtake/, ~/.cache/overtake/
                                           its state (yours only) and picture previews
 EOF
@@ -144,8 +149,10 @@ and change files you already have (./uninstall.sh undoes each one):
   ~/.config/omarchy/extensions/omarchy-menu.jsonc
                                           a marked block: the Overtake Mode entry
   ~/.config/omarchy/shell.json            enables overtake.notifications and
-                                          overtake.battery (they act exactly like
-                                          Omarchy's own while the mode is off)
+                                          overtake.battery in place of Omarchy's
+                                          own (Omarchy turns its own off while a
+                                          copy is on, in every mode; while the mode
+                                          is off they act like Omarchy's own)
 EOF
   [[ $NAME_TAGS == yes ]] && echo "                                          and overtake.session-names; Super+Alt+N in bindings.lua"
   [[ $STYLE_MENUS == yes ]] && cat <<'EOF'
@@ -226,6 +233,9 @@ if [[ -f $HOME/.local/state/overtake/enabled ]]; then echo on; else echo off; fi
 install -Dm755 "$REPO/bin/overtake" "$HOME/.local/bin/overtake"
 # and the uninstaller, so `overtake uninstall` works without this folder
 install -Dm755 "$REPO/uninstall.sh" "$HOME/.local/share/overtake/uninstall.sh"
+# and the patcher, so the copies of Omarchy's plugins can be rebuilt after an update
+install -Dm644 "$REPO/patches/apply.py" "$HOME/.local/share/overtake/apply.py"
+install -Dm644 "$REPO/NOTICE.md" "$HOME/.local/share/overtake/NOTICE.md"
 say "command: ~/.local/bin/overtake"
 
 # 2. Hyprland: the Overtake shortcuts file, the switch shortcut, and the login hook.
@@ -257,7 +267,7 @@ OWN_PLUGINS="overtake.taskbar overtake.notification-center overtake.menubar over
 if [[ $NAME_TAGS == yes ]]; then
   OWN_PLUGINS+=" overtake.session-names"
 elif [[ -d $PLUGINS/overtake.session-names ]]; then
-  # name tags chosen off: out again (not in a test install, see build_widget)
+  # name tags chosen off: out again (not in a test install: `omarchy plugin` acts on the running shell)
   [[ -n ${OVERTAKE_NO_RELOAD:-} ]] || omarchy plugin disable overtake.session-names >/dev/null 2>&1 || true
   rm -rf "${PLUGINS:?}/overtake.session-names"
 fi
@@ -266,41 +276,20 @@ for plugin in $OWN_PLUGINS; do
   cp -r "$REPO/plugins/$plugin" "$PLUGINS/$plugin"
 done
 
-build_widget() {  # build_widget <name> <source dir> <manifest> <files or dirs...>
-  local name=$1 source=$2 manifest=$3; shift 3
-  local target="$PLUGINS/overtake.$name"
-  # An enabled copy whose rebuild fails below is removed; disable it first, so
-  # Omarchy's own (which enabling the copy disabled) comes back. Not in a test
-  # install (OVERTAKE_NO_RELOAD): `omarchy plugin` acts on the running shell
-  # whatever HOME says, and disabling a bar widget swaps it back to Omarchy's
-  # in the live bar.
-  [[ -n ${OVERTAKE_NO_RELOAD:-} ]] || omarchy plugin disable "overtake.$name" >/dev/null 2>&1 || true
-  rm -rf "${target:?}"
-  mkdir -p "$target"
-  cp -L "$source/$manifest" "$target/manifest.json"
-  local file
-  for file in "$@"; do cp -rL "$source/$file" "$target/"; done
-  jq --arg id "overtake.$name" --arg name "Overtake ${name^}" --arg from "omarchy.$name" '
-    .id = $id | .name = $name
-    | if (.barWidget | type) == "object" then .barWidget.displayName = $name else . end
-    | .omarchy = ((if (.omarchy | type) == "object" then .omarchy else {} end) + { clonedFrom: $from })
-    | del(.omarchy.clonePaths)' "$target/manifest.json" >"$target/manifest.json.tmp"
-  mv "$target/manifest.json.tmp" "$target/manifest.json"
-  cp "$REPO/NOTICE.md" "$target/NOTICE.md"   # Omarchy's license travels with its code
-  if python3 "$REPO/patches/apply.py" "$name" "$target"; then
-    say "widget: overtake.$name"
-  else
-    rm -rf "${target:?}"
-    say "widget: overtake.$name skipped (this Omarchy's omarchy.$name changed; using it unpatched)"
-  fi
-}
-build_widget workspaces "$OMARCHY_PLUGINS/bar/widgets" Workspaces.manifest.json Workspaces.qml
-build_widget bluetooth "$OMARCHY_PLUGINS/panels/bluetooth" manifest.json Panel.qml Model.js
-build_widget audio "$OMARCHY_PLUGINS/panels/audio" manifest.json Panel.qml Model.js
-# Notifications with a close button; `overtake on` switches to it, `off` back.
-build_widget notifications "$OMARCHY_PLUGINS/notifications" manifest.json Service.qml NotificationLogic.js components
-# Battery service without Omarchy's 10% warning (Overtake's battery alerts replace it).
-build_widget battery "$OMARCHY_PLUGINS/services/battery" manifest.json Service.qml BatteryModel.js
+# The five patched copies (workspaces, bluetooth, audio; notifications with a
+# close button and the notification center's history; battery without
+# Omarchy's single 10% warning) are built by `overtake build-copies`
+# (bin/overtake), which the post-update hook below runs again after every
+# `omarchy update`. One whose patch no longer fits is left out, and Omarchy's
+# own is used.
+OVERTAKE_OMARCHY_PLUGINS=$OMARCHY_PLUGINS "$HOME/.local/bin/overtake" build-copies all
+mkdir -p "$HOME/.config/omarchy/hooks/post-update.d"
+cat >"$HOME/.config/omarchy/hooks/post-update.d/overtake.hook" <<'EOF'
+# Overtake Mode: rebuild its patched copies of Omarchy's plugins from the
+# updated Omarchy (removed by Overtake's uninstall.sh).
+[ -x "$HOME/.local/bin/overtake" ] && "$HOME/.local/bin/overtake" build-copies update
+EOF
+say "hook: ~/.config/omarchy/hooks/post-update.d/overtake.hook"
 # Both stay enabled in either mode (they check it themselves), so switching
 # modes needs no shell restart. The reload below picks them up. So do the
 # name tags on Claude Code windows (overtake.session-names).
@@ -334,7 +323,10 @@ say "plugins: ${OWN_PLUGINS// /, }"
 
 # 4. The Omarchy menu entry (Overtake Mode, under the main menu).
 mkdir -p "$(dirname "$MENU")"
-[[ -s $MENU ]] || printf '{\n}\n' >"$MENU"
+if [[ ! -s $MENU ]]; then
+  printf '{\n}\n' >"$MENU"
+  touch "$HOME/.local/state/overtake/created-menu"   # so uninstall.sh removes it again
+fi
 MENU_BLOCK=$(cat "$REPO/menu/omarchy-menu.jsonc")
 [[ $STYLE_MENUS == yes ]] && MENU_BLOCK+=$'\n'$(cat "$REPO/menu/style-menus.jsonc")
 python3 - "$MENU" "$MENU_BLOCK" <<'PY'
@@ -343,16 +335,20 @@ path, block = sys.argv[1:3]
 start, end = "  // >>> overtake", "  // <<< overtake"
 text = open(path).read()
 text = re.sub(re.escape(start) + r".*?" + re.escape(end) + r"\n?", "", text, flags=re.S)
-close = text.rstrip().rfind("}")
-if close == -1:
-    sys.exit("overtake install: can't find the closing } in " + path)
-head = text[:close].rstrip()
-# Add a comma after your last entry only if it lacks one; nothing else of
-# yours is touched.
-entries = [l for l in head.split("\n") if l.strip() and not l.strip().startswith("//")]
-if entries and not entries[-1].rstrip().endswith(("{", ",")):
-    head += ","
-text = head + "\n" + start + " (managed by overtake-mode-omarchy/install.sh)\n" + block.rstrip() + "\n" + end + "\n}\n"
+# Right after the opening { (yours stay below it, so an entry of yours with the
+# same id still wins), each line ending in a comma, which Omarchy's JSONC
+# reader allows before the }. Nothing of yours is touched.
+lines = text.split("\n")
+first = next((i for i, l in enumerate(lines) if l.strip() and not l.strip().startswith("//")), None)
+if first is None or not lines[first].strip().startswith("{"):
+    sys.exit("overtake install: " + path + " doesn't start with {")
+block = block.rstrip()
+if not block.endswith(","):
+    block += ","
+opening = lines[first].strip()
+lines[first:first + 1] = ["{", start + " (managed by overtake-mode-omarchy/install.sh)", block, end] + \
+    (["  " + opening[1:].strip()] if opening[1:].strip() else [])
+text = "\n".join(lines)
 open(path, "w").write(text)
 PY
 say "menu: Overtake Mode in the Omarchy menu"
@@ -373,7 +369,8 @@ for file in 1-mesa-day.png 2-mesa-night.png 3-ribbons.png 4-aurora.png 5-orbs.pn
   rm -f "${PICTURES:?}/studio/$file"
 done
 say "settings: ~/.config/overtake (existing files kept); wallpapers: ~/Pictures/overtake/{slideshow,studio}"
-# previews for Style > Background, made now so its first opening doesn't wait
+# previews for Style > Background, made now (by Omarchy's omarchy-menu-images,
+# in its own cache) so the first opening doesn't wait
 setsid "$HOME/.local/bin/overtake" bg-picker cache </dev/null >/dev/null 2>&1 &
 
 # Trash as an app, so it can be found in Start, pinned to Start or the
@@ -396,7 +393,8 @@ DESKTOP
 # Overtake, which opens them on the workspace you're on (and, while the mode
 # is off, passes them straight back to Omarchy's handler). --no-link-handler skips it.
 if [[ $CHANGE_LINKS ]]; then
-  sed -i "s|^Exec=omarchy-launch-browser |Exec=$HOME/.local/bin/overtake open-url |" "$BROWSER_ENTRY"
+  bin_escaped=$(printf '%s' "$HOME/.local/bin/overtake" | sed 's/[\\|&]/\\&/g')   # (for sed's replacement)
+  sed -i "s|^Exec=omarchy-launch-browser |Exec=$bin_escaped open-url |" "$BROWSER_ENTRY"
   say "links: open on the workspace you're on"
 elif [[ $LINKS == no ]] && have_links; then
   sed -i 's|^Exec=.*/overtake open-url |Exec=omarchy-launch-browser |' "$BROWSER_ENTRY"
