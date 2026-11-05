@@ -39,7 +39,8 @@ cat <<'EOF'
 Uninstalling Overtake Mode will:
   switch back to Omarchy, if the mode is on
   remove its marked blocks from ~/.config/hypr/bindings.lua, autostart.lua,
-    ~/.config/omarchy/extensions/omarchy-menu.jsonc and shell.toml
+    ~/.config/omarchy/extensions/omarchy-menu.jsonc and shell.toml (shell.toml
+    goes if only white space is left, as does a file of these it created itself)
   make sure Omarchy's own notifications and battery run (shell.json; any
     you had turned off yourself stay off)
   put back your own screensaver art, if Overtake replaced it
@@ -96,6 +97,14 @@ remove_block "$MENU" "  //"
 if [[ -f $HOME/.local/state/overtake/created-menu && -f $MENU && -z $(tr -d '{} \n\t' <"$MENU") ]]; then
   rm -f "$MENU"
 fi
+# and the Hyprland files it had to create, if it left them with nothing in them
+remove_if_created() {  # remove_if_created <file> <marker>
+  if [[ -f $HOME/.local/state/overtake/$2 && -f $1 && ! -L $1 && -z $(tr -d '[:space:]' <"$1") ]]; then
+    rm -f "$1"
+  fi
+}
+remove_if_created "$HYPR/bindings.lua" created-bindings
+remove_if_created "$HYPR/autostart.lua" created-autostart
 
 # Hand notifications and battery back to Omarchy's own before removing the
 # patched copies. Disabling goes through the shell; if it isn't running, edit
@@ -108,16 +117,21 @@ if [[ -z ${OVERTAKE_NO_RELOAD:-} ]]; then
     omarchy plugin disable "$id" >/dev/null 2>&1 || true
   done
 fi
-# (Omarchy's own that you had turned off before installing stay off.)
+# Omarchy's own is turned back on only where Overtake's copy switched it off
+# (Omarchy's record of that: the copy in cloneSourceRestores). One you turned
+# off yourself, before installing or since, stays off.
 KEEP_OFF=$(jq -Rsc 'split("\n") | map(select(length > 0))' "$HOME/.local/state/overtake/disabled-before" 2>/dev/null) || KEEP_OFF='[]'
 if [[ -f $SHELL_JSON ]]; then
   # (written next to the real file, the link's target if it's a symlink, and
   # renamed over it, keeping its mode)
   target=$(readlink -f "$SHELL_JSON")
   tmp=$(mktemp "$target.XXXXXX")
-  if jq --argjson keep "${KEEP_OFF:-[]}" '(if (.plugins | type) == "array" then .plugins |= map(select((if type == "object" then .id else . end) | tostring | startswith("overtake.") | not)) else . end)
-      | (if (.disabledPlugins | type) == "array" then .disabledPlugins |= map(select((tostring | startswith("overtake.") | not) and ((. == "omarchy.notifications" or . == "omarchy.battery") as $ours | ($ours | not) or (. as $id | $keep | index($id))))) else . end)
-      | (if (.cloneSourceRestores | type) == "array" then .cloneSourceRestores |= map(select(tostring | startswith("overtake.") | not)) else . end)' \
+  if jq --argjson keep "${KEEP_OFF:-[]}" '(if (.cloneSourceRestores | type) == "array" then .cloneSourceRestores else [] end) as $restores
+      | (if (.plugins | type) == "array" then .plugins |= map(select((if type == "object" then .id else . end) | tostring | startswith("overtake.") | not)) else . end)
+      | (if (.disabledPlugins | type) == "array" then .disabledPlugins |= map(select((tostring | startswith("overtake.") | not) and (. as $id | (type == "string" and startswith("omarchy.") and ($restores | index("overtake." + ($id | ltrimstr("omarchy."))) != null) and ($keep | index($id) == null)) | not))) else . end)
+      | (if (.cloneSourceRestores | type) == "array" then .cloneSourceRestores |= map(select(tostring | startswith("overtake.") | not)) else . end)
+      | (if .disabledPlugins == [] then del(.disabledPlugins) else . end)
+      | (if .cloneSourceRestores == [] then del(.cloneSourceRestores) else . end)' \
       "$SHELL_JSON" >"$tmp" && ! jq -e --slurpfile new "$tmp" '. == $new[0]' "$SHELL_JSON" >/dev/null 2>&1; then
     chmod --reference="$target" "$tmp" 2>/dev/null || true
     mv -f "$tmp" "$target"   # (only when something changed)
@@ -135,8 +149,9 @@ p = sys.argv[1]
 t = open(p, encoding="utf-8", errors="surrogateescape", newline="").read()
 open(p, "w", encoding="utf-8", errors="surrogateescape", newline="").write(re.sub(r"\n?# >>> overtake.*?# <<< overtake\n?", "\n", t, flags=re.S))
 PY
-  # (one Overtake had to create, now empty, goes too)
-  if [[ -f $HOME/.local/state/overtake/created-shell-toml && -z $(tr -d '[:space:]' <"$SHELL_TOML") ]]; then
+  # (nothing left but white space: the file goes, as v0.1.0 to v0.1.11 left it
+  # behind empty; Omarchy reads a missing file the same as an empty one)
+  if [[ ! -L $SHELL_TOML && -z $(tr -d '[:space:]' <"$SHELL_TOML") ]]; then
     rm -f "$SHELL_TOML"
   fi
 fi

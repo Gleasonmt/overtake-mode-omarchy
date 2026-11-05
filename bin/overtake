@@ -154,7 +154,42 @@ SHELL_TOML="$HOME/.config/omarchy/shell.toml"
 TOML_BEGIN="# >>> overtake (managed by ~/.local/bin/overtake)"
 TOML_END="# <<< overtake"
 
-notify() { omarchy-notification-send -g "$1" "$2" >/dev/null 2>&1 || true; }
+notify() {
+  omarchy-notification-send -g "$1" "$2" >/dev/null 2>&1 || return 0
+  show_pending_notices
+}
+# For a notice that must not be lost: at login the shell may not own the
+# notification service yet, and what the notice reports has already happened.
+# One that can't be shown waits in the state folder for the next notification
+# that gets through, or the next `overtake` command while the shell is up.
+PENDING_NOTICES="$STATE_DIR/pending-notices"
+notify_kept() {
+  if omarchy-notification-send -g "$1" "$2" >/dev/null 2>&1; then
+    show_pending_notices
+  else
+    keep_notice "$1" "$2"
+  fi
+}
+keep_notice() {  # (once each; the folder is 0700 and the file 0600)
+  grep -Fxqs -- "$1"$'\t'"$2" "$PENDING_NOTICES" && return 0
+  ( umask 077; printf '%s\t%s\n' "$1" "$2" >>"$PENDING_NOTICES" ) 2>/dev/null || true
+}
+show_pending_notices() {
+  local claimed="$PENDING_NOTICES.$$" glyph text
+  # (renamed first, so two commands starting together don't both show them)
+  mv -f "$PENDING_NOTICES" "$claimed" 2>/dev/null || return 0
+  while IFS=$'\t' read -r glyph text; do
+    omarchy-notification-send -g "$glyph" "$text" >/dev/null 2>&1 || keep_notice "$glyph" "$text"
+  done <"$claimed"
+  rm -f "$claimed"
+}
+
+name_list() {  # name_list a b c: "a, b and c"
+  local out=""
+  while (( $# > 2 )); do out+="$1, "; shift; done
+  if (( $# == 2 )); then out+="$1 and $2"; else out+="${1:-}"; fi
+  echo "$out"
+}
 
 # ---------- Overtake's patched copies of five Omarchy plugins ----------
 # Built from the installed Omarchy and patched (patches/apply.py, kept in
@@ -198,7 +233,8 @@ hand_back_in_shell_json() {  # hand_back_in_shell_json <name>
     | (if (.cloneSourceRestores | type) == "array" then .cloneSourceRestores |= map(select(. != $copy)) else . end)
     | (if $restore and (.disabledPlugins | type) == "array" then .disabledPlugins |= map(select(. != $own and . != $copy)) else . end)
     | (if (.bar | type) == "object" then (.bar | .. | objects | select(.id? == $copy) | .id) |= $own else . end)
-    | (if .cloneSourceRestores == [] then del(.cloneSourceRestores) else . end)' "$SHELL_JSON" || true
+    | (if .cloneSourceRestores == [] then del(.cloneSourceRestores) else . end)
+    | (if .disabledPlugins == [] then del(.disabledPlugins) else . end)' "$SHELL_JSON" || true
 }
 
 build_copies() {  # build_copies all|update
@@ -208,15 +244,19 @@ build_copies() {  # build_copies all|update
   flock 7
   local mode=$1 share="$HOME/.local/share/overtake" plugins="$HOME/.config/omarchy/plugins"
   local source_root="${OVERTAKE_OMARCHY_PLUGINS:-${OMARCHY_PATH:-/usr/share/omarchy}/shell/plugins}"
-  local spec name src manifest files target tmp f built="" failed="" kept="" ok fits
+  local spec name src manifest files target tmp f built="" same="" failed="" kept="" unbuilt="" ok fits n dropped=""
+  local left_out="$STATE_DIR/copies-left-out"
   [[ -f $share/apply.py ]] || { echo "overtake: the patcher isn't installed; run ./install.sh again" >&2; return 1; }
   mkdir -p "$plugins"
   rm -rf "${plugins:?}"/.overtake-build.*
+  # (an install starts these notices over: what it can't build is said afresh)
+  [[ $mode != all ]] || rm -f "$PENDING_NOTICES" "$STATE_DIR/bar-fixes.missing"
   for spec in "${COPY_SPECS[@]}"; do
     IFS='|' read -r name src manifest files <<<"$spec"
     target="$plugins/overtake.$name"
     [[ $mode == all || -d $target ]] || continue
-    tmp=$(mktemp -d "$plugins/.overtake-build.XXXXXX") || { kept+=" $name"; continue; }   # (a dot folder: the shell doesn't load it)
+    # (a dot folder: the shell doesn't load it)
+    tmp=$(mktemp -d "$plugins/.overtake-build.XXXXXX") || { if [[ -d $target ]]; then kept+=" $name"; else unbuilt+=" $name"; fi; continue; }
     chmod 755 "$tmp"                                     # (mktemp makes it 0700; match the other plugin folders)
     ok=1 fits=1
     [[ -e $source_root/$src/$manifest ]] || fits=""      # (Omarchy no longer has it)
@@ -234,6 +274,7 @@ build_copies() {  # build_copies all|update
       if [[ -d $target ]] && diff -rq "$tmp" "$target" >/dev/null 2>&1; then
         rm -rf "${tmp:?}"            # unchanged: leave the running copy alone
         chmod 755 "$target"          # (copies built by 0.1.8 are 0700)
+        same+=" $name"
       else
         rm -rf "${target:?}"; mv -T "$tmp" "$target"; built+=" $name"
       fi
@@ -250,15 +291,27 @@ build_copies() {  # build_copies all|update
         fi
         rm -rf "${target:?}"
       fi
-      if [[ -z $fits ]]; then failed+=" $name"; else kept+=" $name"; fi
+      if [[ -z $fits ]]; then failed+=" $name"
+      elif [[ -d $target ]]; then kept+=" $name"
+      else unbuilt+=" $name"; fi
     fi
   done
-  echo "Overtake Mode: patched copies of Omarchy's plugins $([[ -n $built ]] && echo "built:$built" || echo unchanged)"
+  # Which copies are out because their patch no longer fits, for
+  # fix_bar_widgets: a name stays until a build of it works.
+  for n in $(cat "$left_out" 2>/dev/null || true) $failed; do
+    [[ " $same$built " == *" $n "* || " $dropped " == *" $n "* ]] || dropped+=" $n"
+  done
+  if [[ -n $dropped ]]; then echo "${dropped# }" >"$left_out"; else rm -f "$left_out"; fi
+  if [[ -n $built ]]; then echo "Overtake Mode: patched copies of Omarchy's plugins built:$built"
+  elif [[ -z $failed$kept$unbuilt ]]; then echo "Overtake Mode: patched copies of Omarchy's plugins unchanged"; fi
   [[ -z $failed ]] || echo "Overtake Mode: left out, Omarchy's own is used:$failed"
-  [[ -z $kept ]] || echo "Overtake Mode: couldn't rebuild (kept as it was):$kept" >&2
+  [[ -z $kept ]] || echo "Overtake Mode: couldn't rebuild, so the copy from before stays in use:$kept" >&2
+  [[ -z $unbuilt ]] || echo "Overtake Mode: couldn't build, so Omarchy's own is used (run ./install.sh again to retry):$unbuilt" >&2
   exec 7>&-   # (the build lock goes no further than the build)
-  if [[ $mode == update && -n $failed ]]; then
-    notify $'\uf0ec' "Overtake Mode: Omarchy changed, so Omarchy's own $(sed 's/^ //; s/ /, /g' <<<"$failed") is used for now (Overtake's changes no longer fit it)"
+  if [[ $mode == update ]]; then
+    # (the names of Overtake's own copies, split on purpose)
+    [[ -z $failed ]] || notify_kept $'\uf0ec' "Overtake Mode: Omarchy changed, so Omarchy's own version is used for $(name_list $failed) until an Overtake update supports this Omarchy"
+    [[ -z $kept ]] || notify_kept $'\uf071' "Overtake Mode couldn't rebuild its copy for $(name_list $kept), so the copy from before stays in use. It tries again at the next login."
   fi
   return 0
 }
@@ -267,8 +320,7 @@ build_copies() {  # build_copies all|update
 # Studio, kept in a marked block of the machine-level shell.toml so turning
 # the mode off removes exactly it.
 add_bar_size() {
-  # (a shell.toml Overtake had to create goes again with its block)
-  [[ -f $SHELL_TOML ]] || { : >"$SHELL_TOML"; touch "$STATE_DIR/created-shell-toml"; }
+  [[ -f $SHELL_TOML ]] || : >"$SHELL_TOML"
   if [[ $(style) == studio ]]; then
     replace_with "$SHELL_TOML" bar_size_toml 30 13
   else
@@ -285,10 +337,9 @@ overtake_bar_showing() {  # Overtake's bar is in shell.json (whether or not the 
   jq -e '[.bar | .. | .id? // empty] | (index("overtake.taskbar") or index("overtake.menubar"))' "$SHELL_JSON" >/dev/null 2>&1
 }
 
-# Omarchy's settings files are replaced whole, the way Omarchy's own
-# omarchy-shell-config writes them: a temp file next to the real one (the
-# link's target, if it's a symlink), renamed over it once it's complete. The
-# shell never reads a half-written file, and a full /tmp can't empty it.
+# Omarchy's settings files are replaced whole: a temp file next to the real one
+# (the link's target, if it's a symlink), renamed over it once it's complete.
+# The shell never reads a half-written file, and a full /tmp can't empty it.
 replace_with() {  # replace_with <file> <command...>: the command's output becomes the file
   local file target tmp
   file=$1; shift
@@ -307,10 +358,12 @@ remove_bar_size() {
   [[ -f $SHELL_TOML ]] || return 0
   replace_with "$SHELL_TOML" awk -v b="$TOML_BEGIN" -v e="$TOML_END" \
     '$0 == b { skip = 1 } !skip { print } $0 == e { skip = 0 }' "$SHELL_TOML"
-  if [[ -f $STATE_DIR/created-shell-toml && -z $(tr -d '[:space:]' <"$SHELL_TOML") ]]; then
+  # Nothing left but white space: the file goes (v0.1.0 to v0.1.11 left it
+  # behind empty). Omarchy reads a missing file the same as an empty one.
+  if [[ ! -L $SHELL_TOML && -z $(tr -d '[:space:]' <"$SHELL_TOML") ]]; then
     rm -f "$SHELL_TOML"
   fi
-  rm -f "$STATE_DIR/created-shell-toml"
+  rm -f "$STATE_DIR/created-shell-toml"   # (the marker earlier versions kept)
 }
 
 # The bar layout in shell.json (fails, leaving the file as it was, if the
@@ -578,7 +631,7 @@ style_bar() {
 # (disabling a copy does that, so can a rewritten shell.json), which brings
 # back their quirks: no empty workspaces above 5, right-click turning
 # Bluetooth off or muting everything. While the mode is on, put the copies
-# back; one the installer couldn't build is left alone, with a notification.
+# back; one that isn't there is left alone, with a notification.
 fix_bar_widgets() {
   [[ -f $FLAG && -s $SHELL_JSON ]] || return 0
   jq -e '[.bar | .. | .id? // empty] | (index("overtake.taskbar") or index("overtake.menubar"))' "$SHELL_JSON" >/dev/null 2>&1 || return 0
@@ -601,14 +654,21 @@ fix_bar_widgets() {
     # the last 200 are plenty
     (( $(wc -l <"$STATE_DIR/bar-fixes.log") > 400 )) && sed -i '1,200d' "$STATE_DIR/bar-fixes.log" || true
   fi
-  # Said once, not on every bar change: a copy the installer couldn't build
-  # stays missing until Overtake is updated and installed again.
-  local said="$STATE_DIR/bar-fixes.missing"
+  # Said once, not on every bar change. A copy dropped because its patch no
+  # longer fits this Omarchy needs an Overtake update (installing the same
+  # version again would drop it again); one missing for any other reason comes
+  # back with an install.
+  local said="$STATE_DIR/bar-fixes.missing" left_out unfit=() absent=()
+  left_out=" $(cat "$STATE_DIR/copies-left-out" 2>/dev/null || true) "
+  for widget in ${missing[@]+"${missing[@]}"}; do
+    if [[ $left_out == *" $widget "* ]]; then unfit+=("$widget"); else absent+=("$widget"); fi
+  done
   if (( ${#missing[@]} == 0 )); then
     rm -f "$said"
-  elif [[ $(cat "$said" 2>/dev/null) != "${missing[*]}" ]]; then
-    echo "${missing[*]}" >"$said"
-    notify $'\uf071' "Overtake's ${missing[*]} widget isn't installed, so the bar uses Omarchy's. Installing Overtake again (./install.sh) brings it back."
+  elif [[ $(cat "$said" 2>/dev/null) != "${unfit[*]-}|${absent[*]-}" ]]; then
+    echo "${unfit[*]-}|${absent[*]-}" >"$said"
+    (( ${#unfit[@]} == 0 )) || notify_kept $'\uf071' "Omarchy's own version is used for $(name_list "${unfit[@]}") until an Overtake update supports this Omarchy."
+    (( ${#absent[@]} == 0 )) || notify_kept $'\uf071' "The bar uses Omarchy's version of $(name_list "${absent[@]}") because Overtake's isn't installed. Installing Overtake again (./install.sh) brings it back."
   fi
 }
 
@@ -721,7 +781,7 @@ switch_copies() {  # switch_copies on|off
     ok=""
     for i in $(seq 20); do
       out=$(omarchy plugin "$([[ $1 == on ]] && echo enable || echo disable)" "overtake.$id" 2>&1) && { ok=1; break; }
-      [[ $out == *"not known"* || $out == *"not responding"* ]] || break   # (or the shell is restarting)
+      [[ $out == *"not known"* || $out == *"not responding"* || $out == *"not ready"* ]] || break   # (or the shell is restarting)
       omarchy-shell shell rescanPlugins >/dev/null 2>&1 || true   # (files just written: ask it to look again)
       sleep 0.3
     done
@@ -780,6 +840,11 @@ turn_off() {
   view=$(current_view)
   [[ $(style) == classic ]] && save_taskbar_settings
   save_look "$(style)"
+  # The plugins first: the shell writes shell.json itself when it switches one,
+  # from the copy it holds, which could put Overtake's bar back over a bar
+  # written before it. (With no shell, the same step edits shell.json directly,
+  # and leaves the bar for the lines below.)
+  switch_copies off
   if [[ -s $SAVED_BAR ]] && jq -e '. == null' "$SAVED_BAR" >/dev/null 2>&1; then
     # you had no bar of your own in shell.json (Omarchy's built-in one): none again
     replace_with "$SHELL_JSON" jq 'del(.bar)' "$SHELL_JSON"
@@ -792,13 +857,13 @@ turn_off() {
     fi
     rm -f "$SAVED_BAR.omarchy"
   else
-    # no saved bar (state removed?): fall back to Omarchy's default one
-    set_bar "$(jq '.bar' "${OMARCHY_PATH:-/usr/share/omarchy}/config/omarchy/shell.json")"
+    # no saved bar (state removed?): none in shell.json, so Omarchy's default
+    # one is used, and stays followed when Omarchy changes it
+    replace_with "$SHELL_JSON" jq 'del(.bar)' "$SHELL_JSON"
     notify $'\uf071' "Overtake couldn't find your saved bar, so Omarchy's default bar is back"
   fi
   remove_bar_size
   resume_floating_layouts
-  switch_copies off
   rm -f "$FLAG" "$DESKTOP_RETURN"
   echo off >"$STATE_DIR/mode"
   restore_all
@@ -1492,8 +1557,8 @@ fill_gap() {
   exec 9>"$STATE_DIR/fill.lock"
   flock 9
   # Hyprland reuses a closed window's address: whatever is recorded under it
-  # (a zone, a place) belonged to that window, so forget it.
-  for f in "$ZONES" "$LAYOUT"; do
+  # (a zone, a place, a name) belonged to that window, so forget it.
+  for f in "$ZONES" "$LAYOUT" "$NAMES"; do
     [[ -s $f ]] && json_set "$f" 'del(.[$a])' --arg a "$addr"
   done
   [[ ! -f $NO_FILL && -s $ZONES ]] || return 0
@@ -1619,8 +1684,8 @@ show_desktop() {
 #   3. the Classic and Studio pictures   "Classic: Hills Day"
 #   4. every other theme's still backgrounds, Omarchy's own included,
 #      so picking one doesn't mean switching theme   "Tokyo Night 2"
-# Prints the picked file itself. `bg-picker cache` only makes the previews
-# (the installer runs it), so the first opening doesn't wait for them.
+# Prints the picked file itself. `bg-picker cache` only makes the previews, so
+# an opening after it doesn't wait for them.
 pretty_name() {  # topside-mountain-view -> Topside Mountain View
   local word words out=()
   read -ra words <<<"${1//[-_]/ }"   # (not a bare expansion: a * in a name would match files)
@@ -1727,6 +1792,9 @@ case ${1:-} in
     [[ -z ${3:-} || $3 =~ ^0x[0-9a-fA-F]+$ ]] || { echo "overtake $1: not a window address: $3" >&2; exit 1; } ;;
 esac
 
+# A notice that couldn't be shown earlier (notify_kept): now, if the shell is up.
+[[ ! -s $PENDING_NOTICES ]] || show_pending_notices
+
 case "${1:-help}" in
   help|-h|--help) usage ;;
   build-copies) build_copies "${2:-update}" ;;   # installer (all) and the post-update hook (update)
@@ -1757,7 +1825,12 @@ case "${1:-help}" in
     # The copies follow Omarchy even when it was updated without `omarchy
     # update` (a plain system upgrade): rebuilt at login if Omarchy's code changed.
     build_copies update >/dev/null 2>&1 || true
-    if [[ -f $FLAG ]]; then fix_bar_widgets; [[ $(wallpaper_mode) == day-night ]] && ! picked_wallpaper && apply_day_night; start_slideshow; float_all; rescue_all; fi ;;
+    if [[ -f $FLAG ]]; then fix_bar_widgets; [[ $(wallpaper_mode) == day-night ]] && ! picked_wallpaper && apply_day_night; start_slideshow; float_all; rescue_all; fi
+    # A notice the shell wasn't up for yet: try again while it starts (in
+    # Omarchy mode no other `overtake` command may run for a long time).
+    if [[ -s $PENDING_NOTICES ]]; then
+      setsid sh -c 'for i in 1 2 3 4 5 6; do sleep 10; overtake status; done' </dev/null >/dev/null 2>&1 &
+    fi ;;
   minimize) minimize_window "${2:-}" ;;
   restore) [[ -n ${2:-} ]] && restore_window "$2" "${3:-follow}" || true ;;
   restore-all) restore_all ;;

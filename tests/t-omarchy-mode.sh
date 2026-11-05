@@ -39,6 +39,6 @@ jq '.plugins = [{"id":"overtake.notifications"},{"id":"overtake.battery"}]
   "$H/.config/omarchy/shell.json" >"$T/s.json" && cat "$T/s.json" >"$H/.config/omarchy/shell.json"
 sbx "$H" env -u OVERTAKE_NO_RELOAD "$H/.local/bin/overtake" copies off >>"$T/log" 2>&1 || { cat "$T/log"; fail "copies off"; }
 jq -e '((.plugins // []) | map(.id? // .) | any(startswith("overtake.notifications") or startswith("overtake.battery")) | not)
-       and ((.disabledPlugins // []) | length == 0) and (has("cloneSourceRestores") | not)' \
+       and (has("disabledPlugins") | not) and (has("cloneSourceRestores") | not)' \
   "$H/.config/omarchy/shell.json" >/dev/null || { cat "$H/.config/omarchy/shell.json"; fail "with no shell running, the copies weren't switched off in shell.json"; }
 pass "with no shell running, switching off is done in shell.json itself"

@@ -64,10 +64,19 @@ grep -q 'SUPER + ALT + N' "$H/.config/hypr/bindings.lua" || fail "$OLD didn't ad
 grep -q 'overtake"\? open-url' "$H/.local/share/applications/omarchy-browser.desktop" || fail "$OLD didn't set its link handler (test setup)"
 grep -q 'overtake-image-viewer' "$H/.config/mimeapps.list" || fail "$OLD didn't set its image viewer (test setup)"
 grep -q 'appearance\.background' "$H/.config/omarchy/extensions/omarchy-menu.jsonc" || fail "$OLD didn't add its Appearance menus (test setup)"
+# What a running shell would have recorded for the name tags, and a name typed
+# for one (with no shell during the upgrade, nothing can ask it to forget them).
+SESSION_NAMES="$H/.local/state/overtake/session-names.json"
+SENTINEL="SESSION_NAME_SENTINEL_$MARK"
+printf '{"some-session":"%s"}\n' "$SENTINEL" >"$SESSION_NAMES"
+jq '.plugins = [{"id":"overtake.session-names"}]' "$H/.config/omarchy/shell.json" >"$T/s.json" && cat "$T/s.json" >"$H/.config/omarchy/shell.json"
 
 cd "$REPO"
 sbx "$H" ./install.sh --yes >>"$T/log" 2>&1 || { cat "$T/log"; fail "upgrade"; }
 [[ ! -e $H/.config/omarchy/plugins/overtake.session-names ]] || fail "name tags left after the upgrade"
+[[ ! -e $SESSION_NAMES ]] || fail "the names typed for the name tags were left after the upgrade"
+grep -rqs "$SENTINEL" "$H/.local/state/overtake" && fail "a typed name was left in the state folder"
+jq -e 'has("plugins") | not' "$H/.config/omarchy/shell.json" >/dev/null || { cat "$H/.config/omarchy/shell.json"; fail "the name tags' entry was left in shell.json"; }
 grep -q 'SUPER + ALT + N' "$H/.config/hypr/bindings.lua" && fail "the name-tag shortcut left after the upgrade"
 cmp -s "$T/before/.local/share/applications/omarchy-browser.desktop" "$H/.local/share/applications/omarchy-browser.desktop" || fail "link handler line not restored exactly"
 cmp -s "$T/before/.config/mimeapps.list" "$H/.config/mimeapps.list" || { diff "$T/before/.config/mimeapps.list" "$H/.config/mimeapps.list"; fail "mimeapps.list not restored exactly"; }
@@ -78,3 +87,27 @@ pass "upgrading from $OLD takes out all four extras exactly (mimeapps.list and t
 sbx "$H" ./uninstall.sh --yes >>"$T/log" 2>&1 || { cat "$T/log"; fail "uninstall"; }
 check_restored "$T/before" "$H"
 pass "and uninstall then leaves the user's files as they were before $OLD"
+
+# A link where the names were is not followed, and not removed: not Overtake's file.
+H="$T/home-link"
+make_home "$H"
+sbx "$H" ./install.sh --yes >>"$T/log" 2>&1 || { cat "$T/log"; fail "install"; }
+echo "$SENTINEL" >"$T/outside"
+ln -s "$T/outside" "$H/.local/state/overtake/session-names.json"
+sbx "$H" ./install.sh --yes >>"$T/log" 2>&1 || { cat "$T/log"; fail "reinstall"; }
+[[ -L $H/.local/state/overtake/session-names.json && $(<"$T/outside") == "$SENTINEL" ]] || fail "the upgrade touched a symlink at the name tags' file"
+pass "a symlink at the name tags' file is left alone"
+
+# The mode used under $OLD, and off again (which leaves an empty shell.toml),
+# then the upgrade, then uninstall: nothing of any of it remains.
+H="$T/home-used"
+make_home "$H"
+cp -a "$H" "$T/before-used"
+( cd "$T/old" && sbx "$H" ./install.sh --yes >>"$T/log" 2>&1 ) || { cat "$T/log"; fail "$OLD install"; }
+sbx "$H" "$H/.local/bin/overtake" on >>"$T/log" 2>&1 || { cat "$T/log"; fail "$OLD on"; }
+sbx "$H" "$H/.local/bin/overtake" off >>"$T/log" 2>&1 || { cat "$T/log"; fail "$OLD off"; }
+[[ -f $H/.config/omarchy/shell.toml && ! -s $H/.config/omarchy/shell.toml ]] || fail "$OLD didn't leave its empty shell.toml (test setup)"
+sbx "$H" ./install.sh --yes >>"$T/log" 2>&1 || { cat "$T/log"; fail "upgrade"; }
+sbx "$H" ./uninstall.sh --yes >>"$T/log" 2>&1 || { cat "$T/log"; fail "uninstall"; }
+check_restored "$T/before-used" "$H"
+pass "$OLD on and off, then the upgrade, then uninstall: the user's files as they were"
