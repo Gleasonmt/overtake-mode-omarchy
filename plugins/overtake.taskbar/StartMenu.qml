@@ -314,10 +314,10 @@ Item {
     { glyph: "", label: "Run", command: "omarchy-menu toggle apps" },
     { separator: true },
     { glyph: "", label: "Lock", command: "omarchy-system-lock" },
-    { glyph: "", label: "Sleep", command: "if omarchy-toggle-enabled suspend-off; then omarchy-menu toggle system; else omarchy-menu summon system.suspend; fi" },
-    { glyph: "", label: "Sign out", command: "omarchy-system-logout" },
-    { glyph: "", label: "Restart", command: "omarchy-system-reboot" },
-    { glyph: "", label: "Shut down", command: "omarchy-system-shutdown" },
+    { glyph: "", label: "Sleep", command: "if omarchy-toggle-enabled suspend-off || omarchy-sleep-disabled; then omarchy-menu toggle system; else omarchy-menu summon system.suspend; fi" },
+    { glyph: "", label: "Sign out", command: "omarchy-system logout" },
+    { glyph: "", label: "Restart", command: "omarchy-system reboot" },
+    { glyph: "", label: "Shut down", command: "omarchy-system shutdown" },
     { separator: true },
     { glyph: "", label: root.taskbarSection === "center" ? "Move taskbar to the left" : "Center the taskbar",
       taskbar: root.taskbarSection === "center" ? "left" : "center" },
@@ -326,10 +326,10 @@ Item {
 
   readonly property var powerItems: [
     { glyph: "", label: "Lock", command: "omarchy-system-lock" },
-    { glyph: "", label: "Sleep", command: "if omarchy-toggle-enabled suspend-off; then omarchy-menu toggle system; else omarchy-menu summon system.suspend; fi" },
-    { glyph: "", label: "Sign out", command: "omarchy-system-logout" },
-    { glyph: "", label: "Restart", command: "omarchy-system-reboot" },
-    { glyph: "", label: "Shut down", command: "omarchy-system-shutdown" }
+    { glyph: "", label: "Sleep", command: "if omarchy-toggle-enabled suspend-off || omarchy-sleep-disabled; then omarchy-menu toggle system; else omarchy-menu summon system.suspend; fi" },
+    { glyph: "", label: "Sign out", command: "omarchy-system logout" },
+    { glyph: "", label: "Restart", command: "omarchy-system reboot" },
+    { glyph: "", label: "Shut down", command: "omarchy-system shutdown" }
   ]
 
   // ---------- Start menu ----------

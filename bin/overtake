@@ -51,6 +51,7 @@ set -euo pipefail
 
 SHELL_JSON="$HOME/.config/omarchy/shell.json"
 STATE_DIR="$HOME/.local/state/overtake"
+[[ -d $STATE_DIR ]] || mkdir -p -m 700 "$STATE_DIR" 2>/dev/null || true   # (yours only, whichever command makes it first)
 FLAG="$STATE_DIR/enabled"
 SAVED_BAR="$STATE_DIR/omarchy-bar.json"
 DESKTOP_RETURN="$STATE_DIR/desktop-return"
@@ -97,7 +98,6 @@ NIGHT_IMAGE="$HOME/Pictures/overtake/slideshow/2-hills-night.png"
 WINDOWS_BAR='{
   "position": "bottom",
   "transparent": false,
-  "centerAnchor": "overtake.workspaces",
   "layout": {
     "left": [{ "id": "overtake.taskbar", "iconSize": 22 }],
     "center": [{ "id": "overtake.workspaces" }],
@@ -111,7 +111,7 @@ WINDOWS_BAR='{
       { "id": "overtake.audio" },
       { "id": "omarchy.power" },
       { "id": "omarchy.clock", "format": "h:mm AP   M/d/yyyy", "formatAlt": "dddd, MMMM d, yyyy", "verticalFormat": "h\n—\nmm" },
-      { "id": "omarchy.indicators", "items": ["Dictation", "ScreenRecording", "Reminder", "NightLight", "StayAwake"] },
+      { "id": "omarchy.indicators", "items": ["ScreenRecording", "Reminder", "NightLight", "StayAwake"] },
       { "id": "overtake.notification-center" }
     ]
   }
@@ -126,7 +126,6 @@ WINDOWS_BAR='{
 STUDIO_BAR='{
   "position": "top",
   "transparent": true,
-  "centerAnchor": "overtake.workspaces",
   "layout": {
     "left": [{ "id": "overtake.menubar" }, { "id": "overtake.taskbar", "hidden": true }],
     "center": [{ "id": "overtake.workspaces" }],
@@ -134,7 +133,7 @@ STUDIO_BAR='{
       { "id": "omarchy.system-update" },
       { "id": "omarchy.tray" },
       { "id": "omarchy.agents" },
-      { "id": "omarchy.indicators", "items": ["Dictation", "ScreenRecording", "Reminder", "NightLight", "StayAwake"] },
+      { "id": "omarchy.indicators", "items": ["ScreenRecording", "Reminder", "NightLight", "StayAwake"] },
       { "id": "omarchy.keyboard-layout" },
       { "id": "omarchy.power" },
       { "id": "overtake.bluetooth" },
@@ -162,9 +161,27 @@ COPY_SPECS=(
   "workspaces|bar/widgets|Workspaces.manifest.json|Workspaces.qml"
   "bluetooth|panels/bluetooth|manifest.json|Panel.qml Model.js"
   "audio|panels/audio|manifest.json|Panel.qml Model.js"
-  "notifications|notifications|manifest.json|Service.qml NotificationLogic.js components"
+  "notifications|notifications|manifest.json|Service.qml Toast.qml DeedButton.qml Delivery.js Detect.js Icons.js Layout.js Markup.js Security.js Store.js"
   "battery|services/battery|manifest.json|Service.qml BatteryModel.js"
 )
+# Copies a plugin the way `omarchy plugin clone` does (omarchy-plugin-clone's
+# copy_plugin): a plugin with its own folder (manifest.json) is copied whole,
+# so a file Omarchy adds to it comes along; one sharing a folder (a sibling
+# *.manifest.json, like bar/widgets) brings its entry points and clonePaths.
+copy_plugin_files() {  # copy_plugin_files <source-dir> <manifest-file> <target-dir>
+  local dir=$1 manifest=$2 target=$3 s t
+  if [[ $manifest == manifest.json ]]; then
+    cp -rL "$dir/." "$target/" || return 1
+    return 0
+  fi
+  cp -L "$dir/$manifest" "$target/manifest.json" || return 1
+  while IFS=$'\t' read -r s t; do
+    [[ -n $s && $s == "$t" && $t != /* && $t != *..* ]] || return 1   # (a renamed path: not supported, use Omarchy's own)
+    if [[ -d $dir/$s ]]; then mkdir -p "$target/$t" && cp -rL "$dir/$s/." "$target/$t/" || return 1
+    else mkdir -p "$(dirname "$target/$t")" && cp -L "$dir/$s" "$target/$t" || return 1; fi
+  done < <(jq -r '[(.entryPoints[] | {source: ., target: .}), (.omarchy.clonePaths[]? | {source: .source, target: .target})]
+                  | unique_by(.target)[] | [.source, .target] | @tsv' "$dir/$manifest")
+}
 build_copies() {  # build_copies all|update
   local mode=$1 share="$HOME/.local/share/overtake" plugins="$HOME/.config/omarchy/plugins"
   local source_root="${OVERTAKE_OMARCHY_PLUGINS:-${OMARCHY_PATH:-/usr/share/omarchy}/shell/plugins}"
@@ -176,9 +193,10 @@ build_copies() {  # build_copies all|update
     target="$plugins/overtake.$name"
     [[ $mode == all || -d $target ]] || continue
     tmp=$(mktemp -d "$plugins/.overtake-build.XXXXXX")   # (a dot folder: the shell doesn't load it)
+    chmod 755 "$tmp"                                     # (mktemp makes it 0700; match the other plugin folders)
     ok=1
-    cp -L "$source_root/$src/$manifest" "$tmp/manifest.json" 2>/dev/null || ok=""
-    for f in $files; do cp -rL "$source_root/$src/$f" "$tmp/" 2>/dev/null || ok=""; done
+    copy_plugin_files "$source_root/$src" "$manifest" "$tmp" 2>/dev/null || ok=""
+    for f in $files; do [[ -e $tmp/$f ]] || ok=""; done  # the files the patches need
     if [[ $ok ]] && jq --arg id "overtake.$name" --arg name "Overtake ${name^}" --arg from "omarchy.$name" '
         .id = $id | .name = $name
         | .author = ((.author // "Omarchy") + ", patched by Overtake Mode")
@@ -190,6 +208,7 @@ build_copies() {  # build_copies all|update
        python3 -I "$share/apply.py" "$name" "$tmp" >/dev/null 2>&1; then
       if [[ -d $target ]] && diff -rq "$tmp" "$target" >/dev/null 2>&1; then
         rm -rf "${tmp:?}"            # unchanged: leave the running copy alone
+        chmod 755 "$target"          # (copies built by 0.1.8 are 0700)
       else
         rm -rf "${target:?}"; mv "$tmp" "$target"; built+=" $name"
       fi
@@ -205,7 +224,7 @@ build_copies() {  # build_copies all|update
   echo "Overtake Mode: patched copies of Omarchy's plugins $([[ -n $built ]] && echo "built:$built" || echo unchanged)"
   [[ -z $failed ]] || echo "Overtake Mode: left out, Omarchy's own is used:$failed"
   if [[ $mode == update && -n $failed ]]; then
-    notify $'\uf0ec' "Overtake Mode: after this Omarchy update, Omarchy's own${failed// /, } is used (Overtake's changes no longer fit it)"
+    notify $'\uf0ec' "Overtake Mode: Omarchy changed, so Omarchy's own $(sed 's/^ //; s/ /, /g' <<<"$failed") is used for now (Overtake's changes no longer fit it)"
   fi
   return 0
 }
@@ -258,7 +277,7 @@ remove_bar_size() {
 # The bar layout in shell.json (fails, leaving the file as it was, if the
 # layout isn't valid JSON).
 set_bar() {
-  jq -e --argjson bar "$1" 'type == "object"' <<<'{}' >/dev/null 2>&1 || return 1
+  jq -e --argjson bar "$1" '$bar | type == "object"' <<<'{}' >/dev/null 2>&1 || return 1
   replace_with "$SHELL_JSON" jq --argjson bar "$1" '.bar = $bar' "$SHELL_JSON"
 }
 
@@ -499,7 +518,7 @@ style_bar() {
   for widget in workspaces bluetooth audio; do
     [[ -d $HOME/.config/omarchy/plugins/overtake.$widget ]] && continue
     bar=$(jq --arg from "overtake.$widget" --arg to "omarchy.$widget" \
-      '(.. | objects | select(.id? == $from) | .id) = $to | if .centerAnchor == $from then .centerAnchor = $to else . end' <<<"$bar")
+      '(.. | objects | select(.id? == $from) | .id) = $to' <<<"$bar")
   done
   if [[ $(style) == classic ]]; then
     # (pins kept by an uninstall wait in ~/.config/overtake)
@@ -523,7 +542,7 @@ fix_bar_widgets() {
     jq -e --arg id "omarchy.$widget" '[.. | .id? // empty] | index($id)' <<<"$bar" >/dev/null || continue
     if [[ -d $HOME/.config/omarchy/plugins/overtake.$widget ]]; then
       bar=$(jq --arg from "omarchy.$widget" --arg to "overtake.$widget" \
-        '(.. | objects | select(.id? == $from) | .id) = $to | if .centerAnchor == $from then .centerAnchor = $to else . end' <<<"$bar")
+        '(.. | objects | select(.id? == $from) | .id) = $to' <<<"$bar")
       fixed+=("$widget")
     else
       missing+=("$widget")
@@ -731,8 +750,9 @@ warps_setting() {  # your cursor:no_warps (true/false), put back after Overtake'
   hyprctl getoption cursor:no_warps -j 2>/dev/null | jq -r 'if has("bool") then .bool else (.int != 0) end' 2>/dev/null || echo false
 }
 
-lua_safe() {  # a name that can sit inside a "..." Lua string as it is
-  [[ $1 != *[\"\\]* && $1 != *[[:cntrl:]]* ]]
+lua_safe() {  # a name that can sit inside a "..." Lua string as it is, and in
+  # a `hyprctl --batch` line (which splits on ";")
+  [[ $1 != *[\"\\\;]* && $1 != *[[:cntrl:]]* ]]
 }
 
 window_address() {
@@ -1003,24 +1023,31 @@ open_url() {
 # where it lives; else launch the app from its desktop entry (which also
 # reopens one closed to the tray). Exit 1 when none of that is possible.
 notification_open() {
-  local app=$1 icon=$2 body=$3 f name d entry kind
-  # Paths the message names, picked out in-process (the message text never
-  # goes into another process's arguments): only an ordinary file or folder in
-  # your home folder, never a launcher or a program (the text comes from
-  # whichever app sent the notification), and only kinds that open in a viewer:
-  # pictures, videos, sound, PDFs, plain text and folders (an archive or a .jar
-  # opens with something that can run it, executable bit or not). The name,
-  # which picks the app, says so here; the content must agree below.
+  local app=$1 body=$3 f kind
+  # Like Omarchy's own toasts: the app that sent it, brought forward if it's
+  # open. Overtake never launches anything from a notification.
+  [[ -n $app ]] && focus_app "$app" && return 0
+  # Otherwise a file or folder the message names (a screenshot tool's "saved
+  # to '...png'"), picked out in-process (the message text never goes into
+  # another process's arguments): only an ordinary file or folder in your home
+  # folder, never a launcher or a program (the text comes from whichever app
+  # sent the notification), and only kinds that open in a viewer: pictures,
+  # videos, sound, PDFs, plain text and folders (an archive or a .jar opens
+  # with something that can run it, executable bit or not). The name, which
+  # picks the app, says so here; the content must be exactly that type below.
   while IFS=$'\t' read -r kind f; do
-    [[ $kind == dir ]] || [[ $(file --brief --mime-type - <"$f" 2>/dev/null) == "$kind"* ]] || continue
+    [[ $kind == dir ]] || [[ " $kind " == *" $(file --brief --mime-type - <"$f" 2>/dev/null) "* ]] || continue
     xdg-open "$f" >/dev/null 2>&1 &
     return 0
   done < <(OVERTAKE_BODY=$body python3 -I -c '
 import os, re
 home = os.path.realpath(os.path.expanduser("~"))
-kinds = {"image/": "png jpg jpeg gif webp bmp avif heic jxl", "video/": "mp4 mkv webm mov",
-         "audio/": "mp3 ogg opus flac wav m4a", "application/pdf": "pdf", "text/plain": "txt log md"}
-kind_of = {ext: k for k, exts in kinds.items() for ext in exts.split()}
+types = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg", "gif": "image/gif",
+         "webp": "image/webp", "bmp": "image/bmp", "avif": "image/avif", "heic": "image/heic image/heif",
+         "jxl": "image/jxl", "mp4": "video/mp4", "mkv": "video/x-matroska", "webm": "video/webm",
+         "mov": "video/quicktime", "mp3": "audio/mpeg", "ogg": "audio/ogg", "opus": "audio/ogg",
+         "flac": "audio/flac", "wav": "audio/x-wav audio/wav", "m4a": "audio/mp4 audio/x-m4a",
+         "pdf": "application/pdf", "txt": "text/plain", "log": "text/plain", "md": "text/plain"}
 body = os.environ.get("OVERTAKE_BODY", "")
 quoted = r"\x27(/[^\x27]+)\x27|\x22(/[^\x22]+)\x22"   # in single or double quotes
 found = [a or b for a, b in re.findall(quoted, body)] + re.findall(r"/[^\x27\x22<>\s]+", body)
@@ -1031,19 +1058,10 @@ for f in found:
     if os.path.isdir(f):
         print("dir\t" + f)
         continue
-    k = kind_of.get(f.rsplit(".", 1)[-1].lower()) if "." in os.path.basename(f) else None
+    k = types.get(f.rsplit(".", 1)[-1].lower()) if "." in os.path.basename(f) else None
     if k and os.path.isfile(f) and not os.access(f, os.X_OK):
         print(k + "\t" + f)
 ' 2>/dev/null || true)
-  [[ -n $app ]] && focus_app "$app" && return 0
-  for name in "$app" "$icon"; do
-    # a plain desktop file name only: it's matched as a pattern below
-    [[ $name =~ ^[A-Za-z0-9._-]+$ ]] || continue
-    for d in "$HOME/.local/share/applications" /usr/share/applications; do
-      entry=$(find "$d" -maxdepth 1 -iname "$name.desktop" -print -quit 2>/dev/null || true)
-      [[ -n $entry ]] && { uwsm-app -- gtk-launch "$(basename "$entry")" >/dev/null 2>&1 & return 0; }
-    done
-  done
   return 1
 }
 
@@ -1779,7 +1797,11 @@ case "${1:-help}" in
     elif [[ $(wallpaper_mode) == day-night ]]; then notify $'' "Day & Night wallpaper follows the sun (switch to Rotate in the Overtake Mode menu)"
     else next_wallpaper; fi ;;
   wallpaper-mode) if [[ -n ${2:-} ]]; then set_wallpaper_mode "$2"; else wallpaper_mode; fi ;;
-  resume) if [[ -f $FLAG ]]; then fix_bar_widgets; [[ $(wallpaper_mode) == day-night ]] && ! picked_wallpaper && apply_day_night; start_slideshow; float_all; rescue_all; fi ;;
+  resume)
+    # The copies follow Omarchy even when it was updated without `omarchy
+    # update` (pacman -Syu): rebuilt at login if Omarchy's code changed.
+    build_copies update >/dev/null 2>&1 || true
+    if [[ -f $FLAG ]]; then fix_bar_widgets; [[ $(wallpaper_mode) == day-night ]] && ! picked_wallpaper && apply_day_night; start_slideshow; float_all; rescue_all; fi ;;
   minimize) minimize_window "${2:-}" ;;
   restore) [[ -n ${2:-} ]] && restore_window "$2" "${3:-follow}" || true ;;
   restore-all) restore_all ;;

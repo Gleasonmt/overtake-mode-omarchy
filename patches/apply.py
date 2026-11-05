@@ -12,30 +12,49 @@ import sys, os
 PATCHES = {
     "workspaces": ("Workspaces.qml",
 '''  function workspaceIds() {
-    var ids = [1, 2, 3, 4, 5]
+    var base = root.block * root.slots
+    var ids = [base + 1, base + 2, base + 3, base + 4, base + 5]
+    var guests = []
     var values = Hyprland.workspaces.values
 
     for (var i = 0; i < values.length; i++) {
       var id = values[i].id
-      if (id > 0 && id <= 10 && ids.indexOf(id) === -1) ids.push(id)
+      if (id <= 0) continue
+      if (root.blockOf(id) === root.block) {
+        if (ids.indexOf(id) === -1) ids.push(id)
+      } else if (values[i].monitor && values[i].monitor.name === root.monitorName) {
+        guests.push(id)
+      }
     }
 
     ids.sort(function(left, right) { return left - right })
-    return ids
+    guests.sort(function(left, right) { return left - right })
+    return ids.concat(guests)
   }''',
-'''  // Overtake Mode: 1 through the highest workspace in use (at least 5), with
-  // no gaps. Omarchy's own list skips empty ones past 5, so 8 could show
-  // without 6 and 7, which reads as missing workspaces.
+'''  // Overtake Mode: this monitor's own workspaces run 1 through the highest in
+  // use (at least 5), with no gaps. Omarchy's own list skips empty ones past
+  // 5, so 8 could show without 6 and 7, which reads as missing workspaces.
+  // Visiting workspaces (an unplugged monitor's) still follow, as in Omarchy's.
   function workspaceIds() {
+    var base = root.block * root.slots
     var highest = 5
+    var guests = []
     var values = Hyprland.workspaces.values
+
     for (var i = 0; i < values.length; i++) {
       var id = values[i].id
-      if (id > highest && id <= 10) highest = id
+      if (id <= 0) continue
+      if (root.blockOf(id) === root.block) {
+        if (id - base > highest) highest = id - base
+      } else if (values[i].monitor && values[i].monitor.name === root.monitorName) {
+        guests.push(id)
+      }
     }
+
     var ids = []
-    for (var n = 1; n <= highest; n++) ids.push(n)
-    return ids
+    for (var n = 1; n <= highest; n++) ids.push(base + n)
+    guests.sort(function(left, right) { return left - right })
+    return ids.concat(guests)
   }'''),
     "bluetooth": ("Panel.qml",
 '''      if (b === Qt.RightButton) root.toggleBluetooth()
@@ -49,84 +68,20 @@ PATCHES = {
 '''      // Overtake Mode: right-click opens the panel like left-click (Omarchy's
       // right-click mutes everything).
       root.toggle()'''),
+    # Omarchy 4.5's notifications (Service.qml, Toast.qml and their .js) already
+    # has a close mark on a hovered card, keeps 100 closed notifications for a
+    # day in history.json and lets right-click dismiss. What's left for
+    # Overtake Mode, only while it's on: critical toasts leave after 15 s for
+    # the notification center (bell) instead of never, normal ones get 10 s,
+    # each app's Show / Quiet / Off from the center, a critical battery alert
+    # through Do Not Disturb, and the center's remove and Clear all (history is
+    # this service's own file, rewritten whole from memory, so only it can take
+    # an entry out).
     "notifications": [
-      ("components/NotificationCard.qml",
-'''  ColumnLayout {
-    id: mainColumn''',
-'''  // Overtake Mode: a close button like a desktop toast's. It shows while the
-  // pointer is over the card, and always on critical notifications, which
-  // never time out (right-click still closes any card too).
-  Item {
-    id: closeButton
-    z: 2
-    anchors.top: parent.top
-    anchors.right: parent.right
-    anchors.topMargin: root.borderTop + Style.space(5)
-    anchors.rightMargin: root.borderRight + Style.space(5)
-    width: Style.space(22)
-    height: Style.space(22)
-    visible: root.overtakeOn && (root.hovered || root.urgency === 2)
-
-    Rectangle {
-      anchors.fill: parent
-      radius: width / 2
-      color: closeMouse.containsMouse ? Qt.rgba(Commons.Color.notifications.text.r, Commons.Color.notifications.text.g, Commons.Color.notifications.text.b, 0.16) : "transparent"
-    }
-    Text {
-      anchors.centerIn: parent
-      text: "\\uf00d"
-      font.family: root.fontFamily
-      font.pixelSize: Style.space(12)
-      color: closeMouse.containsMouse ? Commons.Color.notifications.text : root.dimColor
-    }
-    MouseArea {
-      id: closeMouse
-      anchors.fill: parent
-      hoverEnabled: true
-      cursorShape: Qt.PointingHandCursor
-      onClicked: root.closeRequested()
-    }
-  }
-
-  ColumnLayout {
-    id: mainColumn'''),
-      ("components/NotificationCard.qml",
-'''      Layout.rightMargin: Style.space(12)''',
-'''      Layout.rightMargin: Style.space(root.overtakeOn ? 30 : 12)  // Overtake Mode: room for the close button'''),
-      ("components/NotificationCard.qml",
-'''  signal closeRequested()''',
-'''  property bool overtakeOn: false   // Overtake Mode: set by the service while the mode is on
-  signal closeRequested()'''),
       ("Service.qml",
-'''            NotificationCard {
-              id: card''',
-'''            NotificationCard {
-              id: card
-              overtakeOn: service.overtakeOn'''),
-      # Toasts leave the screen for the notification center (the bell on the
-      # bar) instead of piling up: critical ones after 15 s rather than never,
-      # normal ones after 10 s, and the center keeps the last 50.
-      ("Service.qml",
-'''    case NotificationUrgency.Critical:
-      return 0''',
-'''    case NotificationUrgency.Critical:
-      return service.overtakeOn ? 15000 : 0  // Overtake Mode: then it waits in the notification center'''),
-      ("Service.qml",
-'''  readonly property int normalPopupDuration: 8000''',
-'''  readonly property int normalPopupDuration: overtakeOn ? 10000 : 8000  // Overtake Mode'''),
-      ("Service.qml",
-'''  readonly property int historyLimit: 10''',
-'''  readonly property int historyLimit: overtakeOn ? 50 : 10  // Overtake Mode: the notification center's list (Omarchy's 10 while off)'''),
-      ("Service.qml",
-'''      raw, service.replayCarryOver, NotificationUrgency.Normal, service.historyLimit)''',
-'''      raw, service.replayCarryOver, NotificationUrgency.Normal, service.overtakeOn ? service.historyLimit : 10)'''),
-      # Per-app settings made in the notification center's Manage view.
-      ("Service.qml",
-'''  readonly property int lowPopupDuration: 5000''',
-'''  // Overtake Mode: per-app settings from the notification center,
-  // ~/.config/overtake/notifications.json: {"apps": {"<app>": "quiet" | "off"}}.
-  property var overtakeAppModes: ({})
-  // Overtake Mode on? (its flag file). This copy stays loaded in Omarchy mode
+'''  readonly property int lowDuration: 5000
+  readonly property int normalDuration: 8000''',
+'''  // Overtake Mode on? (its flag file). This copy stays loaded in Omarchy mode
   // too, acting like Omarchy's own while the mode is off, so switching modes
   // needs no shell restart.
   property bool overtakeOn: false
@@ -138,44 +93,87 @@ PATCHES = {
     onLoaded: { var v = text().trim(); if (v) service.overtakeOn = v === "on" }
     onLoadFailed: service.overtakeOn = false
   }
+  // Overtake Mode: per-app settings from the notification center,
+  // ~/.config/overtake/notifications.json: {"apps": {"<app>": "quiet" | "off"}}.
+  property var overtakeAppModes: ({})
   FileView {
     path: Quickshell.env("HOME") + "/.config/overtake/notifications.json"
     watchChanges: true
     printErrors: false
     onFileChanged: reload()
     onLoaded: {
-      try { service.overtakeAppModes = (JSON.parse(text()) || {}).apps || {} } catch (e) { service.overtakeAppModes = {} }
+      try {
+        var apps = (JSON.parse(text()) || {}).apps
+        service.overtakeAppModes = apps && typeof apps === "object" && !Array.isArray(apps) ? apps : ({})
+      } catch (e) { service.overtakeAppModes = ({}) }
     }
-    onLoadFailed: service.overtakeAppModes = {}
+    onLoadFailed: service.overtakeAppModes = ({})
+  }
+  // Overtake Mode: what it does to this row ("" for nothing). "off" drops the
+  // app's notifications unrecorded; "bypass" lets a critical battery alert
+  // (BatteryAlerts, sent as "Battery") through Do Not Disturb; "quiet" files
+  // the app's notifications in history without a card, like Do Not Disturb
+  // for that app alone.
+  function overtakeModeFor(row) {
+    if (!overtakeOn) return ""
+    var app = String(row.app || "")
+    if (app === "omarchy-action") return ""
+    var mode = Object.prototype.hasOwnProperty.call(overtakeAppModes, app) ? String(overtakeAppModes[app]) : ""
+    if (mode === "off") return "off"
+    if (app === "Battery" && Number(row.urgency) === NotificationUrgency.Critical) return "bypass"
+    return mode === "quiet" ? "quiet" : ""
   }
 
-  readonly property int lowPopupDuration: 5000'''),
+  readonly property int lowDuration: 5000
+  readonly property int normalDuration: overtakeOn ? 10000 : 8000  // Overtake Mode: 10 s'''),
       ("Service.qml",
-'''    if (service.doNotDisturb && !shouldBypassDnd(notification)) {''',
-'''    // Overtake Mode: the app's setting from the notification center. "off"
-    // drops its notifications; "quiet" files them in the center without a
-    // pop-up, like Do Not Disturb for that app alone.
-    var overtakeApp = String(notification.appName || "")
-    var overtakeMode = service.overtakeOn && overtakeApp !== "omarchy-action" ? String(service.overtakeAppModes[overtakeApp] || "") : ""
-    if (overtakeMode === "off") {
-      delete liveRefs[snapshot.originalId]
-      notification.tracked = false
-      return
-    }
-    if (overtakeMode === "quiet" && !shouldBypassDnd(notification) && !isEphemeral(notification)) {
-      writeSilenced(notification, snapshot)
-      return
+'''    if (urgency === NotificationUrgency.Critical) return 0''',
+'''    if (urgency === NotificationUrgency.Critical) return service.overtakeOn ? 15000 : 0  // Overtake Mode: then it waits in the notification center'''),
+      ("Service.qml",
+'''    var muted = Delivery.quietReason(row, doNotDisturb)
+    if (muted) {
+      if (!Delivery.isEphemeral(row)) storeRecord(row, muted)''',
+'''    var muted = Delivery.quietReason(row, doNotDisturb)
+    // Overtake Mode: the app's setting from the notification center, and a
+    // critical battery alert past Do Not Disturb. A quiet app's card that
+    // can't be kept (ephemeral) still shows, as there'd be nothing to file.
+    var overtakeMode = service.overtakeModeFor(row)
+    if (overtakeMode === "off") muted = "off"
+    else if (overtakeMode === "bypass") muted = ""
+    else if (overtakeMode === "quiet" && !muted && !Delivery.bypassesQuiet(row)
+             && !String(row.code || "") && !Delivery.isEphemeral(row)) muted = "silenced"
+    if (muted) {
+      if (muted !== "off" && !Delivery.isEphemeral(row)) storeRecord(row, muted)'''),
+      # A restored critical card (after a shell restart) would wait forever too.
+      ("Service.qml",
+'''      var row = Store.restored(rows[i])
+      if (!row) continue''',
+'''      var row = Store.restored(rows[i])
+      if (!row) continue
+      if (service.overtakeOn && row.urgency === NotificationUrgency.Critical) row.duration = 15000  // Overtake Mode'''),
+      ("Service.qml",
+'''    function count(): string { return String(toasts.count) }''',
+'''    function count(): string { return String(toasts.count) }
+
+    // Overtake Mode: the notification center's remove (history keys, space
+    // separated) and Clear all. Kept in both modes: they only take entries
+    // out of history.
+    function forget(keys: string): string {
+      var drop = String(keys || "").split(" ").filter(function(k) { return k !== "" })
+      if (!drop.length || !service.historyLoaded) return "none"   // (not read yet: it would come back)
+      var kept = service.historyEntries.filter(function(e) { return drop.indexOf(String(e.key)) === -1 })
+      if (kept.length === service.historyEntries.length) return "none"
+      service.historyEntries = kept
+      service.saveSoon("history")
+      return "ok"
     }
 
-    if (service.doNotDisturb && !shouldBypassDnd(notification)) {'''),
-      # A critical battery alert (BatteryAlerts) gets through Do Not Disturb.
-      ("Service.qml",
-'''  function shouldBypassDnd(notification) {
-    return NotificationLogic.shouldBypassDnd(notification, NotificationUrgency.Critical)''',
-'''  function shouldBypassDnd(notification) {
-    // Overtake Mode (only while it's on): a critical battery alert always gets through.
-    if (service.overtakeOn && String(notification.appName || "") === "Battery" && notification.urgency === NotificationUrgency.Critical) return true
-    return NotificationLogic.shouldBypassDnd(notification, NotificationUrgency.Critical)'''),
+    function clearHistory(): string {
+      if (!service.historyLoaded) return "none"
+      service.historyEntries = []
+      service.saveSoon("history")
+      return "ok"
+    }'''),
     ],
     # Overtake Mode's battery alerts (per device, levels you choose) replace
     # Omarchy's single 10% laptop warning; power profiles still switch here.
@@ -208,7 +206,7 @@ texts = {}
 for filename, old, new in patches:
     path = os.path.join(plugin_dir, filename)
     text = texts.get(path) or open(path).read()
-    if old not in text:
+    if text.count(old) != 1:   # missing, or no longer one place to change
         sys.exit(1)
     texts[path] = text.replace(old, new, 1)
 for path, text in texts.items():

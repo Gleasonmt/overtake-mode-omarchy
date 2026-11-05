@@ -4,6 +4,7 @@
 o.bind("ALT + F4", "Close window", hl.dsp.window.close())
 o.bind("SUPER + E", "File Explorer", { omarchy = "nautilus" })
 o.bind("SUPER + R", "Run", "omarchy-menu toggle apps")
+hl.unbind("SUPER + I")   -- (Omarchy 4.5: input-language switching)
 o.bind("SUPER + I", "Settings", "overtake settings")
 o.bind("SUPER + D", "Show desktop", "overtake show-desktop")
 o.bind("SUPER + PERIOD", "Emojis", "omarchy-shell shell toggle omarchy.emojis")

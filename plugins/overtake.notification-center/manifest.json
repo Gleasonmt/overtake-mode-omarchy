@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "overtake.notification-center",
   "name": "Overtake Mode notification center",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "author": "Gleasonmt",
   "description": "A bell at the end of the bar: notifications that have left the screen, to act on, remove or clear, and Do Not Disturb",
   "kinds": ["bar-widget"],

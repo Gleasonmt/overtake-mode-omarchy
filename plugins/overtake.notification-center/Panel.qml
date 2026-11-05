@@ -1,5 +1,4 @@
 import QtQuick
-import Qt.labs.folderlistmodel
 import Quickshell
 import Quickshell.Io
 import qs.Commons
@@ -8,8 +7,8 @@ import qs.Ui
 
 // Notification center: a bell at the end of the Overtake Mode bar. Toasts
 // move here when they time out or are closed (Omarchy files each one in its
-// notification history folder; Overtake's notifications keep the last 50 and
-// give critical ones 15 seconds on screen instead of forever). The bell shows
+// history, the last 100 for a day; Overtake's notifications give critical
+// ones 15 seconds on screen instead of forever). The bell shows
 // how many arrived since the center was last opened. The panel groups them by
 // app, newest app first, all closed; a group expands to its notifications, to act on
 // (click), remove (x) or clear. The gear switches to Manage, where each app
@@ -25,8 +24,9 @@ Panel {
   ipcTarget: "overtake.notification-center"
 
   readonly property string home: Quickshell.env("HOME")
-  readonly property string historyDir: home + "/.local/state/omarchy/notifications/history"
-  readonly property string imagesDir: home + "/.local/state/omarchy/notifications/images"
+  readonly property string stateDir: home + "/.local/state/omarchy/notifications"
+  readonly property string historyFile: stateDir + "/history.json"   // Omarchy's, newest closed first
+  readonly property string quietFile: stateDir + "/quiet.json"       // Omarchy's Do Not Disturb
   readonly property string seenFile: home + "/.local/state/overtake/notifications-seen"
   readonly property string modesFile: home + "/.config/overtake/notifications.json"
   readonly property bool vertical: bar ? bar.vertical : false
@@ -35,7 +35,7 @@ Panel {
   readonly property color panelFg: Commons.Color.foreground
   readonly property string fontFamily: bar ? bar.fontFamily : Style.font.family
 
-  property var entries: []   // history entries, newest first; each has .file
+  property var entries: []   // history entries, newest first; each has .key
   property double seen: 0    // newest timestamp the user has seen in the panel
   property bool dnd: false
   property string view: "list"   // "list" or "manage"
@@ -82,47 +82,38 @@ Panel {
   implicitHeight: clockMode ? (bar ? bar.barSize : Style.bar.sizeHorizontal) : button.implicitHeight
 
   // ---------- History ----------
-  // The folder model notices files coming and going; every change re-reads
-  // the folder in one jq call.
-  FolderListModel {
-    id: folder
-    folder: "file://" + root.historyDir
-    nameFilters: ["*.json"]
-    showDirs: false
+  // Omarchy keeps it in one file (the last 100, for a day), rewritten whole a
+  // moment after each change: watched, not polled.
+  FileView {
+    id: historyView
+    path: root.historyFile
+    watchChanges: true
+    printErrors: false
+    onFileChanged: reload()
+    onLoaded: root.entries = root.parseHistory(text())
+    onLoadFailed: root.entries = []
   }
-  Instantiator {
-    model: folder
-    delegate: QtObject {
-      Component.onCompleted: reloadTimer.restart()
-      Component.onDestruction: if (reloadTimer) reloadTimer.restart()   // (gone already while the shell shuts down)
-    }
+  function reload() { historyView.reload() }
+  function parseHistory(raw) {
+    var list
+    try { list = JSON.parse(String(raw || "").trim() || "[]") } catch (e) { return [] }
+    if (!Array.isArray(list)) return []
+    var out = []
+    list.forEach(function(e) {
+      if (!e || typeof e !== "object" || typeof e.key !== "string") return
+      // Omarchy's own "you just did that" toasts (Overtake Mode on, silenced
+      // notifications, ...) are feedback, not something to come back to,
+      // unless they carry an action (a screenshot's "click to edit").
+      if (e.app === "omarchy-action" && !e.execArgv) return
+      var entry = Object.assign({}, e)
+      if (entry.app === "omarchy-action") entry.app = "Omarchy"
+      // When it arrived, in ms (Omarchy writes seconds; the seen file is ms).
+      entry.timestamp = Math.round(Number(e.ts || e.closed_ts || 0) * 1000)
+      out.push(entry)
+    })
+    out.sort(function(a, b) { return b.timestamp - a.timestamp })
+    return out
   }
-  Timer { id: reloadTimer; interval: 150; onTriggered: root.reload() }
-  function reload() {
-    if (readProc.running) reloadTimer.restart()
-    else readProc.running = true
-  }
-  Process {
-    id: readProc
-    command: ["bash", "-c", "shopt -s nullglob; f=(\"$1\"/*.json); (( ${#f[@]} )) && jq -c '. + {file: input_filename}' \"${f[@]}\" 2>/dev/null; true", "_", root.historyDir]
-    stdout: StdioCollector {
-      onStreamFinished: {
-        var out = []
-        String(text || "").split("\n").forEach(function(line) {
-          if (!line.trim()) return
-          try { out.push(JSON.parse(line)) } catch (e) {}
-        })
-        // Omarchy's own "you just did that" toasts (Overtake Mode on, silenced
-        // notifications, ...) are feedback, not something to come back to,
-        // unless they carry an action (a screenshot's "click to edit").
-        out = out.filter(function(e) { return e.app !== "omarchy-action" || !!e.execArgv })
-        out.forEach(function(e) { if (e.app === "omarchy-action") e.app = "Omarchy" })
-        out.sort(function(a, b) { return (b.timestamp || 0) - (a.timestamp || 0) })
-        root.entries = out
-      }
-    }
-  }
-  Component.onCompleted: reload()
 
   FileView {
     id: seenView
@@ -158,19 +149,39 @@ Panel {
   }
 
   // ---------- Actions ----------
+  // History is the notifications service's own (it rewrites the file from
+  // memory), so entries are taken out through it: Overtake's copy answers
+  // `forget` and `clearHistory`. Omarchy's own doesn't, and the reload then
+  // puts the rows back.
   function removeAll(list) {
-    var files = list.map(function(e) { return e.file }).filter(function(f) { return !!f })
-    if (!files.length) return
-    // each entry's file and any images Omarchy saved for it
-    Quickshell.execDetached(["bash", "-c", "img=$1; shift; for f; do stem=${f##*/}; rm -f -- \"$f\" \"$img/${stem%.json}\"-*; done", "_", root.imagesDir].concat(files))
-    entries = entries.filter(function(e) { return files.indexOf(e.file) === -1 })
+    var keys = list.map(function(e) { return String(e.key || "") })
+                   .filter(function(k) { return /^[A-Za-z0-9_-]{1,120}$/.test(k) })
+    if (!keys.length) return
+    historyCall(["forget", keys.join(" ")])
+    entries = entries.filter(function(e) { return keys.indexOf(e.key) === -1 })
   }
   function remove(entry) { removeAll([entry]) }
 
   function clearAll() {
-    Quickshell.execDetached(["omarchy-shell", "notifications", "clear"])
+    historyCall(["clearHistory"])
     entries = []
   }
+  function historyCall(args) {
+    if (historyProc.running) { reloadSoon.restart(); return }
+    historyProc.command = ["omarchy-shell", "notifications"].concat(args)
+    historyProc.running = true
+  }
+  Process {
+    id: historyProc
+    stdout: StdioCollector {
+      onStreamFinished: {
+        if (String(text || "").trim() !== "ok")
+          root.showNotice("Couldn't remove: Overtake's notifications aren't loaded (overtake build-copies all).")
+        reloadSoon.restart()
+      }
+    }
+  }
+  Timer { id: reloadSoon; interval: 500; onTriggered: root.reload() }   // the file as it now stands
 
   // Like clicking the toast: run its action if it carried one, otherwise
   // bring the app that sent it to the front. Then it's done with.
@@ -181,9 +192,12 @@ Panel {
   function activate(entry) {
     // The toast's own action, checked and run exactly as Omarchy's own
     // notifications do (an argv of strings, through a login shell's PATH).
-    var argv = null
-    try { argv = JSON.parse(entry.execArgv || "") } catch (e) {}
-    var valid = Array.isArray(argv) && argv.length > 0 && argv.every(function(a) { return typeof a === "string" })
+    // (Omarchy's parseExecArgv: up to 32 strings of up to 4096 characters,
+    // no NUL, not starting with an option)
+    var argv = null, raw = String(entry.execArgv || "")
+    if (raw.length <= 32768) try { argv = JSON.parse(raw) } catch (e) {}
+    var valid = Array.isArray(argv) && argv.length > 0 && argv.length <= 32
+      && argv.every(function(a) { return typeof a === "string" && a.length <= 4096 && a.indexOf("\u0000") === -1 })
       && argv[0] !== "" && argv[0].charAt(0) !== "-"
     if (valid) {
       Quickshell.execDetached(["bash", "-lc", 'exec "$@"', "bash"].concat(argv))
@@ -209,7 +223,7 @@ Panel {
     onStarted: { write(body + "\n"); body = "" }
     onExited: function(code) {
       if (code === 0) { root.remove(entry); root.close() }
-      else root.showNotice("Nothing to open for this one: its app isn't installed and it doesn't name a file.")
+      else root.showNotice("Nothing to open for this one: its app isn't open and it doesn't name a file.")
     }
   }
 
@@ -229,7 +243,7 @@ Panel {
 
   Process {
     id: dndProc
-    command: ["omarchy-shell", "notifications", "dndState"]
+    command: ["omarchy-shell", "notifications", "isDnd"]
     stdout: StdioCollector { onStreamFinished: root.dnd = String(text || "").trim() === "on" }
   }
   function refreshDnd() { if (!dndProc.running) dndProc.running = true }
@@ -239,7 +253,7 @@ Panel {
   }
   // Omarchy saves Do Not Disturb to this file on every change: watched, not polled.
   FileView {
-    path: Quickshell.env("HOME") + "/.local/state/omarchy/notifications.json"
+    path: root.quietFile
     watchChanges: true
     printErrors: false
     onFileChanged: reload()
@@ -262,19 +276,11 @@ Panel {
     return Qt.formatDateTime(new Date(ts), "MMM d, h:mm AP")
   }
 
-  // The app's own icon for its group (a message's picture, like a sender's
-  // avatar, only when the app has no icon). Local files and theme icons only:
-  // the sending app picks these strings, and a web address here would make the
-  // panel fetch it.
+  // The app's own icon for its group: a theme icon by plain name only (Omarchy
+  // keeps only those in history), so nothing the sender names is read or fetched.
   function iconFor(entry) {
     var icon = String(entry.appIcon || "")
-    if (icon) return localPicture(icon) || Quickshell.iconPath(icon, true)
-    return localPicture(String(entry.image || ""))
-  }
-  function localPicture(path) {
-    if (path.charAt(0) === "/") return "file://" + path
-    if (path.indexOf("file:///") === 0 || path.indexOf("image://") === 0) return path
-    return ""
+    return /^[A-Za-z0-9_.-]{1,256}$/.test(icon) ? Quickshell.iconPath(icon, true) : ""
   }
 
   // ---------- The bell ----------

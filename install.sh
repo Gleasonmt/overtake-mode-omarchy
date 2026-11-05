@@ -42,8 +42,8 @@ Optional extras, each off unless chosen (asked when run in a terminal):
                          you're on (changes omarchy-browser.desktop)
       --image-viewer     images open with their whole folder in imv-dir
                          (changes your default image viewer)
-      --style-menus      Overtake's Style > Background (every theme's
-                         wallpapers) and Style > Theme in the Omarchy menu,
+      --style-menus      Overtake's Appearance > Background (every theme's
+                         wallpapers) and Appearance > Theme in the Omarchy menu,
                          in every mode
       --name-tags        name tags on Claude Code windows, in every mode
                          (reads ~/.claude/sessions), and Super+Alt+N
@@ -75,13 +75,22 @@ command -v omarchy-version >/dev/null || die "Omarchy isn't installed (omarchy-v
 for tool in jq python3 hyprctl; do
   command -v "$tool" >/dev/null || die "$tool is required."
 done
-[[ -d $OMARCHY_PLUGINS ]] || die "Omarchy's shell plugins weren't found in $OMARCHY_PLUGINS (Omarchy 4 is required)."
+[[ -d $OMARCHY_PLUGINS ]] || die "Omarchy's shell plugins weren't found in $OMARCHY_PLUGINS (Omarchy 4.5 or later is required)."
+OMARCHY_VERSION=$(omarchy-version 2>/dev/null || true)
+[[ $(printf '%s\n' 4.5 "${OMARCHY_VERSION%%-*}" | sort -V | head -1) == 4.5 ]] ||
+  die "Overtake Mode needs Omarchy 4.5 or later (this is ${OMARCHY_VERSION:-unknown}); run omarchy update first."
+# A menu extension file of yours that isn't plain JSONC (starting with {) is
+# left alone: stop now, before anything is written.
+MENU_CHECK="$HOME/.config/omarchy/extensions/omarchy-menu.jsonc"
+if [[ -s $MENU_CHECK ]] && ! grep -v '^[[:space:]]*\(//.*\)\?$' "$MENU_CHECK" | head -1 | grep -q '^[[:space:]]*{'; then
+  die "$MENU_CHECK doesn't start with { ; fix it first (Overtake adds its menu entry there)."
+fi
 
 # The optional extras. Each is off unless chosen; an update keeps what's
 # installed now. Choosing one off that's on now takes it back out.
-have_links() { [[ -f $BROWSER_ENTRY ]] && grep -q '^Exec=.*/overtake open-url ' "$BROWSER_ENTRY"; }
+have_links() { [[ -f $BROWSER_ENTRY ]] && grep -q '^Exec=.*/overtake"\? open-url ' "$BROWSER_ENTRY"; }
 have_images() { [[ -s $HOME/.local/state/overtake/image-defaults || -f $APPS/overtake-image-viewer.desktop ]]; }
-have_style_menus() { [[ -f $MENU ]] && grep -q '"style.background".*overtake bg-picker' "$MENU"; }
+have_style_menus() { [[ -f $MENU ]] && grep -q '"\(style\|appearance\)\.background".*overtake bg-picker' "$MENU"; }
 have_name_tags() { [[ -d $PLUGINS/overtake.session-names ]]; }
 ask_extra() {  # ask_extra <current yes|no> <question>
   local reply hint="[y/N]"
@@ -100,7 +109,7 @@ choose() {  # choose <flag value> <have function> <question>: yes or no
 [[ -n $ASSUME_YES || -n $DRY_RUN || ! -t 0 ]] || echo "Optional extras (each is off unless you say yes):"
 LINKS=$(choose "$LINKS" have_links "  Open links from other apps on the workspace you're on (changes omarchy-browser.desktop)?")
 IMAGES=$(choose "$IMAGES" have_images "  Open images with their whole folder in imv-dir (changes your default image viewer)?")
-STYLE_MENUS=$(choose "$STYLE_MENUS" have_style_menus "  Use Overtake's Style > Background and Style > Theme in the Omarchy menu, in every mode?")
+STYLE_MENUS=$(choose "$STYLE_MENUS" have_style_menus "  Use Overtake's Appearance > Background and Appearance > Theme in the Omarchy menu, in every mode?")
 NAME_TAGS=$(choose "$NAME_TAGS" have_name_tags "  Name tags on Claude Code windows in every mode (reads ~/.claude/sessions), and Super+Alt+N?")
 [[ -n $ASSUME_YES || -n $DRY_RUN || ! -t 0 ]] || echo
 
@@ -133,13 +142,13 @@ Overtake Mode will add (./uninstall.sh removes all of it):
                                           copies from the new Omarchy (or drops one
                                           whose patch no longer fits)
   ~/.local/state/overtake/, ~/.cache/overtake/
-                                          its state (yours only) and picture previews
+                                          its state (yours only) and the Background lists
 EOF
   [[ $NAME_TAGS == yes ]] && echo "  ~/.config/omarchy/plugins/overtake.session-names   name tags on Claude Code windows"
   [[ $CHANGE_IMAGES ]] && echo "  ~/.local/share/applications/overtake-image-viewer.desktop"
   cat <<'EOF'
 
-and change files you already have (./uninstall.sh undoes each one):
+and change (or create, if missing) these files (./uninstall.sh undoes each one):
   ~/.config/hypr/bindings.lua             a block between ">>> overtake" markers:
                                           the mode shortcut (Super+Ctrl+Shift+W),
                                           and loading Overtake's shortcuts while
@@ -156,7 +165,7 @@ and change files you already have (./uninstall.sh undoes each one):
 EOF
   [[ $NAME_TAGS == yes ]] && echo "                                          and overtake.session-names; Super+Alt+N in bindings.lua"
   [[ $STYLE_MENUS == yes ]] && cat <<'EOF'
-  omarchy-menu.jsonc (same marked block)  Style > Background and Style > Theme,
+  omarchy-menu.jsonc (same marked block)  Appearance > Background and Appearance > Theme,
                                           replaced in every mode
 EOF
   [[ $CHANGE_LINKS ]] && cat <<'EOF'
@@ -276,18 +285,18 @@ for plugin in $OWN_PLUGINS; do
   cp -r "$REPO/plugins/$plugin" "$PLUGINS/$plugin"
 done
 
-# The five patched copies (workspaces, bluetooth, audio; notifications with a
-# close button and the notification center's history; battery without
-# Omarchy's single 10% warning) are built by `overtake build-copies`
+# The five patched copies (workspaces, bluetooth, audio; notifications with
+# per-app settings, timed critical toasts and the notification center's
+# remove / Clear all; battery without Omarchy's single 10% warning) are built by `overtake build-copies`
 # (bin/overtake), which the post-update hook below runs again after every
-# `omarchy update`. One whose patch no longer fits is left out, and Omarchy's
-# own is used.
+# `omarchy update` (and `overtake resume` at login). One whose patch no longer
+# fits is left out, and Omarchy's own is used.
 OVERTAKE_OMARCHY_PLUGINS=$OMARCHY_PLUGINS "$HOME/.local/bin/overtake" build-copies all
 mkdir -p "$HOME/.config/omarchy/hooks/post-update.d"
 cat >"$HOME/.config/omarchy/hooks/post-update.d/overtake.hook" <<'EOF'
 # Overtake Mode: rebuild its patched copies of Omarchy's plugins from the
 # updated Omarchy (removed by Overtake's uninstall.sh).
-[ -x "$HOME/.local/bin/overtake" ] && "$HOME/.local/bin/overtake" build-copies update
+if [ -x "$HOME/.local/bin/overtake" ]; then "$HOME/.local/bin/overtake" build-copies update; fi
 EOF
 say "hook: ~/.config/omarchy/hooks/post-update.d/overtake.hook"
 # Both stay enabled in either mode (they check it themselves), so switching
@@ -298,11 +307,11 @@ say "hook: ~/.config/omarchy/hooks/post-update.d/overtake.hook"
 # retry for a few seconds rather than fail quietly.
 enable_plugin() {
   local id=$1 out="" i
-  for i in $(seq 15); do
+  for i in $(seq 20); do
     out=$(omarchy plugin enable "$id" 2>&1) && return 0
-    [[ $out == *"not known"* ]] || break
+    [[ $out == *"not known"* || $out == *"not responding"* ]] || break   # (or the shell is restarting)
     omarchy-shell shell rescanPlugins >/dev/null 2>&1 || true
-    sleep 0.2
+    sleep 0.3
   done
   say "couldn't turn on $id (${out:-no reply from the shell}); afterwards run: omarchy plugin enable $id"
   return 0
@@ -369,7 +378,7 @@ for file in 1-mesa-day.png 2-mesa-night.png 3-ribbons.png 4-aurora.png 5-orbs.pn
   rm -f "${PICTURES:?}/studio/$file"
 done
 say "settings: ~/.config/overtake (existing files kept); wallpapers: ~/Pictures/overtake/{slideshow,studio}"
-# previews for Style > Background, made now (by Omarchy's omarchy-menu-images,
+# previews for Appearance > Background, made now (by Omarchy's omarchy-menu-images,
 # in its own cache) so the first opening doesn't wait
 setsid "$HOME/.local/bin/overtake" bg-picker cache </dev/null >/dev/null 2>&1 &
 
@@ -394,10 +403,10 @@ DESKTOP
 # is off, passes them straight back to Omarchy's handler). --no-link-handler skips it.
 if [[ $CHANGE_LINKS ]]; then
   bin_escaped=$(printf '%s' "$HOME/.local/bin/overtake" | sed 's/[\\|&]/\\&/g')   # (for sed's replacement)
-  sed -i "s|^Exec=omarchy-launch-browser |Exec=$bin_escaped open-url |" "$BROWSER_ENTRY"
+  sed -i "s|^Exec=omarchy-launch-browser |Exec=\"$bin_escaped\" open-url |" "$BROWSER_ENTRY"   # (quoted: a home folder may have spaces)
   say "links: open on the workspace you're on"
 elif [[ $LINKS == no ]] && have_links; then
-  sed -i 's|^Exec=.*/overtake open-url |Exec=omarchy-launch-browser |' "$BROWSER_ENTRY"
+  sed -i 's|^Exec=.*/overtake"\? open-url |Exec=omarchy-launch-browser |' "$BROWSER_ENTRY"
   say "links: back to Omarchy's own handler"
 fi
 

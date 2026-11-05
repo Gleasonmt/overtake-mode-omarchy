@@ -78,7 +78,7 @@ Item {
     { id: "battery", name: "Power & battery", glyph: "\uf240", sections: [
       { title: "Power", rows: [
         { type: "choice", title: "Power mode", detail: "Balance battery life and performance",
-          options: "powerprofilesctl list | sed -n 's/^[* ] *\\([a-z-]*\\):$/\\1/p'", current: "powerprofilesctl get", set: "omarchy-powerprofiles-set {}" },
+          options: "powerprofilesctl list | sed -n 's/^[* ] *\\([a-z-]*\\):$/\\1/p'", current: "powerprofilesctl get", set: "omarchy-powerprofiles-set autodetect {}" },
         { type: "info", title: "Battery", value: "upower -i $(upower -e | grep BAT | head -1) | awk '/percentage/{p=$2} /state/{s=$2} END{print p\"  \"s}'" },
         { type: "link", title: "Battery and device charge", run: "omarchy-shell omarchy.power open" }
       ]},
@@ -611,7 +611,8 @@ Item {
                 anchors.fill: parent
                 hoverEnabled: true
                 cursorShape: Qt.PointingHandCursor
-                onClicked: { card.act(card.row.set.replace("{}", root.shq(modelData))); card.value = modelData }
+                // (a function as the replacement: no $-patterns from the value)
+                onClicked: { card.act(card.row.set.replace("{}", function() { return root.shq(modelData) })); card.value = modelData }
               }
             }
           }
