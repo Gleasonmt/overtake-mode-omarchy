@@ -191,7 +191,9 @@ hand_back_in_shell_json() {  # hand_back_in_shell_json <name>
     ((.cloneSourceRestores // []) | if type == "array" then index($copy) != null else false end) as $restore
     | (if (.plugins | type) == "array" then .plugins |= map(select((if type == "object" then .id else . end) != $copy)) else . end)
     | (if (.cloneSourceRestores | type) == "array" then .cloneSourceRestores |= map(select(. != $copy)) else . end)
-    | (if $restore and (.disabledPlugins | type) == "array" then .disabledPlugins |= map(select(. != $own and . != $copy)) else . end)' "$SHELL_JSON" || true
+    | (if $restore and (.disabledPlugins | type) == "array" then .disabledPlugins |= map(select(. != $own and . != $copy)) else . end)
+    | (if (.bar | type) == "object" then (.bar | .. | objects | select(.id? == $copy) | .id) |= $own else . end)
+    | (if .cloneSourceRestores == [] then del(.cloneSourceRestores) else . end)' "$SHELL_JSON" || true
 }
 
 build_copies() {  # build_copies all|update
@@ -249,6 +251,7 @@ build_copies() {  # build_copies all|update
   echo "Overtake Mode: patched copies of Omarchy's plugins $([[ -n $built ]] && echo "built:$built" || echo unchanged)"
   [[ -z $failed ]] || echo "Overtake Mode: left out, Omarchy's own is used:$failed"
   [[ -z $kept ]] || echo "Overtake Mode: couldn't rebuild (kept as it was):$kept" >&2
+  exec 7>&-   # (the build lock goes no further than the build)
   if [[ $mode == update && -n $failed ]]; then
     notify $'\uf0ec' "Overtake Mode: Omarchy changed, so Omarchy's own $(sed 's/^ //; s/ /, /g' <<<"$failed") is used for now (Overtake's changes no longer fit it)"
   fi
@@ -678,12 +681,17 @@ pause_floating_layouts() {
 resume_floating_layouts() {
   local f
   [[ -d $PAUSED_LAYOUTS ]] || return 0
+  local live tmp="" failed=""
   for f in "$PAUSED_LAYOUTS"/*.lua; do
     [[ -f $f ]] || continue
-    mkdir -p "$OMARCHY_LAYOUTS"
-    cp -p "$f" "$OMARCHY_LAYOUTS/${f##*/}.overtake-tmp" && mv -f "$OMARCHY_LAYOUTS/${f##*/}.overtake-tmp" "$OMARCHY_LAYOUTS/${f##*/}"
+    live="$OMARCHY_LAYOUTS/${f##*/}"
+    # only one still as Overtake left it: a layout you chose while the mode
+    # was on (or a record Omarchy removed) stays as it is now
+    if [[ -f $live ]] && [[ $(<"$live") == "$(sed 's/"floating"/"dwindle"/g' "$f")" ]]; then
+      tmp=$(mktemp "$OMARCHY_LAYOUTS/.${f##*/}.XXXXXX") && cp -p "$f" "$tmp" && mv -f "$tmp" "$live" || { rm -f "${tmp:-}"; failed=1; }
+    fi
   done
-  rm -rf "${PAUSED_LAYOUTS:?}"
+  [[ -n $failed ]] || rm -rf "${PAUSED_LAYOUTS:?}"
 }
 
 turn_on() {
@@ -718,6 +726,9 @@ turn_on() {
   gsettings get org.gnome.desktop.wm.preferences button-layout >"$SAVED_GTK_BUTTONS" 2>/dev/null || true
   gsettings set org.gnome.desktop.wm.preferences button-layout 'appmenu:' 2>/dev/null || true
   hyprctl reload >/dev/null
+  # (once more: on that reload Omarchy re-tiles windows it had floated for a
+  # floating workspace, now paused)
+  [[ -d $PAUSED_LAYOUTS ]] && float_all
   local mode
   mode=$(style)
   notify $'\uf0ec' "Overtake ${mode^} (Super+Ctrl+Shift+W: next mode)"
@@ -730,10 +741,10 @@ turn_off() {
   view=$(current_view)
   [[ $(style) == classic ]] && save_taskbar_settings
   save_look "$(style)"
-  if [[ -s $SAVED_BAR ]] && ! jq -e 'type == "object"' "$SAVED_BAR" >/dev/null 2>&1; then
+  if [[ -s $SAVED_BAR ]] && jq -e '. == null' "$SAVED_BAR" >/dev/null 2>&1; then
     # you had no bar of your own in shell.json (Omarchy's built-in one): none again
     replace_with "$SHELL_JSON" jq 'del(.bar)' "$SHELL_JSON"
-  elif [[ -s $SAVED_BAR ]]; then
+  elif [[ -s $SAVED_BAR ]] && jq -e 'type == "object"' "$SAVED_BAR" >/dev/null 2>&1; then
     set_bar "$(cat "$SAVED_BAR")"
     # Omarchy updated while the mode was on: its update adjusted Overtake's bar,
     # not this saved one
@@ -1090,7 +1101,7 @@ open_url() {
 notification_open() {
   local app=$1
   [[ -n $app ]] || return 1
-  omarchy-hyprland-focus-app "$app" >/dev/null 2>&1 || focus_app "$app" exact
+  focus_app "$app" exact || omarchy-hyprland-focus-app "$app" >/dev/null 2>&1
 }
 
 # Clicking empty desktop: minimize every window on the workspace that screen

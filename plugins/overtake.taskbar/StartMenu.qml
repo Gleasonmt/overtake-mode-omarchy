@@ -268,17 +268,19 @@ Item {
     onFileChanged: reload()
     onLoaded: {
       var out = []
-      // (one bookmark at a time: [^<]… up to its own mime type, never the next one's)
-      var re = /<bookmark href="([^"]+)"[^>]*modified="([^"]+)"((?:(?!<\/bookmark>)[\s\S])*?)<mime:mime-type type="([^"]+)"/g
-      var m
-      var body = text()
-      while ((m = re.exec(body)) !== null) {
-        var href = m[1].replace(/&amp;/g, "&").replace(/&quot;/g, "\"").replace(/&apos;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
+      // One bookmark at a time (its own mime type, never the next one's).
+      var re = /<bookmark href="([^"]+)"[^>]*modified="([^"]+)"[\s\S]*?<mime:mime-type type="([^"]+)"/
+      var pieces = text().split("</bookmark>")
+      for (var i = 0; i < pieces.length; i++) {
+        var m = re.exec(pieces[i])
+        if (!m) continue
+        // XML entities, &amp; last so nothing is decoded twice
+        var href = m[1].replace(/&quot;/g, "\"").replace(/&apos;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&")
         if (href.indexOf("file://") !== 0) continue
         var path
         try { path = decodeURIComponent(href.replace(/^file:\/\//, "")) } catch (e) { continue }   // (a name that isn't UTF-8)
         if (path.indexOf("/tmp/") === 0) continue
-        out.push({ path: path, name: path.split("/").pop(), modified: m[2], mime: m[4] })
+        out.push({ path: path, name: path.split("/").pop(), modified: m[2], mime: m[3] })
       }
       out.sort(function(a, b) { return a.modified < b.modified ? 1 : -1 })
       root.recentFiles = out.slice(0, 6)

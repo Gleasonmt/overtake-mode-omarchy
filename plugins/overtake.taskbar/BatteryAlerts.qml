@@ -51,9 +51,11 @@ Item {
       || d.state === UPowerDeviceState.PendingCharge
   }
 
+  // (a device may call itself "constructor": only a key of the object's own)
+  function ownOf(map, key) { return map && Object.prototype.hasOwnProperty.call(map, key) ? map[key] : undefined }
   function levelsFor(key) {
     var base = key === "laptop" ? laptopDefaults : deviceDefaults
-    var own = (config.devices || {})[key] || {}
+    var own = ownOf(config.devices, key) || {}
     return {
       low: Number(own.low !== undefined ? own.low : base.low),
       critical: Number(own.critical !== undefined ? own.critical : base.critical),
@@ -113,7 +115,7 @@ Item {
     var next = null
     liveDevices().forEach(function(d) {
       var key = keyOf(d)
-      var known = (config.devices || {})[key]
+      var known = ownOf(config.devices, key)
       if (known && known.name) return
       if (!next) next = JSON.parse(JSON.stringify(config))
       var own = next.devices[key] || (next.devices[key] = {})
@@ -174,17 +176,23 @@ Item {
     // One device per key (two laptop batteries, a mouse seen through both its
     // receiver and Bluetooth): the one that most needs charging, so the key's
     // state isn't re-armed by one and fired again by the other.
-    var byKey = {}
+    var byKey = Object.create(null), laptops = 0
     liveDevices().forEach(function(d) {
       var k = keyOf(d), cur = byKey[k]
+      if (d.isLaptopBattery) laptops++
       if (!cur) { byKey[k] = d; return }
       var curCharging = isCharging(cur), charging = isCharging(d)
       if ((curCharging && !charging) || (curCharging === charging && percentOf(d) < percentOf(cur))) byKey[k] = d
     })
+    // A laptop with two packs: its combined charge, as Omarchy reads it
+    // (UPower's display device), not whichever pack is lowest.
+    var whole = UPower.displayDevice
+    if (laptops > 1 && whole && whole.isPresent)
+      byKey["laptop"] = { isLaptopBattery: true, percentage: whole.percentage, state: whole.state, model: "", type: whole.type, nativePath: "" }
     Object.keys(byKey).forEach(function(k) {
       var d = byKey[k]
       var key = keyOf(d), lv = levelsFor(key), p = percentOf(d)
-      var state = fired[key] || ""
+      var state = ownOf(fired, key) || ""
       var next = state
       if (!lv.enabled || isCharging(d) || p > lv.low + 2) next = ""            // re-armed
       else if (p <= lv.critical) {

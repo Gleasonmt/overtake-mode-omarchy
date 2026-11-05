@@ -257,9 +257,13 @@ Panel {
             // website playing in the browser), and loading it would fetch it
             source: {
               var url = root.player && root.player.trackArtUrl ? String(root.player.trackArtUrl) : ""
-              // (and never a device or kernel file, which could stall the loader)
-              if (/^file:\/\/\/(?:proc|sys|dev|run)(?:\/|$)/.test(url) && !/^file:\/\/\/run\/user\/[0-9]+\//.test(url)) return ""
-              return /^(file|image):\/\//.test(url) && url.indexOf("..") === -1 ? url : ""
+              // A file only in the places players keep art (home, /tmp, your
+              // runtime folder), spelled plainly: no escapes, "//", "." or ".."
+              // that could reach a device or kernel file and stall the loader.
+              if (/^image:\/\//.test(url)) return url
+              var path = url.indexOf("file:///") === 0 ? url.slice(7) : ""
+              if (!path || /%|\/\/|\/\.\.?(?:\/|$)/.test(path)) return ""
+              return /^\/(?:home\/|tmp\/|run\/user\/[0-9]+\/)/.test(path) ? url : ""
             }
             sourceSize.width: 96
             sourceSize.height: 96

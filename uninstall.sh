@@ -83,9 +83,9 @@ remove_block() {  # remove_block <file> <comment prefix>
   python3 -I - "$1" "$2" <<'PY'
 import sys, re
 path, prefix = sys.argv[1:3]
-text = open(path, encoding="utf-8", errors="surrogateescape").read()
+text = open(path, encoding="utf-8", errors="surrogateescape", newline="").read()
 text = re.sub(r"\n*" + re.escape(f"{prefix} >>> overtake") + r".*?" + re.escape(f"{prefix} <<< overtake") + r"\n?", "\n", text, flags=re.S)
-open(path, "w", encoding="utf-8", errors="surrogateescape").write(text)
+open(path, "w", encoding="utf-8", errors="surrogateescape", newline="").write(text)
 PY
 }
 remove_block "$HYPR/bindings.lua" "--"
@@ -131,8 +131,8 @@ if [[ -f $SHELL_TOML ]]; then
   python3 -I - "$SHELL_TOML" <<'PY'
 import sys, re
 p = sys.argv[1]
-t = open(p, encoding="utf-8", errors="surrogateescape").read()
-open(p, "w", encoding="utf-8", errors="surrogateescape").write(re.sub(r"\n?# >>> overtake.*?# <<< overtake\n?", "\n", t, flags=re.S))
+t = open(p, encoding="utf-8", errors="surrogateescape", newline="").read()
+open(p, "w", encoding="utf-8", errors="surrogateescape", newline="").write(re.sub(r"\n?# >>> overtake.*?# <<< overtake\n?", "\n", t, flags=re.S))
 PY
 fi
 
