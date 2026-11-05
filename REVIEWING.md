@@ -175,6 +175,29 @@ Precedents: [macOS Dock #13499](https://github.com/omacom/omarchy-plugin-marketp
   and while a floating window has focus every 250 ms, 80 ms once it's
   moving (to follow an app dragging its own window).
 
+## Threat model and the tests that check it
+
+Overtake treats as hostile: **other local accounts** (umask 022, readable
+`/proc/<pid>/cmdline`, shared `/tmp`), **text and names other programs
+choose** (window titles and classes, notification fields, device names,
+file names, desktop entries), and **a compromised wttr.in**. Other processes
+of the same user are not a new boundary. Each claim below has a test in
+`tests/`, run by GitHub Actions on every push against Omarchy 4.5.0's own
+plugins (pinned commit; see the Actions tab for the run on this release).
+
+| Boundary | How Overtake holds it | Test |
+| --- | --- | --- |
+| Private text vs other accounts' `ps` | stdin, `--rawfile`/`--slurpfile`, fds, the environment, D-Bus from a helper; never argv | `t-argv-privacy.sh`: a marker in window titles, classes, the bar's settings, a window name, a battery alert; every child's argv is logged and must not contain it (a planted `--argjson` leak makes it fail) |
+| Private files vs other accounts | Overtake's folders 0700 before any write; older 0755 folders tightened at install and startup; edits keep the file's mode | `t-lifecycle.sh` (starts from a 0755 folder an older version would have left) |
+| Names apps and devices choose | null-prototype maps and own-key lookups; `__proto__`, `constructor`, `laptop` can't reach built-ins or another device's slot | `t-qml-logic.js` (runs the real functions from the QML files) |
+| Rich text and remote images | every `Text` is `Text.PlainText`; no album art; icons by plain theme name | `run.sh` "plain text" check |
+| Notification clicks | the action with Omarchy's `parseExecArgv` rules, else the sender's window, else a browser's site; nothing opened from message text | `t-qml-logic.js` (site lookup refuses app names and numeric hosts) |
+| Omarchy's own files | marked blocks, mode-keeping replacements, floating layouts paused and restored, everything restored on uninstall | `t-lifecycle.sh` (byte for byte; `shell.json` by content, as jq rewrites it) |
+| Omarchy updates | copies rebuilt from the new Omarchy; one whose patch no longer fits is dropped, Omarchy's own used | `t-patches.sh` |
+
+Run them yourself (scratch homes, stubbed desktop commands, nothing touches
+your session): `tests/run.sh`.
+
 ## Trying it without touching your desktop
 
 ```bash
