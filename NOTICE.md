@@ -72,6 +72,6 @@ SOFTWARE.
 The pictures in `wallpapers/` were made for this project. The Classic slideshow
 (`wallpapers/*.png`) is drawn by code, written with an AI assistant; `wallpapers/src`
 has the scripts, which redraw each picture, and the one base drawing they use. The Studio snow leopard
-(`wallpapers/studio/7-snow-leopard.jpg`) was made with an AI image model. They're
+(`wallpapers/studio/7-snow-leopard.jpg`) is an original picture of a leopard standing with crossed arms, made for this project with an AI image model through OpenRouter. They're
 covered by this project's MIT license. Some pictures include the Omarchy logo,
 which comes from Omarchy (MIT, notice above).
