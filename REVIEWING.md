@@ -187,4 +187,4 @@ the scratch home.
 ## Credits
 
 Omarchy's MIT notice for the patched copies and excerpts is in
-[NOTICE.md](NOTICE.md); each patched copy gets one. The Classic wallpapers are drawn by code written with an AI assistant (`wallpapers/src`); the Studio snow leopard was made with an AI image model.
+[NOTICE.md](NOTICE.md); each patched copy gets one. The wallpapers were made for this project with AI tools (`wallpapers/src` has the scripts behind the ones drawn by code).
