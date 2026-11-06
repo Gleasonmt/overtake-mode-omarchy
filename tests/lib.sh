@@ -11,7 +11,7 @@ REPO=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 OMARCHY_SRC=${OMARCHY_SRC:-/usr/share/omarchy/shell/plugins}
 T=$(mktemp -d "${TMPDIR:-/tmp}/overtake-test.XXXXXX")
 chmod 700 "$T"
-# Any dispatch real Hyprland would refuse fails the test that sent it, even
+# A dispatch that doesn't match the forms below fails the test that sent it, even
 # though Overtake (like real `hyprctl --batch`) carries on after one.
 finish() {
   local rc=$?
@@ -64,9 +64,8 @@ fi'
 
 # What Hyprland reports, from files a test can replace (use_workspace below);
 # and what it accepts: dispatches are checked against the forms Overtake sends
-# (written from the code; on, off, minimize, restore, snap, maximize, show, send,
-# focus-app, relayout and show-desktop ran without error in real Hyprland on
-# 2026-11-05), so a typo, a broken quote or an unchecked name is refused, and
+# (each form checked against real Hyprland 0.56.2, reading its reply, 2026-11-06),
+# so a typo, a broken quote or an unchecked name is refused, and
 # noted for the test's end. As in the real
 # program, a refused `dispatch` exits 7 and a refused line of `--batch` doesn't.
 HYPR="$T/hypr"
@@ -95,7 +94,8 @@ forms=(
   'hl\.dsp\.window\.float\(\{ action = "(enable|disable)", '"$win"' \}\)'
   'hl\.dsp\.window\.fullscreen\(\{ mode = "maximized", '"$win"' \}\)'
   'hl\.dsp\.window\.close\(\{ '"$win"' \}\)'
-  'hl\.dsp\.layout\("[a-z0-9. ]+"\)'
+  'hl\.dsp\.layout\("(preselect [lrud]|splitratio [0-9.]+ exact)"\)'
+  'hl\.dsp\.window\.tag\(\{ tag = "\+omarchy-mode-floated", '"$win"' \}\)'
   'hl\.dsp\.workspace\.toggle_special\("minimized"\)'
 )
 file_re='io\.open\("([^"]+)"\)'

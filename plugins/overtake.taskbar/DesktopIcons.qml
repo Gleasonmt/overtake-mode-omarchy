@@ -6,6 +6,7 @@ import Quickshell.Wayland
 import qs.Commons
 import qs.Commons as Commons
 import "DesktopList.js" as DesktopList
+import "IconName.js" as IconName
 
 // The desktop in Overtake Mode: a full-screen surface on the layer just above
 // the wallpaper, so windows cover it and it shows on empty workspaces and with
@@ -100,7 +101,7 @@ Item {
 
   function iconSource(icon) {
     var name = root.builtInOf(icon.id) ? root.builtInOf(icon.id).icon : (entryFor(icon) ? entryFor(icon).icon : "")
-    var source = name ? Quickshell.iconPath(name, true) : ""
+    var source = IconName.safe(name) ? Quickshell.iconPath(name, true) : ""
     return source || Quickshell.iconPath("application-x-executable", true)
   }
 

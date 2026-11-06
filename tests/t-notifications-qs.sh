@@ -236,10 +236,13 @@ cat >> "$E/clip-stdin"; echo >> "$E/clip-stdin"
 [[ ! -e "\$HOME/clip-slow" ]] || sleep 3
 [[ ! -e "\$HOME/clip-fails" ]]
 STUB
-for tool in xdg-open omarchy-hyprland-focus-app overtake; do
+for tool in xdg-open omarchy-hyprland-focus-app; do
   printf '#!/bin/bash\nprintf "%%s\\n" "%s $*" >> "%s/clip-argv"\n' "$tool" "$E" > "$E/bin/$tool"
 done
 # omarchy-shell, asked of the test's shell over two files.
+# (the app's name comes on stdin)
+printf '#!/bin/bash\nprintf "%%s\\n" "overtake $*" >> "%s/clip-argv"\n[[ $1 == notification-open ]] && cat >> "%s/focus-stdin"\nexit 0\n' "$E" "$E" > "$E/bin/overtake"
+chmod +x "$E/bin/overtake"
 cat > "$E/bin/omarchy-shell" <<'STUB'
 #!/bin/bash
 [[ ${1:-} == notifications ]] || exit 0
@@ -275,10 +278,10 @@ N=$HOME/.local/state/omarchy/notifications; H=$N/history.json
 mkdir -p "$N" "$HOME/.local/state/overtake" "$HOME/.config/overtake"; echo on > "$HOME/.local/state/overtake/mode"; : > "$HOME/ctl"; : > "$HOME/ctl-ipc"; : > "$HOME/ctl-reply"
 ROOT=root; WAITS=4
 case $SCEN in
-  full*|stop|stale|aged|removed|dndsave|rohome) mount -t tmpfs -o size=256k tmpfs "$N";;
+  full*|stop|stale|aged|removed|closedfull|dndsave|rohome) mount -t tmpfs -o size=256k tmpfs "$N";;
 esac
 case $SCEN in
-  link*|focus|pathimage|rawclaim|flood*|stall|huge*|linkrace|codefail|dndrules|dndsave|rohome|onlyhidden|appmodes|critical)
+  link*|focus|pathimage|rawclaim|flood*|stall|huge*|entry*|textargv|linkrace|codefail|dndrules|dndsave|rohome|onlyhidden|appmodes|critical)
     ROOT=rootw; WAITS=5
     export QT_QPA_PLATFORM=vnc QT_QUICK_BACKEND=software;;
 esac
@@ -403,6 +406,66 @@ case $SCEN in
     allcards 10
     echo "pictures=[$(reply pictures)]"
     echo "grew=[$(( $(rss) - base ))]"
+    ;;
+  hugeapp|hugeicon|hugeactext|hugelist)   # every field a sender's object keeps counts
+    base=$(rss)
+    case $SCEN in
+      hugeapp) send --summary Big --app-size 20000000 --count 8 ;;
+      hugeicon) send --app Evil --summary Big --icon-size 20000000 --count 8 ;;
+      hugeactext) send --app Evil --summary Big --actions 2 --action-text-size 10000000 --count 8 ;;
+      hugelist) send --app Evil --summary Big --list-hint 4x5000000 --count 8 ;;
+    esac
+    allcards 8
+    echo "pictures=[$(reply pictures)]"
+    echo "grew=[$(( $(rss) - base ))]"
+    ;;
+  entrybomb|entryfifo)   # an app whose Icon= names a file, and a sender naming that app
+    mkdir -p "$HOME/.local/share/applications"
+    python3 -I - "$HOME/bomb.png" <<'PNG'
+import struct, sys, zlib
+def chunk(kind, data):
+    return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+rows = (b"\0" + b"\x80\x80\x80" * 32) * 32
+one = chunk(b"zTXt", b"k\0\0" + zlib.compress(b"A" * 7000000, 9))   # (real text: Qt keeps it; NUL bytes it doesn't)
+open(sys.argv[1], "wb").write(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 32, 32, 8, 2, 0, 0, 0)) + one * 120 + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b""))
+PNG
+    mkfifo "$HOME/fifo"
+    file=$HOME/bomb.png; [[ $SCEN == entryfifo ]] && file=$HOME/fifo
+    printf '[Desktop Entry]\nType=Application\nName=evilapp\nExec=true\nIcon=%s\n' "$file" > "$HOME/.local/share/applications/evilapp.desktop"
+    sleep 2   # (the shell reads the new entry)
+    base=$(rss)
+    notify-send -a evilapp "Hello" "hi"
+    sleep 4
+    ctl count 1
+    echo "count=[$(reply count)]"
+    echo "picture=[$(grep -a 'PICTURE' "$E/qs-$SCEN.log" | tail -1)]"
+    kill -0 "$QS" 2>/dev/null && echo "alive=[yes]" || echo "alive=[no]"
+    echo "grew=[$(( $(rss) - base ))]"
+    ;;
+  textargv)   # a message's words, watched through everything that can happen to it
+    printf 'Hi URLMARKER77' > "$HOME/sum"
+    printf 'Your code URLMARKER77 is here' > "$HOME/body"
+    watch_argv
+    send --app Mail --summary-file "$HOME/sum" --body-file "$HOME/body"; sleep 1.5
+    ctl count 0.5; echo "seen=[$(reply count)]"
+    ctl clickcard 1.5
+    send --app Mail --summary-file "$HOME/sum" --body-file "$HOME/body"; sleep 1.5
+    ctl closecard 2
+    ctl forgetfirst 2
+    send --app Mail --summary-file "$HOME/sum" --body-file "$HOME/body"; sleep 1.5
+    ctl clearall 2
+    unwatch
+    echo "hits=[$(sort -u "$E/argv-hits-$SCEN" 2>/dev/null | wc -l)]"
+    ;;
+  closedfull)   # closed on a full disk: the only copy stays until history has it
+    notify-send -a Signal "Alice" "SECRET-1 on screen $(pad)"; sleep 1.5
+    fill
+    ctl closecard 3
+    echo "kept=[$(live)]"
+    echo "history=[$(secrets)]"
+    stop; start
+    ctl count 0.5
+    echo "after=[$(sed 's/^.*CTL/CTL/' "$E/qs-$SCEN.log" | grep -a '^CTL count' | tail -1)]"
     ;;
   hugeacts)
     base=$(rss)
@@ -734,21 +797,10 @@ pass "an email address is copied and nothing opens"
 # ---- A sender's name is literal text to the focus command ----
 rm -f "$E/clip-argv"
 run_scen focus >/dev/null
-sent=$(sed -n 's/^omarchy-hyprland-focus-app //p' "$E/clip-argv")
-[[ $sent == '\.\*\(Evil' ]] || fail "the app name wasn't escaped for the focus command: '$sent' ($(cat "$E/clip-argv"))"
-FOCUS=$(dirname "$(dirname "$OMARCHY_SRC")")/bin/omarchy-hyprland-focus-app
-if [[ -x $FOCUS ]] && command -v jq >/dev/null; then
-  mkdir -p "$E/focusbin"
-  cat > "$E/focusbin/hyprctl" <<'STUB'
-#!/bin/bash
-if [[ $1 == clients ]]; then echo '[{"address":"0xa1","class":"org.signal.Signal","initialClass":"org.signal.Signal","initialTitle":"Signal","focusHistoryID":0}]'; else echo "FOCUSED $*"; fi
-STUB
-  chmod +x "$E/focusbin/hyprctl"
-  if PATH=$E/focusbin:$PATH "$FOCUS" "$sent" >/dev/null 2>&1; then fail "the escaped name still matched a window"; fi
-  PATH=$E/focusbin:$PATH "$FOCUS" '.*' >/dev/null 2>&1 || fail "(control) the plain pattern .* should match in Omarchy's command"
-  PATH=$E/focusbin:$PATH "$FOCUS" "Signal" >/dev/null 2>&1 || fail "(control) a plain name should still match"
-fi
-pass "a sender's name is literal text to omarchy-hyprland-focus-app"
+[[ $(cat "$E/focus-stdin") == '.*(Evil' ]] || fail "the app name didn't arrive whole on stdin: '$(cat "$E/focus-stdin")'"
+grep -q '^overtake notification-open$' "$E/clip-argv" || fail "the focus command wasn't run: $(cat "$E/clip-argv")"
+if grep -qa 'Evil' "$E/clip-argv"; then fail "a sender's name reached a command line: $(cat "$E/clip-argv")"; fi
+pass "a sender's name goes on stdin, never in a command line"
 
 # ---- Senders' pictures ----
 out=$(run_scen pathimage)
@@ -791,6 +843,35 @@ out=$(run_scen hugeacts)
 has "$out" pictures '"cards=2 pictures=0 senders=0"' || fail "a message of many buttons kept its sender's object: $out"
 grew=$(value "$out" grew); (( grew < 600 )) || fail "2 messages of many buttons grew the shell by $grew MB: $out"
 pass "2 messages of 400,000 buttons: the same, $grew MB"
+
+for scen in hugeapp hugeicon hugeactext hugelist; do
+  out=$(run_scen $scen)
+  has "$out" pictures '"cards=8 pictures=0 senders=0"' || fail "$scen: its sender's object was kept: $out"
+  grew=$(value "$out" grew); (( grew < 250 )) || fail "$scen: 8 messages grew the shell by $grew MB: $out"
+done
+pass "app names, icons, button text and list hints count too: let go, the shell's growth is bounded"
+
+# ---- An app whose icon is a file ----
+out=$(run_scen entrybomb)
+has "$out" alive yes || fail "a crafted icon file killed the shell: $out"
+has "$out" count '"toasts=1"' || fail "(setup) the card wasn't there: $out"
+grew=$(value "$out" grew); (( grew < 150 )) || fail "a crafted icon file grew the shell by $grew MB: $out"
+out=$(run_scen entryfifo)
+has "$out" alive yes || fail "an icon that's a named pipe killed the shell: $out"
+has "$out" count '"toasts=1"' || fail "an icon that's a named pipe hung the shell: $out"
+pass "an app's Icon= naming a file isn't opened: a sender naming it costs the shell $grew MB at most"
+
+# ---- A message's words stay out of every command line ----
+out=$(run_scen textargv)
+has "$out" seen '"toasts=1"' || fail "(setup) the message didn't arrive: $out"
+has "$out" hits 0 || fail "a message's words reached a command line: $out ($(sort -u "$E/argv-hits-textargv" 2>/dev/null | head -3))"
+pass "a message's summary and body are in no command line seen by a 20 ms watcher, on arrival, click, close, remove or Clear all"
+
+# ---- Closed on a full disk ----
+out=$(run_scen closedfull)
+has "$out" kept "SECRET-1 " || fail "a closed card left live.json while history couldn't take it: $out"
+has "$out" after 'CTL count -> "toasts=1"' || fail "a card closed on a full disk was lost at the restart: $out"
+pass "a card closed on a full disk stays in live.json, and survives a restart, until history has it"
 
 # ---- Text a sender chooses doesn't stall the shared shell ----
 out=$(run_scen stall)

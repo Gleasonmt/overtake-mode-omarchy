@@ -21,6 +21,7 @@ function extract(file, name) {
 }
 
 let failed = 0
+const bash = require("child_process")
 function check(what, ok) {
   console.log((ok ? "ok - " : "FAIL: ") + what)
   if (!ok) failed++
@@ -75,6 +76,50 @@ function check(what, ok) {
 {
   const src = fs.readFileSync(path.join(repo, "plugins/overtake.taskbar/MissionControl.qml"), "utf8")
   check(`the thumbnail's z reads its MouseArea's drag`, /\n\s*z: thumbMouse\.drag\.active \? 10 : 0\n/.test(src) && /id: thumbMouse\n/.test(src))
+}
+
+
+// An app's Icon=: a theme name only, and every lookup goes through that check.
+{
+  const src = fs.readFileSync(path.join(repo, "plugins/overtake.taskbar/IconName.js"), "utf8").replace(".pragma library", "")
+  const safe = new Function(src + "; return safe")()
+  for (const bad of ["/home/me/x.png", "/tmp/fifo", "file:///x.png", "image://icon/x", "../x", "a/b", "", null, "x".repeat(200), "a b"])
+    check(`Icon=${String(bad).slice(0, 20)} is no icon name`, !safe(bad))
+  for (const good of ["firefox", "org.gnome.Nautilus", "google-chrome", "libreoffice-writer", "gtk+"])
+    check(`Icon=${good} is an icon name`, safe(good))
+  const dirs = ["plugins/overtake.taskbar", "plugins/overtake.menubar", "plugins/overtake.notification-center"]
+  for (const dir of dirs) for (const f of fs.readdirSync(path.join(repo, dir)).filter(n => n.endsWith(".qml"))) {
+    fs.readFileSync(path.join(repo, dir, f), "utf8").split("\n").forEach((line, n) => {
+      const arg = /iconPath\(\s*([^,)]*)/.exec(line)
+      if (!arg || /^["']/.test(arg[1]) || /^(root\.trashFull|dir) \? "/.test(arg[1])) return   // (literals)
+      const table = { "Dock.qml": ["icon"], "StartMenu.qml": ["icon", "name"] }   // (from their own tables of names)
+      const ok = /IconName\.safe\(|\.test\(/.test(line) || (table[f] || []).includes(arg[1])
+      check(`${f}:${n + 1} checks the name before looking it up: ${arg[1]}`, ok)
+    })
+  }
+}
+
+// A theme folder comes from git, and its name reaches sh -c through shq.
+{
+  const shq = new Function("return (" + extract("plugins/overtake.taskbar/Settings.qml", "shq") + ")")()
+  const dir = fs.mkdtempSync(path.join(process.env.TMPDIR || "/tmp", "shq"))
+  for (const name of ["$(touch pwned)", "`touch pwned`", "'; touch pwned; '", "a b", "'", "--help", "x\ny"]) {
+    const out = bash.spawnSync("sh", ["-c", "printf %s " + shq(name)], { cwd: dir, encoding: "utf8" }).stdout
+    check(`shq keeps ${JSON.stringify(name)} as one literal word`, (name === "--help" || out === name) && !fs.existsSync(path.join(dir, "pwned")))
+  }
+}
+
+// recently-used.xbel: read right, and a piece with no end can't take minutes.
+{
+  const read = extract("plugins/overtake.taskbar/StartMenu.qml", "readRecentFiles")
+  const re = /var re = (\/.*\/)\n/.exec(read)[1]
+  const split = /body\.split\("([^"]+)"\)/.exec(read)[1]
+  const parse = body => { const r = eval(re); return body.split(split).map(p => r.exec(p)).filter(Boolean).map(m => m[1]) }
+  const two = '<xbel><bookmark href="file:///a" modified="2026-01-01"><info><mime:mime-type type="text/plain"/></info></bookmark>\n<bookmark href="file:///b" modified="2026-01-02"><mime:mime-type type="image/png"/></bookmark></xbel>'
+  check("both bookmarks are read", JSON.stringify(parse(two)) === '["file:///a","file:///b"]')
+  const worst = '<bookmark href="x" modified="y">'.repeat(40000)
+  const t = Date.now(); parse(worst)
+  check(`a 1 MB file of unfinished bookmarks is quick (${Date.now() - t} ms)`, Date.now() - t < 1000)
 }
 
 process.exit(failed ? 1 : 0)

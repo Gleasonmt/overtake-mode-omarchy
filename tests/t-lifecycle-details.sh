@@ -400,7 +400,16 @@ grep -q 'needs your desktop session' "$T/out" || { cat "$T/out"; fail "on didn't
 if sbx "$H" ./uninstall.sh --yes >"$T/out" 2>&1; then cat "$T/out"; fail "uninstall went ahead with a switch half done"; fi
 [[ -x $O ]] || fail "uninstall removed the command with a switch half done"
 cp "$T/hyprctl.real" "$STUB/hyprctl"
+# (what's showing is Omarchy's by now: finishing can't save that as the mode's)
+L="$H/.local/state/overtake/looks"
+printf 'classictheme\n' >"$L/classic.theme"; rm -f "$L/classic.picked"
+printf 'mytheme\n' >"$H/.local/state/omarchy/current/theme.name"
+( cd "$L" && sha256sum * ) >"$T/looks.before"
+printf 'a = 1' >"$H/.config/omarchy/shell.toml"; sha256sum <"$H/.config/omarchy/shell.toml" >"$T/toml.before"
 sbx "$H" "$O" off >"$T/out" 2>&1 || { cat "$T/out"; fail "off in the session didn't finish it"; }
+sha256sum <"$H/.config/omarchy/shell.toml" | cmp -s - "$T/toml.before" || fail "a second off changed a shell.toml that had no block"
+( cd "$L" && sha256sum classic.* ) | while read -r line; do grep -qF "$line" "$T/looks.before" || fail "finishing a switch changed a saved look: $line"; done
+[[ $(<"$L/classic.theme") == classictheme && ! -e $L/classic.picked ]] || fail "finishing a switch overwrote Classic's saved look"
 [[ ! -e $H/.local/state/overtake/switching-off ]] || fail "the marker stayed after off finished"
 grep -q 'already off' "$T/out" && fail "off said already off with a switch half done"
 pass "off outside the session does what it can, says so, and finishes later; nothing is lost"
@@ -416,12 +425,92 @@ sbx "$H" "$O" off >"$T/out" 2>&1 || { cat "$T/out"; fail "off on retry"; }
 [[ ! -e $H/.local/state/overtake/gtk-button-layout ]] || fail "the saved GTK setting stayed after the retry"
 pass "GTK's buttons are put back, and a failed try keeps what's needed"
 
+# ---------- Back to Omarchy: tiles, tags, refused steps ----------
+fresh
+cat >"$HYPR/clients.json" <<'EOF'
+[{"address":"0xb1","class":"a","initialClass":"a","title":"a","workspace":{"id":1,"name":"1"},"floating":false,"tags":[],"at":[0,0],"size":[500,1000],"focusHistoryID":0,"mapped":true},
+ {"address":"0xb2","class":"b","initialClass":"b","title":"b","workspace":{"id":1,"name":"1"},"floating":false,"tags":["omarchy-mode-floated*"],"at":[510,0],"size":[1400,1000],"focusHistoryID":1,"mapped":true}]
+EOF
+sbx "$H" "$O" on >>"$T/log" 2>&1 || { cat "$T/log"; fail "on"; }
+jq 'map(.floating = true)' "$HYPR/clients.json" >"$HYPR/x" && mv "$HYPR/x" "$HYPR/clients.json"
+sbx "$H" "$O" off >"$T/out" 2>&1 || { cat "$T/out"; fail "off"; }
+# (the stub fails this test at its end if Hyprland wouldn't take the form)
+log_text | grep -aqE 'splitratio 0\.[0-9]+ exact' || fail "the tiles' split wasn't set: $(log_text | grep -a -c splitratio)"
+log_text | grep -aqF 'tag = "+omarchy-mode-floated", window = "address:0xb2"' || fail "Omarchy's floating tag wasn't put back on its window"
+log_text | grep -aqF 'address:0xb1" })' && log_text | grep -aqF 'tag = "+omarchy-mode-floated", window = "address:0xb1"' && fail "a window got a tag it never had"
+pass "off rebuilds the split at its ratio and gives Omarchy's floating tag back"
+# A refused step shows.
+cp "$STUB/hyprctl" "$T/hyprctl.real"
+printf '#!/bin/bash\nif [[ $1 == --batch ]]; then echo ok; echo "error: failed to parse"; exit 0; fi\nexec "%s" "$@"\n' "$T/hyprctl.real" >"$STUB/hyprctl"; chmod +x "$STUB/hyprctl"
+sbx "$H" "$O" on >>"$T/log" 2>&1 || { cat "$T/log"; fail "on"; }
+sbx "$H" "$O" off >"$T/out" 2>&1 || true
+grep -q 'Hyprland refused a step' "$T/out" || { cat "$T/out"; fail "a refused line of a batch wasn't said"; }
+grep -q 'failed to parse' "$H/.local/state/overtake/hyprland-refused.log" || fail "a refused line wasn't kept"
+cp "$T/hyprctl.real" "$STUB/hyprctl"
+pass "a line of a batch Hyprland refuses is said and kept"
+echo '[{"address":"0xa1","pid":4242,"class":"x","initialClass":"x","title":"t","initialTitle":"t","workspace":{"id":21,"name":"21"},"monitor":1,"at":[10,40],"size":[800,600],"floating":true,"mapped":true,"focusHistoryID":0,"tags":[]}]' >"$HYPR/clients.json"
+sbx "$H" "$O" send 23 0xa1 >>"$T/log" 2>&1 || true
+log_text | grep -aqF 'workspace = "23", follow = false' || fail "send to a second monitor's workspace didn't go there"
+pass "a window can be sent to another monitor's workspace numbers"
+
+# ---------- Modes are kept ----------
+fresh
+LAY="$H/.local/state/omarchy/workspace-layouts"; mkdir -p "$LAY"; printf 'return { default = "floating" }\n' >"$LAY/one.lua"
+chmod 640 "$H/.config/omarchy/shell.json" "$LAY/one.lua"   # (not 600: a temp file gets that anyway)
+printf 'a = 1\n' >"$H/.config/omarchy/shell.toml"; chmod 640 "$H/.config/omarchy/shell.toml"
+modes() { stat -c %a "$H/.config/omarchy/shell.json" "$H/.config/omarchy/shell.toml" "$LAY/one.lua" | tr '\n' ' '; }
+sbx "$H" "$O" on >>"$T/log" 2>&1 || { cat "$T/log"; fail "on"; }
+[[ $(modes) == '640 640 640 ' ]] || fail "on changed a file's mode: $(modes)"
+sbx "$H" "$O" off >>"$T/log" 2>&1 || { cat "$T/log"; fail "off"; }
+[[ $(modes) == '640 640 640 ' ]] || fail "off changed a file's mode: $(modes)"
+jq '.plugins = (.plugins // []) + ["overtake.notifications"]' "$H/.config/omarchy/shell.json" >"$T/j" && cat "$T/j" >"$H/.config/omarchy/shell.json"
+sbx "$H" ./uninstall.sh --yes >>"$T/log" 2>&1 || { cat "$T/log"; fail "uninstall"; }
+[[ $(modes) == '640 640 640 ' ]] || fail "uninstall changed a file's mode: $(modes)"
+pass "on, off and uninstall keep the modes of shell.json, shell.toml and a floating layout"
+
+# ---------- Uninstall: your bar, the wallpaper's message, stray temp files ----------
+fresh
+jq '.bar = {layout: {left: [{id:"overtake.bluetooth"},{id:"omarchy.menu"}], right: [{id:"overtake.notification-center"}]}}' "$H/.config/omarchy/shell.json" >"$T/j" && cat "$T/j" >"$H/.config/omarchy/shell.json"
+touch "$H/.local/bin/overtake.AbC123" "$H/.config/hypr/overtake.lua.XyZ789" "$H/.config/hypr/bindings.lua.backup"
+ln -sf "$H/Pictures/overtake/slideshow/1-hills-day.png" "$H/.local/state/omarchy/current/background"
+sbx "$H" ./uninstall.sh --yes --purge >"$T/out" 2>&1 || { cat "$T/out"; fail "uninstall"; }
+[[ $(jq -c '.bar.layout' "$H/.config/omarchy/shell.json") == '{"left":[{"id":"omarchy.bluetooth"},{"id":"omarchy.menu"}],"right":[]}' ]] || fail "uninstall left Overtake's widgets on your bar: $(jq -c '.bar.layout' "$H/.config/omarchy/shell.json")"
+grep -q "was one of Overtake's" "$T/out" || { cat "$T/out"; fail "--purge didn't say the wallpaper went"; }
+[[ ! -e $H/.local/bin/overtake.AbC123 && ! -e $H/.config/hypr/overtake.lua.XyZ789 ]] || fail "uninstall left a killed install's temp files"
+[[ -e $H/.config/hypr/bindings.lua.backup ]] || fail "uninstall removed a file of yours"
+pass "uninstall takes Overtake's widgets off your bar, says when a purged wallpaper was up, and clears its own temp files"
+
+# ---------- Block markers, a final return, a partial install ----------
+H="$T/orphan"; make_home "$H"
+printf 'a = 1\n-- >>> overtake old\nmine = 1\n' >"$H/.config/hypr/autostart.lua"
+sbx "$H" ./install.sh --yes >"$T/log" 2>&1 || { cat "$T/log"; fail "install"; }
+sbx "$H" ./install.sh --yes >>"$T/log" 2>&1 || { cat "$T/log"; fail "reinstall"; }   # (the update path)
+[[ $(<"$H/.config/hypr/autostart.lua") == *'mine = 1'* ]] || fail "a reinstall took your lines after a start marker with no end"
+sbx "$H" ./uninstall.sh --yes >>"$T/log" 2>&1 || { cat "$T/log"; fail "uninstall"; }
+[[ $(<"$H/.config/hypr/autostart.lua") == *'mine = 1'* ]] || fail "a start marker with no end took your lines with it"
+pass "a start marker with no end doesn't take your lines with it"
+H="$T/ret"; make_home "$H"
+printf 'x = 1\nreturn {}\n' >"$H/.config/hypr/bindings.lua"; cp "$H/.config/hypr/bindings.lua" "$T/bind"
+if sbx "$H" ./install.sh --yes >"$T/out" 2>&1; then cat "$T/out"; fail "install added lines after a final return"; fi
+grep -q 'ends with a return' "$T/out" || { cat "$T/out"; fail "install didn't say why it stopped"; }
+cmp -s "$H/.config/hypr/bindings.lua" "$T/bind" || fail "bindings.lua changed"
+pass "a Lua file ending in return is left alone, and install says why"
+fresh
+rm -rf "$H/.config/omarchy/plugins/overtake.taskbar"
+cp "$H/.config/omarchy/shell.json" "$T/j"
+if sbx "$H" "$O" on >"$T/out" 2>&1; then cat "$T/out"; fail "on showed a bar with its plugin missing"; fi
+grep -q 'install.sh again' "$T/out" || { cat "$T/out"; fail "on didn't say what to do"; }
+cmp -s "$H/.config/omarchy/shell.json" "$T/j" || fail "on changed shell.json with a plugin missing"
+pass "on won't show a bar whose plugin an interrupted install left out"
+
 # ---------- Uninstall stops if shell.json can't be updated ----------
 fresh
 echo '{ not json' >"$H/.config/omarchy/shell.json"
 if sbx "$H" ./uninstall.sh --yes >"$T/out" 2>&1; then cat "$T/out"; fail "uninstall said it finished with shell.json invalid"; fi
 grep -q "Overtake Mode removed" "$T/out" && fail "uninstall said removed with shell.json invalid"
 [[ -x $O && -d $H/.config/omarchy/plugins/overtake.taskbar ]] || fail "uninstall removed things before it could hand notifications back"
+grep -q '>>> overtake' "$H/.config/hypr/autostart.lua" || fail "uninstall removed the login repair before it could update shell.json"
+grep -q '>>> overtake' "$H/.config/hypr/bindings.lua" || fail "uninstall removed the mode shortcut before it could update shell.json"
 pass "uninstall stops, and says so, if it can't update shell.json"
 
 # ---------- Your own off stays off ----------
@@ -436,7 +525,7 @@ pass "what you had turned off before installing stays off"
 # ---------- Theme previews ----------
 if command -v vipsthumbnail >/dev/null; then
   fresh
-  TH="$H/.config/omarchy/themes"; mkdir -p "$TH/clean" "$TH/crafted" "$TH/linked" "$TH/none"
+  TH="$H/.config/omarchy/themes"; mkdir -p "$TH/clean" "$TH/crafted" "$TH/noted" "$TH/huge" "$TH/linked" "$TH/none"
   python3 -I - "$TH" <<'PY'
 import struct, sys, zlib
 def chunk(kind, data):
@@ -446,17 +535,35 @@ def png(extra=b""):
     rows = (b"\0" + b"\x20\x60\xa0" * 64) * 36
     return b"\x89PNG\r\n\x1a\n" + head + extra + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b"")
 open(sys.argv[1] + "/clean/preview.png", "wb").write(png())
-one = chunk(b"zTXt", b"k\0\0" + zlib.compress(bytes(7000000), 9))
+# (real text: Qt and vips keep it; NUL bytes they don't)
+one = chunk(b"zTXt", b"k\0\0" + zlib.compress(b"A" * 7000000, 9))
 open(sys.argv[1] + "/crafted/preview.png", "wb").write(png(one * 120))
+note = chunk(b"tEXt", b"Comment\0PREVIEWMARKER")
+open(sys.argv[1] + "/noted/preview.png", "wb").write(png(note))
+open(sys.argv[1] + "/huge/preview.png", "wb").write(png(chunk(b"tEXt", b"x\0" + b"A" * 34000000)))
 PY
   ln -s "$TH/clean/preview.png" "$TH/linked/preview.png"   # (a link to a real picture, so only the link check stops it)
   real_vips=$(command -v vipsthumbnail)
+  # (XMP in a JPEG: what vips carries over unless told to strip)
+  "$real_vips" "$TH/clean/preview.png" --size 64x36 -o "$T/base.jpg"
+  python3 -I - "$T/base.jpg" "$TH/noted/preview.jpg" <<'PY'
+import struct, sys
+j = open(sys.argv[1], "rb").read()
+xmp = b"http://ns.adobe.com/xap/1.0/\0<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">PREVIEWMARKER</x:xmpmeta>"
+open(sys.argv[2], "wb").write(j[:2] + b"\xff\xe1" + struct.pack(">H", len(xmp) + 2) + xmp + j[2:])
+PY
+  rm -f "$TH/noted/preview.png"
+  "$real_vips" "$TH/noted/preview.jpg" --size 64x36 -o "$T/kept.jpg"; grep -qa PREVIEWMARKER "$T/kept.jpg" || fail "(setup) vips doesn't carry this metadata over, so the strip check can't fail"
   stub vipsthumbnail "exec $real_vips \"\$@\""
   sbx "$H" "$O" theme-previews >"$T/out" 2>&1 || { cat "$T/out"; fail "theme-previews"; }
   C="$H/.cache/overtake/theme-previews"
   [[ -s $C/clean.jpg ]] || fail "no stripped copy of a clean preview"
   [[ $(head -c 2 "$C/clean.jpg" | od -An -tx1 | tr -d ' ') == ffd8 ]] || fail "the stripped copy isn't a re-encoded JPEG"
   [[ ! -s $C/linked.jpg ]] || fail "a preview that's a link was followed"
+  grep -qa PREVIEWMARKER "$C/noted.jpg" && fail "a preview's own text survived in the copy"
+  [[ -s $C/noted.jpg ]] || fail "no stripped copy of a preview with text"
+  [[ -e $C/huge.jpg && ! -s $C/huge.jpg ]] || fail "a preview over the size limit was read"
+  [[ -e $C/crafted.jpg && ! -s $C/crafted.jpg ]] || fail "a crafted preview was read past the memory limit"
   [[ ! -e $C/none.jpg ]] || fail "a theme with no preview got a copy"
   [[ $(stat -c %a "$C") == 700 && $(stat -c %a "$C/clean.jpg") == 600 ]] || fail "theme previews aren't private"
   log_text | grep -aq 'vipsthumbnail' || fail "(setup) the child didn't run"
@@ -630,9 +737,10 @@ pass "a monitor name that would break its Lua string isn't sent; a workspace nam
 # ---------- A notification's app name is literal text to Omarchy's focus command ----------
 fresh
 : >"$ARGV_LOG"
-sbx "$H" "$O" notification-open 'a.b*c+d?e(f)g[h]i{j}k|l^m$n\o' >>"$T/log" 2>&1 || true
-log_text | grep -aqF 'omarchy-hyprland-focus-app a\.b\*c\+d\?e\(f\)g\[h\]i\{j\}k\|l\^m\$n\\o' || fail "the app name reached omarchy-hyprland-focus-app as a pattern: $(log_text | grep -a focus-app)"
-pass "a notification's app name reaches omarchy-hyprland-focus-app as literal text"
+# (regex characters are plain text; a name that matches nothing brings up nothing)
+printf '%s\n' '.*' | sbx "$H" "$O" notification-open >>"$T/log" 2>&1 && fail "the name .* matched a window as a pattern"
+log_text | grep -aq 'omarchy-hyprland-focus-app' && fail "the app name reached a command line"
+pass "a notification's app name is plain text, on stdin"
 
 # ---------- CI ----------
 grep -q '^    timeout-minutes: ' .github/workflows/tests.yml || fail "CI has no time limit"

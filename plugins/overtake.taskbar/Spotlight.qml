@@ -5,6 +5,7 @@ import Quickshell.Io
 import Quickshell.Wayland
 import qs.Commons
 import qs.Commons as Commons
+import "IconName.js" as IconName
 
 // Studio's Spotlight (Super+Space): one search field for apps, actions,
 // files and quick sums, in the middle of the focused screen. Tab switches to
@@ -43,7 +44,7 @@ Item {
   function close() { open = false }
 
   function iconSource(name) {
-    var source = name ? Quickshell.iconPath(name, true) : ""
+    var source = IconName.safe(name) ? Quickshell.iconPath(name, true) : ""
     return source || Quickshell.iconPath("application-x-executable", true)
   }
 

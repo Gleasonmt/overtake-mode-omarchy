@@ -107,7 +107,8 @@ def replace_file(path, text):
 def without_block(text, prefix):
     start, end = re.escape(f"{prefix} >>> overtake"), re.escape(f"{prefix} <<< overtake")
     while True:
-        m = re.search(start + r"([^\n]*)\n.*?" + end + r"\n?", text, re.S)
+        # (never past another start: one with its end missing, and your lines after it, stay)
+        m = re.search(start + r"([^\n]*)\n(?:(?!" + start + r").)*?" + end + r"\n?", text, re.S)
         if not m:
             return text
         how, before, after = m.group(1), text[:m.start()], text[m.end():]
@@ -140,22 +141,6 @@ if new != text:
     replace_file(path, new)
 PY
 }
-remove_block "$HYPR/bindings.lua" "--"
-remove_block "$HYPR/autostart.lua" "--"
-remove_block "$MENU" "  //"
-# the menu file, if install.sh created it and nothing else was added since
-if [[ -f $HOME/.local/state/overtake/created-menu && -f $MENU && -z $(tr -d '{} \n\t' <"$MENU") ]]; then
-  rm -f "$MENU"
-fi
-# and the Hyprland files it had to create, if it left them with nothing in them
-remove_if_created() {  # remove_if_created <file> <marker>
-  if [[ -f $HOME/.local/state/overtake/$2 && -f $1 && ! -L $1 && -z $(tr -d '[:space:]' <"$1") ]]; then
-    rm -f "$1"
-  fi
-}
-remove_if_created "$HYPR/bindings.lua" created-bindings
-remove_if_created "$HYPR/autostart.lua" created-autostart
-
 # Hand notifications and battery back to Omarchy's own before removing the
 # patched copies. Disabling goes through the shell; if it isn't running, edit
 # shell.json directly so Omarchy's own aren't left disabled. Not in a test
@@ -180,6 +165,11 @@ if [[ -f $SHELL_JSON ]]; then
   target=$(readlink -f "$SHELL_JSON")
   tmp=$(mktemp "$target.XXXXXX")
   if jq '(if (.cloneSourceRestores | type) == "array" then .cloneSourceRestores else [] end) as $restores
+      # (an Overtake widget put on your own bar: its Omarchy original, or none)
+      | (if (.bar.layout | type) == "object" then .bar.layout |= map_values(if type == "array" then map(
+          if type == "object" and (.id | type) == "string" and (.id | startswith("overtake.")) then
+            . as $w | if ["workspaces", "bluetooth", "audio", "battery"] | index($w.id | ltrimstr("overtake.")) then .id |= "omarchy." + ltrimstr("overtake.") else empty end
+          else . end) else . end) else . end)
       | (if (.plugins | type) == "array" then .plugins |= map(select((if type == "object" then .id else . end) | tostring | startswith("overtake.") | not)) else . end)
       | (if (.disabledPlugins | type) == "array" then .disabledPlugins |= map(select((tostring | startswith("overtake.") | not) and (. as $id | (type == "string" and startswith("omarchy.") and ($restores | index("overtake." + ($id | ltrimstr("omarchy."))) != null)) | not))) else . end)
       | (if (.cloneSourceRestores | type) == "array" then .cloneSourceRestores |= map(select(tostring | startswith("overtake.") | not)) else . end)
@@ -193,13 +183,31 @@ if [[ -f $SHELL_JSON ]]; then
       mv -f "$tmp" "$target"   # (only when something changed)
     fi
   else
-    # (invalid, or no room: nothing of Overtake's goes yet, including what can
-    # repair this at login)
+    # (invalid, or no room: nothing of Overtake's has gone yet, including what
+    # can repair this at login)
     rm -f "$tmp"
     echo "Couldn't update $SHELL_JSON, so Omarchy's own notifications and battery may stay off; nothing more removed. Fix that and run this again." >&2
     exit 1
   fi
 fi
+
+# Overtake's marked blocks, now that shell.json is handled (one of them is what
+# repairs things at login).
+remove_block "$HYPR/bindings.lua" "--"
+remove_block "$HYPR/autostart.lua" "--"
+remove_block "$MENU" "  //"
+# the menu file, if install.sh created it and nothing else was added since
+if [[ -f $HOME/.local/state/overtake/created-menu && -f $MENU && -z $(tr -d '{} \n\t' <"$MENU") ]]; then
+  rm -f "$MENU"
+fi
+# and the Hyprland files it had to create, if it left them with nothing in them
+remove_if_created() {  # remove_if_created <file> <marker>
+  if [[ -f $HOME/.local/state/overtake/$2 && -f $1 && ! -L $1 && -z $(tr -d '[:space:]' <"$1") ]]; then
+    rm -f "$1"
+  fi
+}
+remove_if_created "$HYPR/bindings.lua" created-bindings
+remove_if_created "$HYPR/autostart.lua" created-autostart
 
 # The bar-size block Overtake adds to shell.toml
 SHELL_TOML="$HOME/.config/omarchy/shell.toml"
@@ -207,7 +215,7 @@ if [[ -f $SHELL_TOML ]]; then
   run_py "$SHELL_TOML" "$([[ -f $HOME/.local/state/overtake/shell-toml-no-newline ]] && echo 1)" <<'PY'
 path, no_newline = sys.argv[1:3]
 text = read_file(path)
-new = re.sub(r"# >>> overtake[^\n]*\n.*?# <<< overtake\n?", "", text, flags=re.S)
+new = re.sub(r"# >>> overtake[^\n]*\n(?:(?!# >>> overtake).)*?# <<< overtake\n?", "", text, flags=re.S)
 if new != text:
     replace_file(path, new.removesuffix("\n") if no_newline else new)
 PY
@@ -237,6 +245,8 @@ elif [[ -f $art.before-overtake ]]; then
   echo "Kept your current screensaver art; the one from before Overtake is $art.before-overtake"
 fi
 rm -f "$HOME/.local/bin/overtake" "$HYPR/overtake.lua" "$HYPR/overtake-classic.lua" "$HYPR/overtake-studio.lua"
+# (and temp files of Overtake's own, if an install was killed partway)
+rm -f "$HOME/.local/bin"/overtake.?????? "$HYPR"/overtake*.lua.??????
 rm -rf "${PLUGINS:?}/overtake.taskbar" "${PLUGINS:?}/overtake.workspaces" \
        "${PLUGINS:?}/overtake.bluetooth" "${PLUGINS:?}/overtake.audio" \
        "${PLUGINS:?}/overtake.notifications" "${PLUGINS:?}/overtake.notification-center" \
@@ -245,7 +255,7 @@ rm -rf "${PLUGINS:?}/overtake.taskbar" "${PLUGINS:?}/overtake.workspaces" \
        "$HOME/.local/state/overtake" "${XDG_CACHE_HOME:-$HOME/.cache}/overtake" "$HOME/.local/share/overtake"
 
 if [[ $PURGE ]]; then
-  if [[ $(readlink -f "$HOME/.config/omarchy/current/background" 2>/dev/null) == "$HOME/Pictures/overtake/"* ]]; then
+  if [[ $(readlink -f "${XDG_STATE_HOME:-$HOME/.local/state}/omarchy/current/background" 2>/dev/null) == "$HOME/Pictures/overtake/"* ]]; then
     echo "Your current wallpaper was one of Overtake's, now gone: pick another in Omarchy's Appearance menu."
   fi
   rm -rf "$HOME/.config/overtake" "$HOME/Pictures/overtake"

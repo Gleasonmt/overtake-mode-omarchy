@@ -170,6 +170,9 @@ function Service(disk) {
   S.overtakeInPlace = S.overtakeInPlaceFile = inPlace
   S.overtakeHistoryWrite = { send(t) { if (S.historyFile.fail !== "open") disk.text = onDisk(t) } }
   S.overtakeLiveInPlace = { reload() {} }   // (live.json: covered in real Quickshell)
+  S.overtakeLiveInPlaceFile = S.overtakeLiveInPlace
+  S.overtakeFiled = Object.create(null)
+  S.overtakeLiveUnfiled = false
   S.liveFile = { setText() {} }
   S.clock = clock
   S.start = () => { S.liveLoaded = true; S.historyFile.reload() }        // the first loads

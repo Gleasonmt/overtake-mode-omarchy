@@ -430,11 +430,14 @@ replace_with() {  # replace_with <file> <command...>: the command's output becom
 
 remove_bar_size() {
   [[ -f $SHELL_TOML ]] || return 0
-  replace_with "$SHELL_TOML" awk -v b="$TOML_BEGIN" -v e="$TOML_END" \
-    '$0 == b { skip = 1 } !skip { print } $0 == e { skip = 0 }' "$SHELL_TOML"
-  if [[ -f $STATE_DIR/shell-toml-no-newline ]]; then
-    [[ -n $(tail -c 1 "$SHELL_TOML") ]] || replace_with "$SHELL_TOML" head -c -1 "$SHELL_TOML"
-    rm -f "$STATE_DIR/shell-toml-no-newline"
+  # (a second `off` finds it gone, and leaves the file byte for byte)
+  if grep -qxF "$TOML_BEGIN" "$SHELL_TOML"; then
+    replace_with "$SHELL_TOML" awk -v b="$TOML_BEGIN" -v e="$TOML_END" \
+      '$0 == b { skip = 1 } !skip { print } $0 == e { skip = 0 }' "$SHELL_TOML"
+    if [[ -f $STATE_DIR/shell-toml-no-newline ]]; then
+      [[ -n $(tail -c 1 "$SHELL_TOML") ]] || replace_with "$SHELL_TOML" head -c -1 "$SHELL_TOML"
+      rm -f "$STATE_DIR/shell-toml-no-newline"
+    fi
   fi
   # Overtake created it and nothing else was added: the file goes too.
   if [[ -f $STATE_DIR/created-shell-toml && ! -L $SHELL_TOML && -z $(tr -d '[:space:]' <"$SHELL_TOML") ]]; then
@@ -898,6 +901,11 @@ turn_on() {
   require_shell_json
   require_session
   finish_switch_off
+  # (an install stopped partway, say on a full disk: no bar without its plugin)
+  local plugin
+  for plugin in overtake.taskbar overtake.menubar; do
+    [[ -f $HOME/.config/omarchy/plugins/$plugin/manifest.json ]] || { echo "overtake: its plugins aren't all installed; run ./install.sh again" >&2; exit 1; }
+  done
   mkdir -p -m 700 "$STATE_DIR"
   if jq -e '[.bar | .. | .id? // empty] | (index("overtake.taskbar") or index("overtake.menubar"))' "$SHELL_JSON" >/dev/null 2>&1; then
     echo "the bar is already Overtake's; keeping the saved Omarchy bar" >&2
@@ -911,6 +919,9 @@ turn_on() {
   add_bar_size
   hyprctl clients -j | jq -c '[.[] | select(.workspace.id > 0 and .floating) | .address]' >"$KEEP_FLOATING" 2>/dev/null || true
   hyprctl clients -j | jq -c '[.[] | select(.workspace.id > 0 and (.floating | not)) | {address, ws: .workspace.id, at, size}]' >"$TILED" 2>/dev/null || true
+  # (Omarchy's mark on windows its floating workspaces floated: it goes when the
+  # layouts are paused, and Omarchy re-tiles by it later)
+  hyprctl clients -j | jq -c '[.[] | select((.tags // []) | map(rtrimstr("*")) | index("omarchy-mode-floated")) | .address]' >"$OMARCHY_FLOATED" 2>/dev/null || true
   touch "$FLAG" "$STATE_DIR/snap-request"
   echo on >"$STATE_DIR/mode"   # the plugins watch this (they don't poll the flag)
   # this look's theme and picked wallpaper; else a theme's animated
@@ -942,6 +953,24 @@ turn_on() {
 # marker keeps what's left to do, so `off` finishes it, `on` finishes it before
 # saving anything as yours, and uninstall won't delete the saved values first.
 SWITCHING_OFF="$STATE_DIR/switching-off"
+OMARCHY_FLOATED="$STATE_DIR/omarchy-floated"
+retag_floated() {
+  local addr
+  [[ -s $OMARCHY_FLOATED ]] || return 0
+  for addr in $(jq -r '.[]? | select(type == "string" and test("^0x[0-9a-fA-F]+$"))' "$OMARCHY_FLOATED" 2>/dev/null); do
+    hyprctl dispatch "hl.dsp.window.tag({ tag = \"+omarchy-mode-floated\", window = \"address:$addr\" })" >/dev/null 2>&1 || true
+  done
+  rm -f "$OMARCHY_FLOATED"
+}
+# Real `hyprctl --batch` exits 0 whatever a line answers, so a refused line is
+# only visible in its reply. Said on stderr, and kept for a report (private folder).
+batch_checked() {
+  local reply refused
+  reply=$(hyprctl --batch "$1" 2>&1) || true
+  refused=$(grep -v '^ok$' <<<"$reply" | grep -v '^[[:space:]]*$') || return 0
+  printf '%s\n' "$refused" | head -20 >"$STATE_DIR/hyprland-refused.log" 2>/dev/null || true
+  echo "overtake: Hyprland refused a step (see $STATE_DIR/hyprland-refused.log)" >&2
+}
 require_session() {
   hyprctl version >/dev/null 2>&1 || { echo "overtake: this needs your desktop session (no Hyprland here)" >&2; exit 1; }
 }
@@ -957,8 +986,12 @@ turn_off() {
   require_shell_json
   local view
   view=$(current_view)
-  [[ $(style) == classic ]] && save_taskbar_settings
-  save_look "$(style)"
+  # (finishing a switch that stopped partway: what's showing may be Omarchy's
+  # by now, and the mode's was saved the first time)
+  if [[ ! -f $SWITCHING_OFF ]]; then
+    [[ $(style) == classic ]] && save_taskbar_settings
+    save_look "$(style)"
+  fi
   # The plugins first: the shell writes shell.json itself when it switches one,
   # from the copy it holds, which could put Overtake's bar back over a bar
   # written before it. (With no shell, the same step edits shell.json directly,
@@ -1005,9 +1038,10 @@ turn_off() {
     set_background "$(<"$SAVED_BG")" || true
   fi
   hyprctl reload >/dev/null 2>&1 || true
+  retag_floated
   # Tiling the windows again moves focus from workspace to workspace: end
   # where you were.
-  [[ -z $view ]] || hyprctl --batch "$view" >/dev/null 2>&1 || true
+  [[ -z $view ]] || batch_checked "$view"
   rm -f "$STATE_DIR/.ws-name.$$."*   # (the view's)
   # (and any a failed dispatch left behind, old enough not to be in use)
   find "$STATE_DIR" -maxdepth 1 -name '.ws-name.*' -mmin +1 -delete 2>/dev/null || true
@@ -1305,8 +1339,9 @@ hide_minimized() {
 # followed there; any other is reached by switching to its workspace.
 focus_app() {  # focus_app <app> [exact]: its most recent window (class contains the name, or is it)
   local info addr ws lua
-  info=$(hyprctl clients -j | jq -c --arg p "$1" --arg exact "${2:-}" '
-    ($p | ascii_downcase) as $q
+  # (the name through the environment: other accounts can't read that)
+  info=$(hyprctl clients -j | OVERTAKE_APP=$1 jq -c --arg exact "${2:-}" '
+    (env.OVERTAKE_APP | ascii_downcase) as $q
     | sort_by(.focusHistoryID)
     | first(.[] | select([(.class // ""), (.initialClass // "")] | any(ascii_downcase | if $exact == "" then contains($q) else . == $q end))) // empty')
   [[ -n $info ]] || return 1
@@ -1327,9 +1362,11 @@ focus_app() {  # focus_app <app> [exact]: its most recent window (class contains
 # do (omarchy-hyprland-focus-app). Nothing is opened or launched from the
 # notification's text. Exit 1 when the app has no open window.
 notification_open() {
-  local app=$1
+  local app=""
+  # (a sender chooses this name: it comes on stdin, never as an argument)
+  IFS= read -r -t 5 -n 4096 app || true
   [[ -n $app ]] || return 1
-  focus_app "$app" exact || omarchy-hyprland-focus-app "$(printf '%s' "$app" | sed 's/[][\\.^$*+?(){}|]/\\&/g')" >/dev/null 2>&1
+  focus_app "$app" exact || focus_app "$app"
 }
 
 # Clicking empty desktop: minimize every window on the workspace that screen
@@ -1574,7 +1611,10 @@ import json, subprocess, sys
 saved = json.load(open(sys.argv[1]))
 keep = set(json.loads(sys.argv[2]))
 # (read here rather than passed in: window titles stay out of the process list)
-live = {c["address"]: c for c in json.loads(subprocess.run(["hyprctl", "clients", "-j"], capture_output=True, text=True).stdout)}
+try:
+    live = {c["address"]: c for c in json.loads(subprocess.run(["hyprctl", "clients", "-j"], capture_output=True, text=True).stdout)}
+except ValueError:  # (no session: what's left is finished from inside one)
+    sys.exit(1)
 GAP = 30  # px: wider than any gap between tiles, narrower than a window
 
 def box(w):
@@ -1618,7 +1658,7 @@ def build(wins, leaf):  # leaf: the window of wins already tiled, filling their 
     tile(new)
     ea, eb = extent(a, axis), extent(b, axis)
     focus(leaf)
-    layout(f"splitratio exact {2 * ea / (ea + eb):.3f}")
+    layout(f"splitratio {2 * ea / (ea + eb):.3f} exact")
     build(a, leaf if leaf_in_a else new)
     build(b, new if leaf_in_a else leaf)
 
@@ -1643,7 +1683,7 @@ PY
   # the visits to other workspaces don't show.
   anim=$(hyprctl getoption animations:enabled -j 2>/dev/null | jq -r 'if has("bool") then .bool else (.int != 0) end')
   [[ $anim == true || $anim == 1 ]] && anim=true || anim=false
-  hyprctl --batch "eval hl.config({ animations = { enabled = false } }) ; eval hl.config({ cursor = { no_warps = true } }) ; $cmds${view:+ ; $view} ; eval hl.config({ cursor = { no_warps = $(warps_setting) } }) ; eval hl.config({ animations = { enabled = $anim } })" >/dev/null 2>&1 || true
+  batch_checked "eval hl.config({ animations = { enabled = false } }) ; eval hl.config({ cursor = { no_warps = true } }) ; $cmds${view:+ ; $view} ; eval hl.config({ cursor = { no_warps = $(warps_setting) } }) ; eval hl.config({ animations = { enabled = $anim } })"
 }
 
 # Overtake is about to move windows itself. The title-bar plugin watches the
@@ -1762,7 +1802,7 @@ fill_gap() {
 # under the boxes). A snapped window keeps its zone there.
 send_window() {
   local ws=$1 addr=$2 x=${3:-} y=${4:-}
-  [[ $ws =~ ^[1-9]$ && $addr =~ ^0x[0-9a-f]+$ ]] || return 0
+  [[ $ws =~ ^[1-9][0-9]{0,3}$ && $addr =~ ^0x[0-9a-f]+$ ]] || return 0
   mark_arranging
   [[ $x =~ ^-?[0-9]+$ && $y =~ ^-?[0-9]+$ ]] &&
     hyprctl dispatch "hl.dsp.window.move({ x = $x, y = $y, relative = false, window = \"address:$addr\" })" >/dev/null
@@ -1938,7 +1978,7 @@ theme_previews() {
     [[ $out -nt $src ]] && continue
     tmp=$(mktemp "$dir/.preview.XXXXXX.jpg") || continue
     if (( $(stat -c %s "$src") <= 33554432 )) &&
-       ( ulimit -v 1048576; exec env VIPS_CONCURRENCY=1 timeout 20 vipsthumbnail "$src" --size 640x360 -o "$tmp[Q=82,strip]" ) >/dev/null 2>&1; then
+       ( ulimit -v 1048576; ulimit -c 0; exec env VIPS_CONCURRENCY=1 timeout 20 vipsthumbnail "$src" --size 640x360 -o "$tmp[Q=82,strip]" ) >/dev/null 2>&1; then
       chmod 600 "$tmp"; mv -f "$tmp" "$out"
     else
       # (remembered as no picture, until the theme's file changes)
@@ -1985,11 +2025,18 @@ bg_picker() {
     done
   done
 
+  local added=0
   for dir in slideshow:Classic studio:Studio; do
     for file in "$HOME/Pictures/overtake/${dir%%:*}"/*; do
       [[ -f $file && ${file,,} =~ \.(png|jpe?g|webp)$ ]] || continue
-      base=${file##*/}; base=${base%.*}; base=${base#[0-9]-}
-      bg_link "$cache/3-overtake" "${dir#*:}: $(pretty_name "$base")" "$file"
+      base=${file##*/}; base=${base%.*}
+      # (Omarchy's picker takes its labels as arguments: a picture you added
+      # here goes by a number, its name stays out of the process list)
+      case $base in
+        1-hills-day|2-hills-night|3-shine|4-chips|5-beach|6-cave|7-snow-leopard)
+          base=${base#[0-9]-}; bg_link "$cache/3-overtake" "${dir#*:}: $(pretty_name "$base")" "$file" ;;
+        *) added=$((added + 1)); bg_link "$cache/3-overtake" "${dir#*:}: Picture $added" "$file" ;;
+      esac
     done
   done
 
@@ -2091,7 +2138,7 @@ case "${1:-help}" in
   restore-all) restore_all ;;
   minimize-all) minimize_all "${2:-}" ;;
   focus-app) [[ -n ${2:-} ]] && focus_app "$2" ;;
-  notification-open) notification_open "${2:-}" ;;
+  notification-open) notification_open ;;
   notify-stdin)   # one notification from JSON on stdin ({app, icon, urgency, summary, body}):
     # its text never goes into a command line; sent over D-Bus from here
     python3 -I -c '

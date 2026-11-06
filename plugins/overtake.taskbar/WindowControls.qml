@@ -295,12 +295,14 @@ Item {
   // Hyprland animates every move, so a window dragged through IPC trails
   // behind the pointer. Switch the move animation off for the drag.
   function setMoveAnimation(on) {
-    if (!on) moveAnimationRead.running = true
+    // Off only once it's been read: read after, it would save "off" as yours.
+    moveAnimationOffNext = !on
+    if (!on) { moveAnimationRead.running = true; return }
     var was = root.moveAnimation
-    Quickshell.execDetached(["hyprctl", "eval", on
-      ? "hl.animation({ leaf = \"windowsMove\", enabled = " + was.enabled + ", speed = " + was.speed + ", bezier = \"" + was.bezier + "\" })"
-      : "hl.animation({ leaf = \"windowsMove\", enabled = false })"])
+    Quickshell.execDetached(["hyprctl", "eval",
+      "hl.animation({ leaf = \"windowsMove\", enabled = " + was.enabled + ", speed = " + was.speed + ", bezier = \"" + was.bezier + "\" })"])
   }
+  property bool moveAnimationOffNext: false
   // What it was, to put back after a drag: your config's or your theme's
   // (moves follow "windows" until something sets their own).
   property var moveAnimation: ({ enabled: true, speed: 3.79, bezier: "easeOutQuint" })
@@ -318,7 +320,13 @@ Item {
   Process {
     id: moveAnimationRead
     command: ["hyprctl", "animations", "-j"]
-    stdout: StdioCollector { onStreamFinished: root.readMoveAnimation(text) }
+    stdout: StdioCollector {
+      onStreamFinished: {
+        root.readMoveAnimation(text)
+        // (the drag may have ended already)
+        if (root.moveAnimationOffNext) Quickshell.execDetached(["hyprctl", "eval", "hl.animation({ leaf = \"windowsMove\", enabled = false })"])
+      }
+    }
   }
 
   function beginDrag(x, y) {
@@ -441,9 +449,12 @@ Item {
     if ((ry < 0 && !wsOnBar) || ry > wsBoxH || rx < 0) return 0
     var n = Math.floor(rx / (wsBoxW + wsGap))
     if (n > 8 || rx - n * (wsBoxW + wsGap) > wsBoxW) return 0
-    return n + 1 === currentWorkspace ? 0 : n + 1
+    return wsBlock * 10 + n + 1 === currentWorkspace ? 0 : wsBlock * 10 + n + 1
   }
 
+  // Omarchy 4.5 gives each monitor its own ten workspaces (11-20 on the second, and
+  // so on): the boxes are this window's monitor's, numbered as its bar numbers them.
+  readonly property int wsBlock: currentWorkspace > 0 ? Math.floor((currentWorkspace - 1) / 10) : 0
   function windowsOn(n) {
     return (Hyprland.toplevels.values || []).filter(function(t) { return t && t.workspace && t.workspace.id === n }).length
   }
@@ -1049,7 +1060,7 @@ Item {
         Rectangle {
           id: wsBox
           required property int index
-          readonly property int number: index + 1
+          readonly property int number: root.wsBlock * 10 + index + 1
           readonly property bool current: number === root.currentWorkspace
           readonly property bool lit: root.hoverWorkspace === number
           readonly property bool used: wsStrip.visible && root.windowsOn(number) > 0
@@ -1067,7 +1078,7 @@ Item {
             anchors.centerIn: parent
             anchors.verticalCenterOffset: wsBox.used ? -3 : 0
             textFormat: Text.PlainText
-            text: String(wsBox.number)
+            text: String(wsBox.index + 1)
             color: wsBox.lit ? Commons.Color.background : Commons.Color.foreground
             opacity: wsBox.current ? 0.5 : 1
             font.family: Style.font.family

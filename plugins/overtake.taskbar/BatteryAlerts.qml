@@ -48,7 +48,7 @@ Item {
   // engine's built-in objects.
   function keyOf(d) {
     if (d.isLaptopBattery) return "laptop"
-    var key = String(d.model || d.nativePath || "Battery")
+    var key = String(d.model || d.nativePath || "Battery").slice(0, 256)   // (a name is the device's to choose)
     // ("laptop" is the laptop's own key: a device can't take it over)
     return key === "laptop" || key === "__proto__" || key in Object.prototype ? key + " (device)" : key
   }

@@ -110,16 +110,16 @@ class Bus:
 
 def notify(bus, args):
     w = Writer()
-    w.s(args.app)
+    w.s("a" * args.app_size if args.app_size else args.app)
     w.u(0)
-    w.s("")
+    w.s("/" + "i" * args.icon_size if args.icon_size else "")
     w.s(args.summary)
     w.s(args.body)
     w.u(0)           # the actions' length, filled in below
     acts_at = len(w.b) - 4
     for i in range(args.actions):
         w.s(str(i))
-        w.s("x")
+        w.s("x" * max(1, args.action_text_size))
     struct.pack_into("<I", w.b, acts_at, len(w.b) - acts_at - 4)
     hints = Writer()
     hints.b = w.b    # (same buffer: alignment counts from the start of the body)
@@ -132,6 +132,16 @@ def notify(bus, args):
         w.s("x-big")
         w.g("s")
         w.s("x" * args.hint_size)
+    if args.list_hint:    # a list of strings: ITEMSxSIZE
+        items, size = (int(x) for x in args.list_hint.split("x"))
+        w.align(8)
+        w.s("x-list")
+        w.g("as")
+        w.u(0)
+        at = len(w.b) - 4
+        for _ in range(items):
+            w.s("x" * size)
+        struct.pack_into("<I", w.b, at, len(w.b) - at - 4)
     if args.image_path:
         w.align(8)
         w.s("image-path")
@@ -171,10 +181,17 @@ def main():
     p.add_argument("--count", type=int, default=1)
     p.add_argument("--hint-size", type=int, default=0)   # a string hint of that length
     p.add_argument("--actions", type=int, default=0)     # that many buttons
+    p.add_argument("--app-size", type=int, default=0)    # an app name of that length
+    p.add_argument("--icon-size", type=int, default=0)   # an app icon of that length
+    p.add_argument("--action-text-size", type=int, default=0)  # each button's text
+    p.add_argument("--list-hint", default="")
+    p.add_argument("--summary-file", default="")
     p.add_argument("--hold", action="store_true")
     args = p.parse_args()
     if args.body_file:
         args.body = open(args.body_file).read()
+    if args.summary_file:
+        args.summary = open(args.summary_file).read()
     bus = Bus()
     for _ in range(args.count):
         print(notify(bus, args))

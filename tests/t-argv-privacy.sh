@@ -36,7 +36,8 @@ run remember                                                   # window titles/c
 run relayout all
 echo "Name $MARK" | sbx "$H" "$O" name 0xa1 - >>"$T/log" 2>&1 || true
 printf '{"app":"Battery","summary":"%s mouse low","body":"%s"}' "$MARK" "$MARK" | sbx "$H" "$O" notify-stdin >>"$T/log" 2>&1 || true
-run notification-open "Slack"
+# (a sender chooses the name: on stdin, and through the environment to jq)
+printf '%s\n' "$MARK" | sbx "$H" "$O" notification-open >>"$T/log" 2>&1 || true
 for c in hide-app hide-others quit-app; do run "$c" 0xa1; done  # look up windows by class
 
 # Window controls, on a workspace you named
@@ -74,7 +75,10 @@ grep -q "$MARK" "$T/clipboard" || fail "copy-url didn't copy the address (path n
 mkdir -p "$H/.config/overtake" "$H/.config/omarchy/backgrounds/x"
 printf 'picture' >"$H/.config/omarchy/backgrounds/x/$MARK-theme.png"
 echo x >"$H/.local/state/omarchy/current/theme.name"
+mkdir -p "$H/Pictures/overtake/slideshow"; cp "$H/Pictures/overtake/slideshow/1-hills-day.png" "$H/Pictures/overtake/slideshow/$MARK.png"   # (a picture you added, up as the wallpaper)
+was=$(readlink "$BG"); ln -sfn "$H/Pictures/overtake/slideshow/$MARK.png" "$BG"
 run bg-picker
+ln -sfn "$was" "$BG"
 run bg-picker apply
 run next-wallpaper
 ln -sfn "$H/Pictures/$MARK-holiday.png" "$BG"
@@ -88,7 +92,7 @@ run off                                                        # saved bar (with
 [[ -s $ARGV_LOG ]] || fail "no commands were logged (the harness isn't working)"
 grep -q "jq" "$ARGV_LOG" || fail "jq calls weren't logged (the harness isn't working)"
 grep -qa "dispatch" "$ARGV_LOG" || fail "hyprctl dispatches weren't logged (the harness isn't working)"
-if tr '\0' ' ' <"$ARGV_LOG" | grep -n "$MARK"; then
+if tr '\0' ' ' <"$ARGV_LOG" | grep -n -e "$MARK" -e "${MARK//_/ }"; then   # (a picture's label turns _ into spaces)
   fail "the private marker appeared in a command line (above)"
 fi
 pass "no private text in any of $(wc -l <"$ARGV_LOG") logged command lines"

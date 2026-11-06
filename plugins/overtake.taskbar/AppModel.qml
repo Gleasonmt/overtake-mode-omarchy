@@ -2,6 +2,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Hyprland
 import Quickshell.Io
+import "IconName.js" as IconName
 
 // Apps and their windows, for Studio's Dock, App Switcher and Force Quit:
 // the same matching the taskbar does (desktop entries, Omarchy web apps by
@@ -125,7 +126,7 @@ Item {
 
   function iconFor(entry, appId) {
     if (appId === "org.quickshell") return Quickshell.iconPath("preferences-system", true)  // Overtake Settings
-    var source = entry && entry.icon ? Quickshell.iconPath(entry.icon, true) : ""
+    var source = entry && IconName.safe(entry.icon) ? Quickshell.iconPath(entry.icon, true) : ""
     // (an app picks its own window class: a theme icon name only, never a path)
     if (!source && /^[A-Za-z0-9._-]{1,128}$/.test(appId)) source = Quickshell.iconPath(appId.toLowerCase(), true)
     return source || Quickshell.iconPath("application-x-executable", true)

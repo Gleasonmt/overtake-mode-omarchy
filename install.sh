@@ -66,7 +66,7 @@ fi
 # Everything below is listed here first, before anything is written.
 plan() {
   cat <<'EOF'
-Overtake Mode will add (./uninstall.sh removes all of it):
+Overtake Mode will add (./uninstall.sh removes it, keeping ~/.config/overtake and ~/Pictures/overtake unless you add --purge):
   ~/.local/bin/overtake
   ~/.config/hypr/overtake.lua, overtake-classic.lua, overtake-studio.lua
   ~/.config/omarchy/plugins/overtake.*   its own plugins, plus patched copies of
@@ -87,7 +87,8 @@ Overtake Mode will add (./uninstall.sh removes all of it):
   1-mesa-day.png, 2-mesa-night.png, 3-ribbons.png, 4-aurora.png, 5-orbs.png and
   6-sunrise.png, only if each is exactly the file that version shipped)
   ~/.local/state/overtake/, ~/.cache/overtake/
-                                          its state (yours only) and the Background lists
+                                          its state (yours only), the Background lists
+                                          and stripped copies of theme previews
 EOF
   cat <<'EOF'
 
@@ -106,8 +107,9 @@ and change (or create, if missing) these files (./uninstall.sh undoes each one):
                                           copies in place of Omarchy's own; all put
                                           back when you switch to Omarchy
   (also only while Classic or Studio is on: a marked bar-size block in
-  ~/.config/omarchy/shell.toml, GTK's title-bar buttons, and Omarchy's
-  floating workspace layouts tiled; all put back when you switch to Omarchy)
+  ~/.config/omarchy/shell.toml, GTK's title-bar buttons, Omarchy's floating
+  workspace layouts tiled, and Omarchy's current theme and wallpaper for each
+  mode's own; all put back when you switch to Omarchy)
 EOF
   cat <<'EOF'
 
@@ -171,7 +173,8 @@ def replace_file(path, text):
 def without_block(text, prefix):
     start, end = re.escape(f"{prefix} >>> overtake"), re.escape(f"{prefix} <<< overtake")
     while True:
-        m = re.search(start + r"([^\n]*)\n.*?" + end + r"\n?", text, re.S)
+        # (never past another start: one with its end missing, and your lines after it, stay)
+        m = re.search(start + r"([^\n]*)\n(?:(?!" + start + r").)*?" + end + r"\n?", text, re.S)
         if not m:
             return text
         how, before, after = m.group(1), text[:m.start()], text[m.end():]
@@ -207,8 +210,12 @@ set_block() {
 path, prefix, block = sys.argv[1:4]
 start, end = f"{prefix} >>> overtake", f"{prefix} <<< overtake"
 text = read_file(path)
-pattern = re.compile(re.escape(start) + r"([^\n]*)\n.*?" + re.escape(end) + r"\n?", re.S)
+pattern = re.compile(re.escape(start) + r"([^\n]*)\n(?:(?!" + re.escape(start) + r").)*?" + re.escape(end) + r"\n?", re.S)
 found = pattern.search(text)
+# (Lua stops at a final return: lines added after it would break the whole file)
+code = [l for l in text.splitlines() if l.strip() and not l.strip().startswith(prefix)]
+if not found and prefix == "--" and code and re.match(r"\s*return\b", code[-1]):
+    sys.exit(f"overtake: {path} ends with a return, and Overtake's lines would have to follow it. Move them above the return or remove it, then run this again.")
 if found:
     new = f"{start}{found.group(1)}\n{block.rstrip()}\n{end}\n"
     text = text[:found.start()] + new + text[found.end():]
@@ -355,7 +362,7 @@ say "menu: Overtake Mode in the Omarchy menu"
 # 5. Your settings (only the ones you don't have yet) and the wallpapers.
 mkdir -p -m 700 "$CONFIG"
 for file in desktop-icons.txt no-controls.txt start-pinned.txt dock-pinned.txt; do
-  [[ -e $CONFIG/$file ]] || cp "$REPO/config/$file" "$CONFIG/$file"
+  [[ -e $CONFIG/$file ]] || put_file 644 "$REPO/config/$file" "$CONFIG/$file"   # (never half a file you'd keep)
 done
 mkdir -p "$PICTURES/slideshow"
 # (--remove-destination: a link you put here is replaced, what it points at isn't touched)

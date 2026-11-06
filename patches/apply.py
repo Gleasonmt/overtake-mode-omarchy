@@ -117,6 +117,20 @@ PATCHES = {
     // (couldn't start at all: no exit comes, and the value was never taken)
     onRunningChanged: if (!running && value !== "") { value = ""; failed() }
   }
+  // The sender's window, brought forward. Its name is the sender's to choose, so
+  // it goes on stdin rather than in a command line, and is matched as plain text.
+  Process {
+    id: overtakeFocusApp
+    property string value: ""
+    function send(v) {
+      running = false
+      value = v.replace(/[\\r\\n]+/g, " ")
+      stdinEnabled = true
+      running = true
+    }
+    command: ["overtake", "notification-open"]
+    onStarted: { write(value + "\\n"); value = ""; stdinEnabled = false }
+  }
 
   // Overtake Mode: a link in a notification's text can carry a reset or sign-in
   // token, and whatever opens it keeps it in its command line, readable by
@@ -160,14 +174,6 @@ PATCHES = {
     Security.openExternalUrl("https://" + host + "/")
   }
 
-  // Overtake Mode: omarchy-hyprland-focus-app reads its argument as a regular
-  // expression, and here it's a name the sender chose: ".*" would match any
-  // window, and a crafted pattern could tie up jq. So the name goes as literal
-  // text. It still matches anywhere in a window's class, as Omarchy's does.
-  function overtakeLiteral(name) {
-    return String(name).replace(/[\\\\^$.|?*+()[\\]{}]/g, "\\\\$&")
-  }
-
   // Overtake Mode: a sender's raw picture (the image-data hint) is never drawn
   // (see Toast.qml), but Quickshell keeps its bytes for as long as the sender's
   // object lives: up to the bus's 64 MiB for each picture (measured), and nothing
@@ -180,13 +186,23 @@ PATCHES = {
   // already cut to Omarchy's limits and this file's, in Store.js.)
   function overtakeOversized(n) {
     if (String(n.body || "").length > 65536 || String(n.summary || "").length > 8192) return true
-    if ((n.actions || []).length > 32) return true
-    var hints = n.hints || {}, total = 0
-    Object.keys(hints).forEach(function(k) {
-      var v = hints[k]
-      total += k.length + (typeof v === "string" ? v.length : v ? (v.byteLength || v.length || 0) : 0)
-    })
-    return total > 65536
+    if (String(n.appName || "").length > 4096 || String(n.appIcon || "").length > 4096 || String(n.desktopEntry || "").length > 4096) return true
+    var actions = n.actions || []
+    if (actions.length > 32) return true
+    var total = 0
+    for (var i = 0; i < actions.length; i++) total += String(actions[i].identifier || "").length + String(actions[i].text || "").length
+    return total > 65536 || overtakeSizeOf(n.hints || {}, 0) > 65536
+  }
+  // Everything held in a value, however deep (a hint can be a list or a map of
+  // anything), stopping as soon as it's clearly too much.
+  function overtakeSizeOf(v, depth) {
+    if (typeof v === "string") return v.length
+    if (!v || typeof v !== "object") return 8
+    if (v.byteLength !== undefined) return v.byteLength
+    if (depth > 8) return 1048576
+    var keys = Object.keys(v), total = keys.length
+    for (var i = 0; i < keys.length && total <= 65536; i++) total += keys[i].length + overtakeSizeOf(v[keys[i]], depth + 1)
+    return total
   }
   property var overtakePictures: ({})   // card key -> true
   function overtakePictureFits(key, row) {
@@ -207,7 +223,7 @@ PATCHES = {
 '''      else if (String(row.link || "")) Security.openExternalUrl(String(row.link))
       else if (String(row.app || "")) Util.execArgv(["omarchy-hyprland-focus-app", String(row.app)])''',
 '''      else if (String(row.link || "")) service.overtakeOpenLink(String(row.link))   // Overtake Mode
-      else if (String(row.app || "")) Util.execArgv(["omarchy-hyprland-focus-app", service.overtakeLiteral(String(row.app))])   // Overtake Mode'''),
+      else if (String(row.app || "")) overtakeFocusApp.send(String(row.app))   // Overtake Mode: on stdin, not in argv'''),
       ("Service.qml",
 '''              onLinkOpened: service.stopKeyboard()''',
 '''              onLinkOpened: function(url) { service.stopKeyboard(); service.overtakeOpenLink(url) }   // Overtake Mode'''),
@@ -215,11 +231,15 @@ PATCHES = {
       # shows the installed icon for the app instead. On this Qt, a small PNG with
       # compressed text chunks allocates gigabytes (a named file), and image-data
       # claiming more pixels than it sends segfaults Qt's image loader (both
-      # measured), and this is the shared shell.
+      # measured), and this is the shared shell. An installed app's Icon= naming a file
+      # goes the same way (a sender selects it by naming the app): names only here.
       ("Toast.qml",
 '''        readonly property string sent: /^image:\\/\\/qsimage\\/[0-9]+\\/[0-9]+$/.test(String(card.row.image || ""))
                                        ? String(card.row.image) : Security.localImageUrl(card.row.image)''',
 '''        readonly property string sent: ""   // Overtake Mode: no picture a sender supplies'''),
+      ("Toast.qml",
+'''          return value.charAt(0) === "/" ? Util.fileUrl(value) : value ? Quickshell.iconPath(value, true) : ""''',
+'''          return /^[A-Za-z0-9_][A-Za-z0-9_.+-]{0,127}$/.test(value) ? Quickshell.iconPath(value, true) : ""   // Overtake Mode'''),
       ("Toast.qml",
 '''  signal linkOpened()''',
 '''  signal linkOpened(string url)   // Overtake Mode: the service decides what opens'''),
@@ -610,13 +630,7 @@ PATCHES = {
   // write drops it), or such a history would never match and be rewritten
   // every few seconds.
   function overtakeComparable(s) {
-    var out = ""
-    for (var i = 0; i < s.length; i++) {
-      var c = s.charCodeAt(i)
-      if (c >= 0xd800 && c <= 0xdbff && i + 1 < s.length && (s.charCodeAt(i + 1) & 0xfc00) === 0xdc00) { out += s.substr(i, 2); i++ }
-      else if ((c & 0xf800) !== 0xd800) out += s[i]
-    }
-    return out
+    return s.replace(/[\\ud800-\\udbff][\\udc00-\\udfff]|[\\ud800-\\udfff]/g, function(m) { return m.length === 2 ? m : "" })   // (a pair stays, a lone half goes)
   }
   Timer {
     id: overtakeSaveRetry
@@ -682,6 +696,8 @@ PATCHES = {
   // The same for the cards on screen (live.json), after each write and at each
   // removal: otherwise a card comes back after a restart on a full disk and
   // files itself as it closes.
+  property var overtakeFiled: Object.create(null)
+  property bool overtakeLiveUnfiled: false
   property alias overtakeLiveInPlace: overtakeLiveInPlaceFile
   FileView {   // (only ever read)
     id: overtakeLiveInPlaceFile
@@ -693,6 +709,14 @@ PATCHES = {
       try { rows = JSON.parse(raw.trim() || "[]") } catch (e) { return }
       if (!Array.isArray(rows)) return
       service.liveEntries.forEach(function(e) { keep[String(e.key)] = true })
+      // Closed, but history's file doesn't have it yet (a full disk): stays here until
+      // it does, or a restart would find it nowhere. A row you removed or
+      // cleared isn't in history at all, and goes at once.
+      var waiting = false
+      service.historyEntries.forEach(function(e) {
+        if (service.overtakeFiled[String(e.key)] !== true && keep[String(e.key)] !== true) { keep[String(e.key)] = true; waiting = true }
+      })
+      service.overtakeLiveUnfiled = waiting
       var left = rows.filter(function(e) { return !!e && typeof e === "object" && keep[String(e.key)] === true })
       // A row no longer in memory: out of the file, then read again a second
       // later (about every 6 s if it's still there).
@@ -732,6 +756,12 @@ PATCHES = {
     var rows, keep = Object.create(null)   // (a key may be "__proto__")
     try { rows = JSON.parse(String(diskText)) } catch (e) { return }
     if (!Array.isArray(rows)) return
+    // What history's file really holds: a closed card leaves live.json only once
+    // it's in here.
+    var filed = Object.create(null)
+    rows.forEach(function(e) { if (e && typeof e === "object") filed[String(e.key)] = true })
+    overtakeFiled = filed
+    if (overtakeLiveUnfiled) overtakeLiveInPlaceFile.reload()
     historyEntries.forEach(function(e) { keep[String(e.key)] = true })
     var left = rows.filter(function(e) { return !!e && typeof e === "object" && keep[String(e.key)] === true })
     if (left.length !== rows.length) overtakeHistoryWrite.send(overtakeComparable(JSON.stringify(left) + "\\n"))

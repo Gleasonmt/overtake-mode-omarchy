@@ -161,8 +161,18 @@ Panel {
         var apps = (JSON.parse(text()) || {}).apps
         root.appModes = apps && typeof apps === "object" && !Array.isArray(apps) ? apps : {}
       } catch (e) { root.appModes = {} }
+      root.checkModesSaved()
     }
-    onLoadFailed: root.appModes = {}
+    onLoadFailed: { root.appModes = {}; root.checkModesSaved() }
+  }
+  // A full disk's refused write is still reported as saved: read back, the list
+  // shows what the file says, and a setting that didn't stick is said.
+  property string modesWanted: ""
+  Timer { id: modesCheck; interval: 3000; onTriggered: modesView.reload() }
+  function checkModesSaved() {
+    if (!modesWanted) return
+    if (JSON.stringify(appModes) !== modesWanted) root.showNotice("That setting couldn't be saved (is the disk full or read-only?).")
+    modesWanted = ""
   }
   function modeOf(app) {
     var mode = Object.prototype.hasOwnProperty.call(appModes, app) ? appModes[app] : ""
@@ -174,6 +184,8 @@ Panel {
     if (mode === "show") delete next[app]
     else next[app] = mode
     appModes = next
+    modesWanted = JSON.stringify(next)
+    modesCheck.restart()
     folders.write(modesView, JSON.stringify({ apps: next }, null, 2) + "\n")
   }
 
@@ -259,7 +271,10 @@ Panel {
 
   // Like clicking the toast: its own action; for a browser's web notification,
   // its site; otherwise the app that sent it, brought forward if it's open.
-  // Nothing is opened from the message text. If none of those can happen the
+  // The one thing from the message text is that site's host: Omarchy reads it from
+  // the link a browser's message starts with, so any sender naming itself a browser
+  // chooses it. A click opens https://<host>/, no path or query, as on the toast.
+  // If none of those can happen the
   // entry stays in the list rather than vanishing for nothing. (Omarchy's toast
   // also tries the sender's own window first; a stored process id may belong to
   // another process by now, so the center doesn't use it.)
@@ -289,12 +304,17 @@ Panel {
     if (openProc.running) return
     openProc.entry = entry
     // (the app's name, to find its window, as Omarchy's own toasts do)
-    openProc.command = ["overtake", "notification-open", String(entry.app || "")]
+    // (on stdin: a sender chooses this name)
+    openProc.name = String(entry.app || "").replace(/[\r\n]+/g, " ")
+    openProc.stdinEnabled = true
     openProc.running = true
   }
   Process {
     id: openProc
     property var entry: null
+    property string name: ""
+    command: ["overtake", "notification-open"]
+    onStarted: { write(name + "\n"); name = ""; stdinEnabled = false }
     onExited: function(code) {
       if (code === 0) { root.remove(entry); root.close(); return }
       root.showNotice("Nothing to open for this one: it has no action, and its app isn't open.")

@@ -134,6 +134,20 @@ grep -q '>>> overtake' "$HY/bindings.lua" && fail "the retry left the block"
 umount "$HY"
 pass "uninstall on a full disk stops with your file as it was, and works once there's room"
 
+# A default settings file cut short isn't kept as yours.
+sbx "$H" ./uninstall.sh --yes --purge >"$T/log" 2>&1 || true
+CFG="$H/.config/overtake"; mkdir -p "$CFG"
+mount -t tmpfs -o size=64k tmpfs "$CFG"
+head -c 65536 /dev/zero >"$CFG/.fill" 2>/dev/null || true
+rc=0; sbx "$H" ./install.sh --yes >"$T/out" 2>&1 || rc=$?
+[[ $rc != 0 ]] || { cat "$T/out"; fail "install answered ok with no room for its settings"; }
+[[ -z $(find "$CFG" -maxdepth 1 -name '*.txt' -size 0 -print -quit) ]] || fail "an empty settings file was left"
+rm -f "$CFG/.fill"
+sbx "$H" ./install.sh --yes >"$T/out" 2>&1 || { cat "$T/out"; fail "install once there was room"; }
+for f in desktop-icons.txt dock-pinned.txt start-pinned.txt no-controls.txt; do cmp -s "$CFG/$f" "$REPO/config/$f" || fail "$f isn't whole after the retry"; done
+umount "$CFG"
+pass "a settings file a full disk cut short isn't kept as yours"
+
 # Screensaver art: the copy is made whole first, or nothing is replaced.
 sbx "$H" ./install.sh --yes >"$T/log" 2>&1 || { cat "$T/log"; fail "install"; }
 BR="$H/.config/omarchy/branding"

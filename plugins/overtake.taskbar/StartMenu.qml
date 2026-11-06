@@ -6,6 +6,7 @@ import qs.Commons
 import qs.Commons as Commons
 import qs.Ui
 import "DesktopList.js" as DesktopList
+import "IconName.js" as IconName
 
 // Start menu (left-click Start, or `overtake start`) and
 // the Super+X quick-link menu (right-click Start, or `overtake start quick`).
@@ -86,7 +87,7 @@ Item {
 
   // ---------- Apps (plain copies) ----------
   function iconSource(name) {
-    var source = name ? Quickshell.iconPath(name, true) : ""
+    var source = IconName.safe(name) ? Quickshell.iconPath(name, true) : ""
     return source || Quickshell.iconPath("application-x-executable", true)
   }
 
@@ -281,8 +282,10 @@ Item {
     {
       var out = []
       // One bookmark at a time (its own mime type, never the next one's).
-      var re = /<bookmark href="([^"]+)"[^>]*modified="([^"]+)"[\s\S]*?<mime:mime-type type="([^"]+)"/
-      var pieces = body.split("</bookmark>")
+      // (split on the start, so a piece can't hold a second one: this file can be
+      // 4 MB, and a search retried from each start in one piece takes minutes)
+      var re = /^href="([^"]+)"[^>]*modified="([^"]+)"[\s\S]*?<mime:mime-type type="([^"]+)"/
+      var pieces = body.split("<bookmark ")
       for (var i = 0; i < pieces.length; i++) {
         var m = re.exec(pieces[i])
         if (!m) continue
@@ -308,8 +311,10 @@ Item {
   }
 
   function mimeIcon(mime) {
-    return Quickshell.iconPath(mime.replace("/", "-"), true)
-      || Quickshell.iconPath(mime.split("/")[0] + "-x-generic", true)
+    // (a type named in a file: looked up only if it's a plain name)
+    var exact = String(mime).replace("/", "-"), general = String(mime).split("/")[0] + "-x-generic"
+    return (IconName.safe(exact) ? Quickshell.iconPath(exact, true) : "")
+      || (IconName.safe(general) ? Quickshell.iconPath(general, true) : "")
       || Quickshell.iconPath("text-x-generic", true)
   }
 
