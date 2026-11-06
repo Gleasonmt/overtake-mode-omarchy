@@ -469,7 +469,7 @@ pass "Settings points no Image at a theme's own file"
 fresh
 grep -qF 'pcall(dofile' "$H/.config/hypr/bindings.lua" || fail "the mode's shortcuts aren't loaded from bindings.lua"
 awk '/>>> overtake/,/<<< overtake/' "$H/.config/hypr/bindings.lua" | grep -q '^end$' || fail "the block in bindings.lua is cut short"
-LUAC=$(command -v luac luac5.4 luac5.5 2>/dev/null | head -1)
+LUAC=$(command -v luac luac5.4 luac5.5 2>/dev/null | head -1 || true)
 if [[ -n $LUAC ]]; then
   for f in "$H/.config/hypr/bindings.lua" "$H/.config/hypr/autostart.lua" hypr/*.lua; do
     "$LUAC" -p -o /dev/null "$f" 2>"$T/out" || { cat "$T/out"; fail "$f doesn't parse"; }
