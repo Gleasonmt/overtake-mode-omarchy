@@ -654,8 +654,15 @@ PATCHES = {
       if (!Array.isArray(rows)) return
       service.liveEntries.forEach(function(e) { keep[String(e.key)] = true })
       var left = rows.filter(function(e) { return !!e && typeof e === "object" && keep[String(e.key)] === true })
-      var gone = left.length !== rows.length
-      if (gone) overtakeLiveWrite.send(service.overtakeComparable(JSON.stringify(left) + "\\n"))
+      // A row no longer in memory: out of the file, then read again a second
+      // later (about every 6 s if it's still there).
+      if (left.length !== rows.length) {
+        overtakeLiveWrite.send(service.overtakeComparable(JSON.stringify(left) + "\\n"))
+        if (overtakeLiveReadBack.removals++ === 0) overtakeLiveReadBack.restart()
+        else overtakeLiveRetry.restart()
+        return
+      }
+      overtakeLiveReadBack.removals = 0
       // A card that arrived as this was read, or whose write didn't land, can
       // be missing from the file: written again from memory (reloaded first:
       // FileView skips the text it last wrote), and then about every 6 s until
@@ -664,13 +671,14 @@ PATCHES = {
       left.forEach(function(e) { have[String(e.key)] = true })
       var missing = service.liveEntries.some(function(e) { return have[String(e.key)] !== true })
       if (missing && overtakeLiveReadBack.tries++ === 0) overtakeLiveRetry.triggered()
-      else if (missing || gone) overtakeLiveRetry.restart()
+      else if (missing) overtakeLiveRetry.restart()
       else overtakeLiveReadBack.tries = 0
     }
   }
   Timer {
     id: overtakeLiveReadBack
     property int tries: 0
+    property int removals: 0
     interval: 1000
     onTriggered: service.overtakeWhenPrepared(service.overtakeReadLiveBack)
   }

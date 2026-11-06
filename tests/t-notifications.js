@@ -367,7 +367,7 @@ check("the clipboard check is capped at a code's length", /wl-paste --no-newline
 {
   const Markup = load("Markup"), Security = load("Security")
   const hostile = [
-    '<img src="https://evil.test/x.png">', '<IMG SRC=https://evil.test/x.png>', '<img/src=x>',
+    '<img>', '<img src="https://evil.test/x.png">', '<IMG SRC=https://evil.test/x.png>', '<img/src=x>',
     '&lt;img src="https://evil.test/x.png"&gt;', '&amp;lt;img src="https://evil.test/x.png"&amp;gt;',
     '&amp;amp;lt;img src=x&amp;amp;gt;', '&amp;amp;amp;lt;img src=x&amp;amp;amp;gt;', '&#60;img src=x&#62;', '&#x3c;img src=x&#x3e;',
     '<a href="https://ok.test/" onclick="x"><img src="https://evil.test/x.png"></a>',

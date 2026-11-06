@@ -187,7 +187,7 @@ ShellRoot {
         var hist = svc.historyEntries
         r = hist.length ? IpcRegistry.call("notifications", "forget", [String(hist[0].key)]).output : "empty"
       }
-      else if (c === "forgetbad") r = IpcRegistry.call("notifications", "forget", ["nothing"]).output
+      else if (c === "quit") Qt.quit()   // (a clean exit runs the service's last write; SIGTERM doesn't: measured)
       else if (c === "racelive") {  // Clear all, and a card saved in the same tick
         var was = svc.liveEntries[0]
         IpcRegistry.call("notifications", "forgetAll", [])
@@ -290,7 +290,7 @@ pad() { head -c 2000 /dev/zero | tr '\0' x; }
 fill() { dd if=/dev/zero of="$N/filler" bs=4k 2>/dev/null; sync; }
 [[ $SCEN == oldlive ]] && printf '[{"key":"nold","app":"Signal","summary":"Old","body":"SECRET-1","urgency":1,"ts":%s}]\n' "$(( $(date +%s) - 432000 ))" > "$N/live.json"
 [[ $SCEN == onlyhidden ]] && printf '[{"key":"nhid","app":"omarchy-action","summary":"Done","body":"SECRET-1","urgency":1,"ts":%s,"closed_ts":%s,"closed_reason":"expired"}]\n' "$(date +%s)" "$(date +%s)" > "$H"
-[[ $SCEN == rohome ]] && { : > "$H"; : > "$N/live.json"; : > "$N/quiet.json"; mount -o remount,ro "$N"; }
+[[ $SCEN == rohome ]] && { : > "$H"; : > "$N/live.json"; : > "$N/quiet.json"; mount --bind "$N" "$N"; mount -o remount,ro,bind "$N" || echo "reply=[(setup) not read-only]"; }
 [[ $SCEN == refused ]] || start
 case $SCEN in
   link)    # a link in the text, clicked; then a card with one, clicked
@@ -432,11 +432,12 @@ case $SCEN in
     echo "modes=[$(modes)]"
     echo "history=[$(secrets)]"
     ;;
-  exitrace)   # the folder deleted, a row filed, and the shell stops at once
+  exitrace)   # the folder deleted, a row filed, and a clean exit at once
     ctl dnd
     notify-send -a Signal "Alice" "SECRET-1 first"; sleep 2.5
     rm -rf "$N"; notify-send -a Signal "Bob" "SECRET-2 second"
-    stop
+    ctl quit 0
+    wait "$QS" 2>/dev/null
     sleep 1.5
     echo "modes=[$(modes)]"
     echo "history=[$(secrets)]"
@@ -503,7 +504,7 @@ case $SCEN in
     ctl panelclear 1.5
     ctl panelnotice 0.3
     echo "notice=[$(reply panelnotice)]"
-    mount -o remount,rw "$N"
+    mount -o remount,rw,bind "$N"
     ctl forgetall 2
     echo "writable=[$(reply forgetall)]"
     ctl forgetall 0.5
