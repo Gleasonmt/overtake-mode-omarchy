@@ -513,8 +513,9 @@ save_look() {  # save_look <mode>
   cp "$CURRENT_THEME_NAME" "$LOOKS_DIR/$1.theme" 2>/dev/null || true
   bg=$(readlink -f "$CURRENT_BG" 2>/dev/null) || bg=""
   [[ $bg == "$HOME/.local/state/omarchy/current/"* ]] && bg="theme:${bg##*/}"
-  echo "$bg" >"$LOOKS_DIR/$1.bg"
-  if [[ $1 != omarchy ]] && picked_wallpaper; then echo 1 >"$LOOKS_DIR/$1.picked"; else rm -f "$LOOKS_DIR/$1.picked"; fi
+  # (a full disk mustn't stop a switch: this mode just forgets its look)
+  echo "$bg" 2>/dev/null >"$LOOKS_DIR/$1.bg" || true
+  if [[ $1 != omarchy ]] && picked_wallpaper; then echo 1 2>/dev/null >"$LOOKS_DIR/$1.picked" || true; else rm -f "$LOOKS_DIR/$1.picked"; fi
 }
 
 # Puts back a mode's theme, and its wallpaper when it has one to keep (the
@@ -570,7 +571,7 @@ mark_picked() {
 }
 
 wallpaper_mode() {
-  [[ -s $WALLPAPER_MODE_FILE ]] && cat "$WALLPAPER_MODE_FILE" || echo rotate
+  [[ -s $WALLPAPER_MODE_FILE && $(<"$WALLPAPER_MODE_FILE") == day-night ]] && echo day-night || echo rotate
 }
 
 # Today's sunrise and sunset as HHMM, from wttr.in's IP-located astronomy data
@@ -684,14 +685,16 @@ slideshow_loop() {
 # One left by a killed run is cleared after a minute.
 MODE_LOCK="$STATE_DIR/.mode.lock.d"
 mode_lock() {
-  local i
+  local i err
   mkdir -p -m 700 "$STATE_DIR"
   for i in $(seq 120); do
-    if mkdir "$MODE_LOCK" 2>/dev/null; then
+    if err=$(LC_ALL=C mkdir "$MODE_LOCK" 2>&1); then
       trap 'rmdir "$MODE_LOCK" 2>/dev/null' EXIT
       trap 'exit 143' TERM HUP INT   # (so a stopped on/off still lets go of the lock)
       return 0
     fi
+    # (not a lock in the way: the disk is read-only or full)
+    [[ -d $MODE_LOCK ]] || { echo "overtake: can't write to $STATE_DIR: ${err##*: }" >&2; exit 1; }
     # left by one that died: older than a minute
     (( $(date +%s) - $(stat -c %Y "$MODE_LOCK" 2>/dev/null || date +%s) > 60 )) && { rmdir "$MODE_LOCK" 2>/dev/null || true; }
     sleep 0.5
@@ -830,7 +833,7 @@ set_style() {
     rm -f "$SLIDE_INDEX" "$SLIDE_SHOWN"
     overtake resume-wallpaper refresh >/dev/null 2>&1 || true
   fi
-  hyprctl reload >/dev/null
+  hyprctl reload >/dev/null || true
   setsid sh -c 'sleep 1.5; overtake relayout all' </dev/null >/dev/null 2>&1 &
   notify $'\uf0ec' "Overtake mode: ${1^}"
 }
@@ -893,6 +896,8 @@ switch_copies() {  # switch_copies on|off
 turn_on() {
   [[ -f $FLAG ]] && { echo "Overtake Mode is already on"; fix_bar_widgets; return; }
   require_shell_json
+  require_session
+  finish_switch_off
   mkdir -p -m 700 "$STATE_DIR"
   if jq -e '[.bar | .. | .id? // empty] | (index("overtake.taskbar") or index("overtake.menubar"))' "$SHELL_JSON" >/dev/null 2>&1; then
     echo "the bar is already Overtake's; keeping the saved Omarchy bar" >&2
@@ -932,9 +937,23 @@ turn_on() {
   notify $'\uf0ec' "Overtake ${mode^} (Super+Ctrl+Shift+W: next mode)"
 }
 
+# A switch to Omarchy that stopped partway: killed, or run outside the desktop
+# session, where windows, the theme and the wallpaper can't be put back. The
+# marker keeps what's left to do, so `off` finishes it, `on` finishes it before
+# saving anything as yours, and uninstall won't delete the saved values first.
+SWITCHING_OFF="$STATE_DIR/switching-off"
+require_session() {
+  hyprctl version >/dev/null 2>&1 || { echo "overtake: this needs your desktop session (no Hyprland here)" >&2; exit 1; }
+}
+finish_switch_off() {
+  [[ -f $SWITCHING_OFF ]] || return 0
+  turn_off
+  [[ ! -f $SWITCHING_OFF ]] || exit 1
+}
+
 turn_off() {
-  # (also when only the bar says so: a switch that failed halfway)
-  [[ -f $FLAG ]] || overtake_bar_showing || { echo "Overtake Mode is already off"; return; }
+  # (also when only the bar says so, or the marker: a switch that failed halfway)
+  [[ -f $FLAG || -f $SWITCHING_OFF ]] || overtake_bar_showing || { echo "Overtake Mode is already off"; return; }
   require_shell_json
   local view
   view=$(current_view)
@@ -964,25 +983,39 @@ turn_off() {
   fi
   remove_bar_size
   resume_floating_layouts
+  touch "$SWITCHING_OFF"
   rm -f "$FLAG" "$DESKTOP_RETURN"
   echo off >"$STATE_DIR/mode"
-  restore_all
-  tile_all
+  # (each step on its own: one that fails doesn't stop the others)
+  local unfinished=""
+  hyprctl version >/dev/null 2>&1 || unfinished=1
+  restore_all || unfinished=1
+  tile_all || unfinished=1
   if [[ -s $SAVED_GTK_BUTTONS ]]; then
-    gsettings set org.gnome.desktop.wm.preferences button-layout "$(tr -d "'" <"$SAVED_GTK_BUTTONS")" 2>/dev/null || true
-    rm -f "$SAVED_GTK_BUTTONS"
+    if gsettings set org.gnome.desktop.wm.preferences button-layout "$(tr -d "'" <"$SAVED_GTK_BUTTONS")" 2>/dev/null; then
+      rm -f "$SAVED_GTK_BUTTONS"
+    else
+      unfinished=1
+    fi
   fi
-  stop_slideshow
+  stop_slideshow || true
   # Omarchy's theme and wallpaper back (from before this version: the saved
   # wallpaper, if the slideshow replaced it)
   if ! apply_look omarchy && [[ -s $SAVED_BG && -f $(<"$SAVED_BG") && $(readlink -f "$CURRENT_BG") == "$HOME/Pictures/overtake/"* ]]; then
     set_background "$(<"$SAVED_BG")" || true
   fi
-  hyprctl reload >/dev/null 2>&1 || true   # (outside Hyprland, from a TTY: the rest is still done)
+  hyprctl reload >/dev/null 2>&1 || true
   # Tiling the windows again moves focus from workspace to workspace: end
   # where you were.
   [[ -z $view ]] || hyprctl --batch "$view" >/dev/null 2>&1 || true
-  rm -f "$STATE_DIR/.ws-name.$$."*   # (the view's, and any other left)
+  rm -f "$STATE_DIR/.ws-name.$$."*   # (the view's)
+  # (and any a failed dispatch left behind, old enough not to be in use)
+  find "$STATE_DIR" -maxdepth 1 -name '.ws-name.*' -mmin +1 -delete 2>/dev/null || true
+  if [[ $unfinished ]]; then
+    echo "overtake: switched off as far as it can from here; run \`overtake off\` in your desktop session to finish" >&2
+    return 1
+  fi
+  rm -f "$SWITCHING_OFF"
   notify $'\uf0ec' "Omarchy (Super+Ctrl+Shift+W: next mode)"
 }
 
@@ -990,14 +1023,15 @@ turn_off() {
 # commands that bring them back (the focused screen's workspace last).
 current_view() {
   local mon ws focused last="" cmds="" active lua
-  while IFS=$'\t' read -r mon ws focused; do
+  # (\u0001, not @tsv: that spells a backslash in a workspace's name as two)
+  while IFS=$'\001' read -r mon ws focused; do
     [[ $ws != special:* ]] && lua=$(ws_lua "$ws") || continue
     if [[ $focused == true ]]; then
       last="dispatch hl.dsp.focus({ workspace = $lua })"
     else
       cmds+="dispatch hl.dsp.focus({ workspace = $lua }) ; "
     fi
-  done < <(hyprctl monitors -j | jq -r '.[] | [.name, .activeWorkspace.name, (.focused | tostring)] | @tsv')
+  done < <(hyprctl monitors -j | jq -r '.[] | [.name, .activeWorkspace.name, (.focused | tostring)] | join("\u0001")')
   active=$(hyprctl activewindow -j 2>/dev/null | jq -r '.address // empty')
   [[ $active =~ ^0x[0-9a-f]+$ ]] || active=""
   cmds+=$last
@@ -1330,6 +1364,9 @@ keep_screensaver_art() {
   rm -f "$tmp"
   return 1
 }
+# What Overtake itself put there: anything else (written in the editor, picked
+# through Omarchy, or changed later) is yours, and uninstall leaves it in place.
+note_art_written() { sha256sum <"$SCREENSAVER_ART" >"$STATE_DIR/screensaver-art-written"; }
 screensaver_cmd() {
   case "${1:-}" in
     on) omarchy-toggle-enabled screensaver-off && omarchy-toggle screensaver-off >/dev/null; true ;;
@@ -1349,7 +1386,7 @@ screensaver_cmd() {
         omarchy|text|image|wallpaper) keep_screensaver_art || return 1 ;;
       esac
       case "${2:-}" in
-        omarchy) cp "$omarchy/logo.txt" "$SCREENSAVER_ART" ;;
+        omarchy) cp "$omarchy/logo.txt" "$SCREENSAVER_ART"; note_art_written ;;
         text) omarchy-launch-editor "$SCREENSAVER_ART" >/dev/null 2>&1; return ;;
         image) omarchy-branding-screensaver image; return ;;
         wallpaper)
@@ -1364,7 +1401,7 @@ screensaver_cmd() {
           mean=$(magick - -colorspace gray -format '%[fx:mean < 0.4 ? 1 : 0]' info: <"$bg" 2>/dev/null || echo 0)
           if [[ $mean == 1 ]]; then magick - -negate "$tmp" <"$bg"; else cat <"$bg" >"$tmp"; fi
           omarchy-transcode-ascii "$tmp" "$SCREENSAVER_ART" >/dev/null || { rm -f "$tmp"; return 1; }
-          rm -f "$tmp" ;;
+          rm -f "$tmp"; note_art_written ;;
         *) echo "show omarchy|text|image|wallpaper" >&2; return 1 ;;
       esac
       omarchy-launch-screensaver force >/dev/null 2>&1 & ;;
@@ -1528,9 +1565,9 @@ tile_all() {
 retile_saved() {  # retile_saved <kept-floating json>
   [[ -s $TILED ]] || return 0
   local active cmds view here anim
-  active=$(hyprctl activewindow -j 2>/dev/null | jq -r '.address // empty')
-  view=$(current_view)
-  here=$(hyprctl activeworkspace -j 2>/dev/null | jq -r '.id // 0')
+  active=$(hyprctl activewindow -j 2>/dev/null | jq -r '.address // empty') || active=""
+  view=$(current_view) || view=""
+  here=$(hyprctl activeworkspace -j 2>/dev/null | jq -r '.id // 0') || here=0   # (off's `tile_all || ...` also carries on; `relayout` needs these)
   cmds=$(python3 -I - "$TILED" "$1" "$here" <<'PY'
 import json, subprocess, sys
 
@@ -1874,6 +1911,42 @@ has_control_chars() {  # (ASCII controls, and the ones UTF-8 can spell: U+0080 t
   [[ $1 == *[[:cntrl:]]* || $1 == *$'\xc2'[$'\x80'-$'\x9f']* ]]
 }
 
+# Settings' gallery draws a theme from git only from these: stripped and
+# re-encoded here, in a child under a memory and time limit, as Omarchy's own
+# picker does (vipsthumbnail ... [strip]). A crafted picture costs that child.
+theme_previews() {
+  local dir theme name src out tmp f
+  dir="${XDG_CACHE_HOME:-$HOME/.cache}/overtake/theme-previews"
+  mkdir -p -m 700 "$dir"
+  chmod 700 "$dir"
+  for out in "$dir"/*.jpg; do   # (themes since removed)
+    name=${out##*/}
+    [[ ! -e $out || -d $HOME/.config/omarchy/themes/${name%.jpg} ]] || rm -f "$out"
+  done
+  command -v vipsthumbnail >/dev/null || return 0
+  for theme in "$HOME/.config/omarchy/themes"/*/; do
+    [[ -d $theme ]] || continue
+    name=${theme%/}; name=${name##*/}
+    has_control_chars "$name" && continue
+    src=""
+    for f in preview.jpg preview.png; do
+      # (no links: git can carry one, to anywhere)
+      [[ -f $theme$f && ! -L $theme$f ]] && { src=$theme$f; break; }
+    done
+    out="$dir/$name.jpg"
+    [[ -n $src ]] || { rm -f "$out"; continue; }
+    [[ $out -nt $src ]] && continue
+    tmp=$(mktemp "$dir/.preview.XXXXXX.jpg") || continue
+    if (( $(stat -c %s "$src") <= 33554432 )) &&
+       ( ulimit -v 1048576; exec env VIPS_CONCURRENCY=1 timeout 20 vipsthumbnail "$src" --size 640x360 -o "$tmp[Q=82,strip]" ) >/dev/null 2>&1; then
+      chmod 600 "$tmp"; mv -f "$tmp" "$out"
+    else
+      # (remembered as no picture, until the theme's file changes)
+      rm -f "$tmp"; : >"$out"; chmod 600 "$out"
+    fi
+  done
+}
+
 bg_picker() {
   shopt -s nullglob
   local theme theme_base cache dir file name base n link live suffix
@@ -1995,6 +2068,7 @@ case "${1:-help}" in
   resume-wallpaper) [[ ${2:-} == refresh ]] && refresh_wallpaper; start_slideshow ;;   # internal: after a look change
   show-desktop) show_desktop ;;
   bg-picker) bg_picker "${2:-}" ;;
+  theme-previews) theme_previews ;;
   next-wallpaper)
     if [[ ! -f $FLAG ]]; then :
     elif [[ $(wallpaper_mode) == day-night ]] && picked_wallpaper; then apply_day_night   # back from a picked wallpaper

@@ -20,6 +20,14 @@ import qs.Ui
 // battery (each battery device's alert levels, from BatteryAlerts).
 Item {
   id: root
+  readonly property string themePreviewDir: "file://" + (Quickshell.env("XDG_CACHE_HOME") || (Quickshell.env("HOME") + "/.cache")) + "/overtake/theme-previews/"
+  property int themePreviewsRead: 0   // (goes up when the stripped copies are ready)
+  function refreshThemePreviews() { if (!themePreviewsProc.running && themePreviewsRead === 0) themePreviewsProc.running = true }
+  Process {
+    id: themePreviewsProc
+    command: ["overtake", "theme-previews"]
+    onExited: root.themePreviewsRead += 1
+  }
 
   property bool open: false
   property string page: "system"
@@ -208,7 +216,7 @@ Item {
         { type: "info", title: "Start", value: "echo 'Super key, or Super+S to search'" },
         { type: "info", title: "Quick links menu", value: "echo 'Super+X'" },
         { type: "info", title: "File Explorer · Settings · Run", value: "echo 'Super+E · Super+I · Super+R'" },
-        { type: "info", title: "Snap windows", value: "echo 'Super+Z, Super+Left/Right, Super+Up/Down'" },
+        { type: "info", title: "Snap windows", value: "echo 'Classic: Super+Z, Super+Left/Right, Super+Up/Down. Studio: the green dot, or drag to an edge'" },
         { type: "info", title: "Show desktop · Lock · Clipboard", value: "echo 'Super+D · Super+L · Super+V'" },
         { type: "info", title: "Task Manager · Close window", value: "echo 'Ctrl+Shift+Esc · Alt+F4'" }
       ]},
@@ -852,12 +860,15 @@ Item {
                         fillMode: Image.PreserveAspectCrop
                         sourceSize.width: 320
                         asynchronous: true
-                        // Omarchy's own themes in its folder; yours in ~/.config/omarchy/themes,
-                        // preview.jpg (as these themes ship) or preview.png
-                        readonly property string mine: "file://" + Quickshell.env("HOME") + "/.config/omarchy/themes/" + parent.parent.dir
-                        source: themeSection.modelData[0] === "custom" ? mine + "/preview.jpg"
-                                                                       : "file:///usr/share/omarchy/themes/" + parent.parent.dir + "/preview.png"
-                        onStatusChanged: if (status === Image.Error && source.toString() === mine + "/preview.jpg") source = mine + "/preview.png"
+                        // A theme from git is someone else's file: drawn only from a stripped
+                        // copy made in a child process (`overtake theme-previews`), as Omarchy's
+                        // own picker does; a crafted picture costs that child, not this shell.
+                        readonly property string omarchyDir: Quickshell.env("OMARCHY_PATH") || "/usr/share/omarchy"
+                        cache: false
+                        Component.onCompleted: if (themeSection.modelData[0] === "custom") root.refreshThemePreviews()
+                        source: themeSection.modelData[0] === "custom"
+                                ? (root.themePreviewsRead > 0 ? root.themePreviewDir + encodeURIComponent(parent.parent.dir) + ".jpg?" + root.themePreviewsRead : "")
+                                : "file://" + omarchyDir + "/themes/" + parent.parent.dir + "/preview.png"
                       }
                     }
                     Text {

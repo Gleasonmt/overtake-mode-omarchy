@@ -347,19 +347,149 @@ art_back() {  # art_back <what should be there>
   else [[ $(cat "$ART"; echo x) == "$1"x ]] || fail "art not restored ($2): '$(cat "$ART" 2>/dev/null)', not '$1'"; fi
   [[ ! -e $ART.before-overtake ]] || fail "the kept copy stayed after uninstall ($2)"
 }
-for branch in omarchy wallpaper image text; do
+for branch in omarchy wallpaper; do
   art_home "my own art"; art "$branch"
   art_back "my own art" "$branch from your own art"
 done
 printf 'THE LOGO\n' >"$T/logo-copy"
 art_home "THE LOGO"$'\n'; art wallpaper; [[ $(<"$ART") == "wallpaper art" ]] || fail "wallpaper art wasn't made (test setup)"
 art_back "THE LOGO"$'\n' "wallpaper from art equal to Omarchy's logo"
-art_home "my own art"; art image; art wallpaper; art omarchy
+art_home "my own art"; art wallpaper; art omarchy
 art_back "my own art" "the first replacement is what's kept"
-art_home ""; art image; art_back "" "from empty art"
+art_home ""; art wallpaper; art_back "" "from empty art"
 art_home -; art wallpaper; [[ -s $ART ]] || fail "wallpaper art wasn't made (test setup)"; art_back - "with no art before"
+pass "art Overtake wrote goes, and what you had before it comes back"
+# Art you wrote or picked, or changed afterwards, stays; the old art stays beside it.
+art_kept() {  # art_kept <what should be there> <what>
+  sbx "$H" env OMARCHY_PATH="$LOGO" ./uninstall.sh --yes >"$T/out" 2>&1 || { cat "$T/out"; fail "uninstall"; }
+  [[ $(<"$ART") == "$1" ]] || fail "your art was replaced on uninstall ($2): '$(<"$ART")'"
+  [[ $(<"$ART.before-overtake") == "my own art" ]] || fail "the art from before went ($2)"
+  grep -q 'Kept your current screensaver art' "$T/out" || { cat "$T/out"; fail "uninstall didn't say it kept your art ($2)"; }
+}
+art_home "my own art"; art image; art_kept "image art" "picked through Omarchy"
+art_home "my own art"; art text; art_kept "typed art" "written in the editor"
+art_home "my own art"; art wallpaper; printf 'edited later\n' >"$ART"; art_kept "edited later" "edited after Overtake wrote it"
 stub omarchy-transcode-ascii; stub omarchy-branding-screensaver; stub omarchy-launch-editor
-pass "the art you had before Overtake first replaced it comes back, in every branch"
+pass "art you wrote, picked or changed stays on uninstall"
+
+# ---------- Switching back outside the desktop session ----------
+fresh
+sbx "$H" "$O" on >>"$T/log" 2>&1 || { cat "$T/log"; fail "on"; }
+cp "$STUB/hyprctl" "$T/hyprctl.real"
+SAVED="$H/.local/state/overtake/gtk-button-layout"
+echo "'appmenu:close'" >"$SAVED"
+stub hyprctl 'echo "HYPRLAND_INSTANCE_SIGNATURE not set!"; exit 1'
+: >"$ARGV_LOG"
+if sbx "$H" "$O" off >"$T/out" 2>&1; then cat "$T/out"; fail "off said it finished outside the session"; fi
+grep -q 'in your desktop session to finish' "$T/out" || { cat "$T/out"; fail "off didn't say what's left to do"; }
+[[ -e $H/.local/state/overtake/switching-off ]] || fail "a half-done switch left no marker"
+log_text | grep -aq 'button-layout appmenu:close' || fail "off stopped before it restored GTK's buttons"
+[[ ! -s $SAVED ]] || fail "the saved GTK setting stayed after it was put back"
+# Not "already off", and `on` won't start here, nor save over what's left to do.
+if sbx "$H" "$O" on >"$T/out" 2>&1; then cat "$T/out"; fail "on went ahead outside the session"; fi
+grep -q 'needs your desktop session' "$T/out" || { cat "$T/out"; fail "on didn't say why it stopped"; }
+if sbx "$H" ./uninstall.sh --yes >"$T/out" 2>&1; then cat "$T/out"; fail "uninstall went ahead with a switch half done"; fi
+[[ -x $O ]] || fail "uninstall removed the command with a switch half done"
+cp "$T/hyprctl.real" "$STUB/hyprctl"
+sbx "$H" "$O" off >"$T/out" 2>&1 || { cat "$T/out"; fail "off in the session didn't finish it"; }
+[[ ! -e $H/.local/state/overtake/switching-off ]] || fail "the marker stayed after off finished"
+grep -q 'already off' "$T/out" && fail "off said already off with a switch half done"
+pass "off outside the session does what it can, says so, and finishes later; nothing is lost"
+# A GTK setting that can't be written stays saved for the retry.
+fresh
+sbx "$H" "$O" on >>"$T/log" 2>&1 || { cat "$T/log"; fail "on"; }
+echo "'appmenu:close'" >"$H/.local/state/overtake/gtk-button-layout"
+stub gsettings 'exit 1'
+if sbx "$H" "$O" off >"$T/out" 2>&1; then cat "$T/out"; fail "off finished with GTK's setting not put back"; fi
+[[ -s $H/.local/state/overtake/gtk-button-layout ]] || fail "the saved GTK setting went though it wasn't put back"
+stub gsettings
+sbx "$H" "$O" off >"$T/out" 2>&1 || { cat "$T/out"; fail "off on retry"; }
+[[ ! -e $H/.local/state/overtake/gtk-button-layout ]] || fail "the saved GTK setting stayed after the retry"
+pass "GTK's buttons are put back, and a failed try keeps what's needed"
+
+# ---------- Uninstall stops if shell.json can't be updated ----------
+fresh
+echo '{ not json' >"$H/.config/omarchy/shell.json"
+if sbx "$H" ./uninstall.sh --yes >"$T/out" 2>&1; then cat "$T/out"; fail "uninstall said it finished with shell.json invalid"; fi
+grep -q "Overtake Mode removed" "$T/out" && fail "uninstall said removed with shell.json invalid"
+[[ -x $O && -d $H/.config/omarchy/plugins/overtake.taskbar ]] || fail "uninstall removed things before it could hand notifications back"
+pass "uninstall stops, and says so, if it can't update shell.json"
+
+# ---------- Your own off stays off ----------
+H="$T/own-off"; make_home "$H"; O="$H/.local/bin/overtake"
+jq '.disabledPlugins = ["omarchy.notifications"]' "$H/.config/omarchy/shell.json" >"$T/s.json" && cat "$T/s.json" >"$H/.config/omarchy/shell.json"
+sbx "$H" ./install.sh --yes >"$T/log" 2>&1 || { cat "$T/log"; fail "install"; }
+sbx "$H" "$O" on >>"$T/log" 2>&1 || { cat "$T/log"; fail "on"; }
+sbx "$H" ./uninstall.sh --yes >>"$T/log" 2>&1 || { cat "$T/log"; fail "uninstall"; }
+jq -e '.disabledPlugins // [] | index("omarchy.notifications")' "$H/.config/omarchy/shell.json" >/dev/null || fail "uninstall switched on what you had turned off"
+pass "what you had turned off before installing stays off"
+
+# ---------- Theme previews ----------
+if command -v vipsthumbnail >/dev/null; then
+  fresh
+  TH="$H/.config/omarchy/themes"; mkdir -p "$TH/clean" "$TH/crafted" "$TH/linked" "$TH/none"
+  python3 -I - "$TH" <<'PY'
+import struct, sys, zlib
+def chunk(kind, data):
+    return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+def png(extra=b""):
+    head = chunk(b"IHDR", struct.pack(">IIBBBBB", 64, 36, 8, 2, 0, 0, 0))
+    rows = (b"\0" + b"\x20\x60\xa0" * 64) * 36
+    return b"\x89PNG\r\n\x1a\n" + head + extra + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b"")
+open(sys.argv[1] + "/clean/preview.png", "wb").write(png())
+one = chunk(b"zTXt", b"k\0\0" + zlib.compress(bytes(7000000), 9))
+open(sys.argv[1] + "/crafted/preview.png", "wb").write(png(one * 120))
+PY
+  ln -s "$TH/clean/preview.png" "$TH/linked/preview.png"   # (a link to a real picture, so only the link check stops it)
+  real_vips=$(command -v vipsthumbnail)
+  stub vipsthumbnail "exec $real_vips \"\$@\""
+  sbx "$H" "$O" theme-previews >"$T/out" 2>&1 || { cat "$T/out"; fail "theme-previews"; }
+  C="$H/.cache/overtake/theme-previews"
+  [[ -s $C/clean.jpg ]] || fail "no stripped copy of a clean preview"
+  [[ $(head -c 2 "$C/clean.jpg" | od -An -tx1 | tr -d ' ') == ffd8 ]] || fail "the stripped copy isn't a re-encoded JPEG"
+  [[ ! -s $C/linked.jpg ]] || fail "a preview that's a link was followed"
+  [[ ! -e $C/none.jpg ]] || fail "a theme with no preview got a copy"
+  [[ $(stat -c %a "$C") == 700 && $(stat -c %a "$C/clean.jpg") == 600 ]] || fail "theme previews aren't private"
+  log_text | grep -aq 'vipsthumbnail' || fail "(setup) the child didn't run"
+  rm -f "$STUB/vipsthumbnail"
+  rm -rf "$TH/clean"; sbx "$H" "$O" theme-previews >>"$T/log" 2>&1
+  [[ ! -e $C/clean.jpg ]] || fail "a removed theme's copy stayed"
+  pass "a theme's preview is drawn only from a stripped copy made in a child; links are refused"
+fi
+# Settings draws a theme from git only from those copies.
+if grep -nE 'omarchy/themes/.*preview|"/preview\.(jpg|png)"' plugins/overtake.taskbar/Settings.qml | grep -v omarchyDir | grep -q .; then
+  fail "Settings points an Image straight at a theme's own preview"
+fi
+grep -q 'root.themePreviewDir' plugins/overtake.taskbar/Settings.qml || fail "Settings doesn't use the stripped copies"
+pass "Settings points no Image at a theme's own file"
+
+# ---------- The Lua that install writes, and ships, parses ----------
+# (a stray quote in install.sh once cut the block short: it reached Hyprland, which
+# then skipped the whole of your bindings.lua, and nothing else noticed)
+fresh
+grep -qF 'pcall(dofile' "$H/.config/hypr/bindings.lua" || fail "the mode's shortcuts aren't loaded from bindings.lua"
+awk '/>>> overtake/,/<<< overtake/' "$H/.config/hypr/bindings.lua" | grep -q '^end$' || fail "the block in bindings.lua is cut short"
+LUAC=$(command -v luac luac5.4 luac5.5 2>/dev/null | head -1)
+if [[ -n $LUAC ]]; then
+  for f in "$H/.config/hypr/bindings.lua" "$H/.config/hypr/autostart.lua" hypr/*.lua; do
+    "$LUAC" -p -o /dev/null "$f" 2>"$T/out" || { cat "$T/out"; fail "$f doesn't parse"; }
+  done
+  pass "the Lua that install writes and ships parses"
+else
+  pass "the mode's block in bindings.lua is whole (no luac here to parse it)"
+fi
+
+# ---------- Omarchy's layout shortcuts don't reach Overtake's modes ----------
+for key in $(grep -hE 'workspace-layout-toggle' "$(dirname "$(dirname "$OMARCHY_SRC")")/default/hypr/bindings/"*.lua 2>/dev/null | sed -nE 's/^o\.bind\("([^"]+)".*/\1/p' | tr ' ' '_'); do
+  for f in hypr/overtake-classic.lua hypr/overtake-studio.lua; do
+    # (Studio's app_shortcut takes the key over the same way)
+    grep -qF -e "hl.unbind(\"${key//_/ }\")" -e "app_shortcut(\"${key//_/ }\"" "$f" || fail "$f leaves Omarchy's layout shortcut ${key//_/ } on"
+  done
+done
+grep -qF 'hl.unbind("SUPER + ALT + L")' hypr/overtake-classic.lua || fail "Classic leaves SUPER + ALT + L on"
+grep -qF 'hl.unbind("SUPER + ALT + L")' hypr/overtake-studio.lua || fail "Studio leaves SUPER + ALT + L on"
+if grep -q 'suppress_event' hypr/overtake.lua; then fail "a suppress rule is back: rules add up, it can't lift Omarchy's"; fi
+pass "neither mode leaves a shortcut that changes a workspace's layout"
 
 # ---------- File names in terminal output ----------
 fresh

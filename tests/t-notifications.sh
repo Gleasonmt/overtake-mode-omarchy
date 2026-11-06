@@ -18,7 +18,7 @@ for kib in $(seq 56 4 400); do
   if cp -r "$src/." "$d/m/" 2>/dev/null; then
     tried=$((tried + 1))
     if python3 -I "$apply" notifications "$d/m" >/dev/null 2>&1; then
-      for f in Service.qml Toast.qml; do cmp -s "$d/m/$f" "$want/$f" || { echo "${kib}k: exit 0 with a cut-off $f"; bad=1; }; done
+      for f in Service.qml Toast.qml Store.js; do cmp -s "$d/m/$f" "$want/$f" || { echo "${kib}k: exit 0 with a cut-off $f"; bad=1; }; done
     else failed=$((failed + 1)); fi
   fi
   umount "$d/m"

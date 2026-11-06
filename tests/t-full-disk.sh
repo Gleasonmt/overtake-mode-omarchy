@@ -150,3 +150,64 @@ cmp -s "$BR/screensaver.txt" "$T/art" || fail "screensaver art was replaced with
 ls -A "$BR" | grep -qv -e '^screensaver.txt$' -e '^\.fill$' && fail "a temp file was left: $(ls -A "$BR")"
 umount "$BR"
 pass "screensaver art stays as it was if there's no room to keep a copy"
+
+# ---------- A state folder that can't be written ----------
+H2="$T/ro"; make_home "$H2"
+sbx "$H2" ./install.sh --yes >"$T/log" 2>&1 || { cat "$T/log"; fail "install"; }
+sbx "$H2" "$H2/.local/bin/overtake" on >>"$T/log" 2>&1 || { cat "$T/log"; fail "on"; }
+ST="$H2/.local/state/overtake"
+mount --bind "$ST" "$ST" && mount -o remount,ro,bind "$ST"
+started=$SECONDS
+rc=0; sbx "$H2" "$H2/.local/bin/overtake" off >"$T/out" 2>&1 || rc=$?
+umount "$ST"
+[[ $rc != 0 ]] || { cat "$T/out"; fail "off went ahead with its folder read-only"; }
+(( SECONDS - started < 10 )) || fail "a read-only folder made off wait $((SECONDS - started)) s"
+grep -q "can't write to" "$T/out" || { cat "$T/out"; fail "a read-only folder was reported as something else"; }
+grep -q 'another on/off' "$T/out" && fail "a read-only folder was reported as another on/off"
+[[ -e $ST/enabled ]] || fail "off half-happened with its folder read-only"
+pass "a state folder that can't be written is said at once, not after a minute"
+
+# ---------- Leaving a mode on a full disk ----------
+LK="$ST/looks"; mkdir -p "$LK"
+mount -t tmpfs -o size=4k tmpfs "$LK"
+dd if=/dev/zero of="$LK/.fill" bs=4k 2>/dev/null || true
+sbx "$H2" "$H2/.local/bin/overtake" off >"$T/out" 2>&1 || { umount "$LK"; cat "$T/out"; fail "a full disk stopped the switch back at saving the look"; }
+umount "$LK"
+[[ $(sbx "$H2" "$H2/.local/bin/overtake" status) == off ]] || fail "off didn't finish on a full disk"
+pass "a mode's look that can't be saved doesn't stop the switch back"
+
+# ---------- An update on a full disk leaves the command working ----------
+H3="$T/upd"; make_home "$H3"
+sbx "$H3" ./install.sh --yes >"$T/log" 2>&1 || { cat "$T/log"; fail "install"; }
+B="$H3/.local/bin"
+cp -a "$B/overtake" "$T/old-command"
+for kb in 4 8 16 64 96; do
+  mkdir -p "$T/keep"; cp -a "$B/." "$T/keep/"
+  mount -t tmpfs -o "size=$(( $(du -sk "$T/keep" | cut -f1) + kb ))k" tmpfs "$B"
+  cp -a "$T/keep/." "$B/"
+  printf '# an older version\n' >>"$B/overtake"; chmod 755 "$B/overtake"
+  cp -a "$B/overtake" "$T/before"
+  dd if=/dev/zero of="$B/.fill" bs=4k 2>/dev/null || true
+  rc=0; sbx "$H3" ./install.sh --yes >"$T/out" 2>&1 || rc=$?
+  [[ $rc != 0 ]] || { cat "$T/out"; fail "${kb}k: install said it finished with no room"; }
+  cmp -s "$B/overtake" "$T/before" || fail "${kb}k: a failed update changed the command"
+  [[ -x $B/overtake ]] || fail "${kb}k: a failed update left the command not executable"
+  grep -q 'the old one stays' "$T/out" || { cat "$T/out"; fail "${kb}k: no clear message"; }
+  ls -A "$B" | grep -qv -e '^overtake$' -e '^\.fill$' && fail "${kb}k: a temp file was left: $(ls -A "$B")"
+  umount "$B"
+  rm -rf "${T:?}/keep"
+done
+pass "an update on a full disk leaves the old command whole and says so"
+
+# An own plugin that can't be copied leaves the old one whole, and no build folder.
+PL="$H3/.config/omarchy/plugins"
+cp -a "$PL" "$T/pl-keep"
+mount -t tmpfs -o "size=$(( $(du -sk "$T/pl-keep" | cut -f1) + 8 ))k" tmpfs "$PL"
+cp -a "$T/pl-keep/." "$PL/"
+dd if=/dev/zero of="$PL/.fill" bs=4k 2>/dev/null || true
+rc=0; sbx "$H3" ./install.sh --yes >"$T/out" 2>&1 || rc=$?
+[[ $rc != 0 ]] || { cat "$T/out"; fail "install said it finished with no room for its plugins"; }
+diff -rq "$T/pl-keep/overtake.taskbar" "$PL/overtake.taskbar" >/dev/null || fail "a failed update changed overtake.taskbar"
+ls -A "$PL" | grep -q '^\.overtake-build' && fail "a build folder was left: $(ls -A "$PL")"
+umount "$PL"
+pass "an own plugin that can't be copied stays as it was"

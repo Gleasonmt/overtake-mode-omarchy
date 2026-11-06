@@ -43,10 +43,10 @@ Uninstalling Overtake Mode will:
     (a file of these it created goes if nothing else was added)
   make sure Omarchy's own notifications and battery run (shell.json; any
     you had turned off yourself stay off)
-  put back your own screensaver art, if Overtake replaced it
+  put back your own screensaver art, if what's there now is what Overtake wrote
   delete ~/.local/bin/overtake, ~/.config/hypr/overtake*.lua, its Omarchy
     post-update hook (hooks/post-update.d/overtake.hook),
-    ~/.config/omarchy/plugins/overtake.*, its .desktop files,
+    ~/.config/omarchy/plugins/overtake.*, its .desktop file,
     ~/.local/share/overtake, ~/.local/state/overtake and ~/.cache/overtake
 EOF
 if [[ $PURGE ]]; then
@@ -72,7 +72,7 @@ overtake_bar() {  # Overtake's bar in shell.json, even if a switch failed halfwa
   jq -e '[.bar | .. | .id? // empty] | (index("overtake.taskbar") or index("overtake.menubar"))' \
     "$HOME/.config/omarchy/shell.json" >/dev/null 2>&1
 }
-if [[ -f $HOME/.local/state/overtake/enabled ]] || overtake_bar; then
+if [[ -f $HOME/.local/state/overtake/enabled || -f $HOME/.local/state/overtake/switching-off ]] || overtake_bar; then
   if ! [[ -x $OVERTAKE ]] || ! "$OVERTAKE" off >/dev/null; then
     echo "Couldn't switch Overtake Mode off; nothing removed. Fix that first (overtake off)." >&2
     exit 1
@@ -172,25 +172,32 @@ if [[ -z ${OVERTAKE_NO_RELOAD:-} ]]; then
   done
 fi
 # Omarchy's own is turned back on only where Overtake's copy switched it off
-# (Omarchy's record of that: the copy in cloneSourceRestores). One you turned
-# off yourself, before installing or since, stays off.
-KEEP_OFF=$(jq -Rsc 'split("\n") | map(select(length > 0))' "$HOME/.local/state/overtake/disabled-before" 2>/dev/null) || KEEP_OFF='[]'
+# (Omarchy's record of that: the copy in cloneSourceRestores, which it doesn't
+# set for one that was off already). One you turned off yourself stays off.
 if [[ -f $SHELL_JSON ]]; then
   # (written next to the real file, the link's target if it's a symlink, and
   # renamed over it, keeping its mode)
   target=$(readlink -f "$SHELL_JSON")
   tmp=$(mktemp "$target.XXXXXX")
-  if jq --argjson keep "${KEEP_OFF:-[]}" '(if (.cloneSourceRestores | type) == "array" then .cloneSourceRestores else [] end) as $restores
+  if jq '(if (.cloneSourceRestores | type) == "array" then .cloneSourceRestores else [] end) as $restores
       | (if (.plugins | type) == "array" then .plugins |= map(select((if type == "object" then .id else . end) | tostring | startswith("overtake.") | not)) else . end)
-      | (if (.disabledPlugins | type) == "array" then .disabledPlugins |= map(select((tostring | startswith("overtake.") | not) and (. as $id | (type == "string" and startswith("omarchy.") and ($restores | index("overtake." + ($id | ltrimstr("omarchy."))) != null) and ($keep | index($id) == null)) | not))) else . end)
+      | (if (.disabledPlugins | type) == "array" then .disabledPlugins |= map(select((tostring | startswith("overtake.") | not) and (. as $id | (type == "string" and startswith("omarchy.") and ($restores | index("overtake." + ($id | ltrimstr("omarchy."))) != null)) | not))) else . end)
       | (if (.cloneSourceRestores | type) == "array" then .cloneSourceRestores |= map(select(tostring | startswith("overtake.") | not)) else . end)
       | (if .disabledPlugins == [] then del(.disabledPlugins) else . end)
       | (if .cloneSourceRestores == [] then del(.cloneSourceRestores) else . end)' \
-      "$SHELL_JSON" >"$tmp" && ! jq -e --slurpfile new "$tmp" '. == $new[0]' "$SHELL_JSON" >/dev/null 2>&1; then
-    chmod --reference="$target" "$tmp" 2>/dev/null || true
-    mv -f "$tmp" "$target"   # (only when something changed)
+      "$SHELL_JSON" >"$tmp"; then
+    if jq -e --slurpfile new "$tmp" '. == $new[0]' "$SHELL_JSON" >/dev/null 2>&1; then
+      rm -f "$tmp"
+    else
+      chmod --reference="$target" "$tmp" 2>/dev/null || true
+      mv -f "$tmp" "$target"   # (only when something changed)
+    fi
   else
+    # (invalid, or no room: nothing of Overtake's goes yet, including what can
+    # repair this at login)
     rm -f "$tmp"
+    echo "Couldn't update $SHELL_JSON, so Omarchy's own notifications and battery may stay off; nothing more removed. Fix that and run this again." >&2
+    exit 1
   fi
 fi
 
@@ -217,11 +224,18 @@ if [[ -z $PURGE && -f $HOME/.local/state/overtake/taskbar-settings.json ]]; then
 fi
 rm -f "$HOME/.local/share/applications/overtake-trash.desktop"
 rm -f "$HOME/.config/omarchy/hooks/post-update.d/overtake.hook"
-# Screensaver art you had before Overtake replaced it
+# Screensaver art you had before Overtake replaced it, if what's there now is
+# what Overtake wrote. Art you wrote or picked stays, with your old art kept
+# beside it.
 art="$HOME/.config/omarchy/branding/screensaver.txt"
-[[ -f $art.before-overtake ]] && mv -f "$art.before-overtake" "$art"
-# (or none at all, as it was)
-[[ -f $HOME/.local/state/overtake/screensaver-art-absent ]] && rm -f "$art"
+written="$HOME/.local/state/overtake/screensaver-art-written"
+if [[ ! -e $art ]] || [[ -f $written && $(sha256sum <"$art") == "$(<"$written")" ]]; then
+  [[ -f $art.before-overtake ]] && mv -f "$art.before-overtake" "$art"
+  # (or none at all, as it was)
+  [[ -f $HOME/.local/state/overtake/screensaver-art-absent ]] && rm -f "$art"
+elif [[ -f $art.before-overtake ]]; then
+  echo "Kept your current screensaver art; the one from before Overtake is $art.before-overtake"
+fi
 rm -f "$HOME/.local/bin/overtake" "$HYPR/overtake.lua" "$HYPR/overtake-classic.lua" "$HYPR/overtake-studio.lua"
 rm -rf "${PLUGINS:?}/overtake.taskbar" "${PLUGINS:?}/overtake.workspaces" \
        "${PLUGINS:?}/overtake.bluetooth" "${PLUGINS:?}/overtake.audio" \

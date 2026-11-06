@@ -115,13 +115,23 @@ def notify(bus, args):
     w.s("")
     w.s(args.summary)
     w.s(args.body)
-    w.u(0)           # no actions
+    w.u(0)           # the actions' length, filled in below
+    acts_at = len(w.b) - 4
+    for i in range(args.actions):
+        w.s(str(i))
+        w.s("x")
+    struct.pack_into("<I", w.b, acts_at, len(w.b) - acts_at - 4)
     hints = Writer()
     hints.b = w.b    # (same buffer: alignment counts from the start of the body)
     w.u(0)
     length_at = len(w.b) - 4
     w.align(8)
     start = len(w.b)
+    if args.hint_size:
+        w.align(8)
+        w.s("x-big")
+        w.g("s")
+        w.s("x" * args.hint_size)
     if args.image_path:
         w.align(8)
         w.s("image-path")
@@ -159,6 +169,8 @@ def main():
     p.add_argument("--image-data", default="")
     p.add_argument("--lie-size", type=int, default=-1)   # claim that size, send this many bytes
     p.add_argument("--count", type=int, default=1)
+    p.add_argument("--hint-size", type=int, default=0)   # a string hint of that length
+    p.add_argument("--actions", type=int, default=0)     # that many buttons
     p.add_argument("--hold", action="store_true")
     args = p.parse_args()
     if args.body_file:

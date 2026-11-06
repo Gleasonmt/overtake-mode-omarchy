@@ -8,9 +8,15 @@ set -uo pipefail
 cd "$(dirname "$0")/.."
 
 failed=0
+skipped=0
 run() {  # run <name> <command...>
+  local out
   echo "# $1"
-  if "${@:2}"; then :; else echo "FAILED: $1"; failed=1; fi
+  out=$(mktemp)
+  # (shown as it goes; skip lines are counted for the last line)
+  if "${@:2}" 2>&1 | tee "$out"; (( PIPESTATUS[0] == 0 )); then :; else echo "FAILED: $1"; failed=1; fi
+  skipped=$(( skipped + $(grep -c '^skipped' "$out" || true) ))
+  rm -f "$out"
 }
 
 run "syntax" bash -c 'for f in bin/overtake install.sh uninstall.sh tests/*.sh; do bash -n "$f" || exit 1; done; python3 -I -m py_compile patches/apply.py && echo "ok - bash and python parse"'
@@ -35,4 +41,4 @@ run "notification history" bash tests/t-notifications.sh
 run "notification history in real Quickshell" bash tests/t-notifications-qs.sh
 
 if (( failed )); then echo "SOME TESTS FAILED"; exit 1; fi
-echo "ALL TESTS PASSED"
+if (( skipped )); then echo "ALL TESTS PASSED, $skipped part(s) skipped"; else echo "ALL TESTS PASSED, none skipped"; fi

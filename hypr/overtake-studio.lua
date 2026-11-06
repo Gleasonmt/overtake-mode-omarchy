@@ -165,6 +165,8 @@ o.bind("SUPER + grave", "Next window of this app", "overtake ui app-windows")
 -- ---------- Desktop ----------
 hl.unbind("SUPER + SPACE")
 o.bind("SUPER + SPACE", "Spotlight", "overtake ui spotlight")
+-- (Omarchy's layouts bring their own title bars and Dock, which don't mix with Overtake's)
+hl.unbind("SUPER + ALT + L")
 hl.unbind("SUPER + ALT + SPACE")
 o.bind("SUPER + ALT + SPACE", "Omarchy menu", "omarchy-menu toggle")
 hl.unbind("SUPER + comma")

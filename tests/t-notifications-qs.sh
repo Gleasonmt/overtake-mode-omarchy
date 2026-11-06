@@ -97,6 +97,10 @@ import "ov" as Ov
 import "np" as Np
 ShellRoot {
   Ov.Service { id: svc }
+  // The longest the GUI thread went without running this, since the last read.
+  property real lastBeat: Date.now()
+  property real worstGap: 0
+  Timer { interval: 50; running: true; repeat: true; onTriggered: { var now = Date.now(); worstGap = Math.max(worstGap, now - lastBeat); lastBeat = now } }
   Np.Panel { id: panel }
   // What omarchy-shell would do: the stand-in in the test's PATH asks here.
   FileView {
@@ -133,7 +137,9 @@ ShellRoot {
         r = s.join("|")
       }
       else if (c === "clicklink") { var a = firstReal(); r = a && svc.testCards[a.key] && svc.testCards[a.key].testClickLink() ? "clicked" : "nolink" }
+      else if (c === "clickcode") { var k = firstReal(); if (k) svc.copyCode(String(k.codes).split(" ")[0], k.key); r = k ? "clicked" : "none" }
       else if (c === "clickcard") { var b = firstReal(); if (b) svc.activate(b.key); r = b ? "clicked" : "none" }
+      else if (c === "gap") { r = "gap=" + Math.round(worstGap); worstGap = 0 }
       else if (c === "pictures") {
         var n = 0, w = 0
         for (var j = 0; j < svc.testToasts.count; j++) {
@@ -163,6 +169,10 @@ import qs.Commons
 import "ov" as Ov
 ShellRoot {
   Ov.Service { id: svc }
+  // The longest the GUI thread went without running this, since the last read.
+  property real lastBeat: Date.now()
+  property real worstGap: 0
+  Timer { interval: 50; running: true; repeat: true; onTriggered: { var now = Date.now(); worstGap = Math.max(worstGap, now - lastBeat); lastBeat = now } }
   FileView {
     path: Quickshell.env("HOME") + "/ctl"
     watchChanges: true
@@ -223,6 +233,7 @@ cat > "$E/bin/wl-copy" <<STUB
 printf '%s\n' "wl-copy \$*" >> "$E/clip-argv"
 [[ \$* == *--clear* ]] && exit 0
 cat >> "$E/clip-stdin"; echo >> "$E/clip-stdin"
+[[ ! -e "\$HOME/clip-slow" ]] || sleep 3
 [[ ! -e "\$HOME/clip-fails" ]]
 STUB
 for tool in xdg-open omarchy-hyprland-focus-app overtake; do
@@ -267,7 +278,7 @@ case $SCEN in
   full*|stop|stale|aged|removed|dndsave|rohome) mount -t tmpfs -o size=256k tmpfs "$N";;
 esac
 case $SCEN in
-  link*|focus|pathimage|rawclaim|flood*|dndrules|dndsave|rohome|onlyhidden|appmodes|critical)
+  link*|focus|pathimage|rawclaim|flood*|stall|huge*|linkrace|codefail|dndrules|dndsave|rohome|onlyhidden|appmodes|critical)
     ROOT=rootw; WAITS=5
     export QT_QPA_PLATFORM=vnc QT_QUICK_BACKEND=software;;
 esac
@@ -368,6 +379,52 @@ case $SCEN in
     echo "picture=[$(reply picture)]"
     ctl summaries 0.5
     echo "shown=[$(reply summaries)]"
+    ;;
+  stall)   # text a sender chooses, in the worst shapes for the copy's patterns
+    for shape in '<' '<a ' '&lt;' '<a href="x">'; do
+      python3 -I -c 'import sys; s=sys.argv[1]; sys.stdout.write((s*(32768//len(s)+1))[:32768])' "$shape" > "$HOME/body"
+      ctl gap 1
+      send --app Evil --summary "Stall" --body-file "$HOME/body"; sleep 2.5
+      ctl gap 0.5
+      echo "gap=[$(reply gap | sed 's/[^0-9]//g')]"
+    done
+    ;;
+  hugetext)   # what a sender passes beyond a picture: let go past the limits
+    head -c 30000000 /dev/zero | tr '\0' x > "$HOME/body"
+    base=$(rss)
+    send --app Evil --summary "Big" --body-file "$HOME/body" --count 10
+    allcards 10
+    echo "pictures=[$(reply pictures)]"
+    echo "grew=[$(( $(rss) - base ))]"
+    ;;
+  hugehint)
+    base=$(rss)
+    send --app Evil --summary "Big" --hint-size 30000000 --count 10
+    allcards 10
+    echo "pictures=[$(reply pictures)]"
+    echo "grew=[$(( $(rss) - base ))]"
+    ;;
+  hugeacts)
+    base=$(rss)
+    send --app Evil --summary "Big" --actions 400000 --count 2
+    allcards 2
+    echo "pictures=[$(reply pictures)]"
+    echo "grew=[$(( $(rss) - base ))]"
+    ;;
+  linkrace)   # a second click while the first copy is still running
+    printf '%s' 'https://example.com/a?token=URLMARKER77' > "$HOME/body"
+    touch "$HOME/clip-slow"
+    send --app Mail --summary "Reset" --body-file "$HOME/body"; sleep 1.5
+    ctl clicklink 0.3
+    ctl clicklink 3.5
+    rm -f "$HOME/clip-slow"
+    ;;
+  codefail)   # a copy that fails keeps the card, and says so
+    touch "$HOME/clip-fails"
+    notify-send -a Bank "Sign-in" "Your verification code is 482913"; sleep 1.5
+    ctl clickcode 1.5
+    ctl summaries 0.5
+    echo "said=[$(reply summaries)]"
     ;;
   flood)   # big raw pictures: never drawn, but the bytes stay while a sender's object does
     base=$(rss)
@@ -721,6 +778,35 @@ out=$(run_scen floodback)
 has "$out" before '"cards=12 pictures=8 senders=8"' || fail "(setup) a burst of small pictures: $out"
 has "$out" after '"cards=[0-9]* pictures=1 senders=1"' || fail "a card's picture stayed counted after it closed: $out"
 pass "the limit counts only the cards up now"
+
+out=$(run_scen hugetext)
+has "$out" pictures '"cards=10 pictures=0 senders=0"' || fail "a body past the limit kept its sender's object: $out"
+grew=$(value "$out" grew); (( grew < 200 )) || fail "10 bodies of 30 MB grew the shell by $grew MB: $out"
+pass "10 bodies of 30 MB: the senders' objects are let go, $grew MB"
+out=$(run_scen hugehint)
+has "$out" pictures '"cards=10 pictures=0 senders=0"' || fail "a hint past the limit kept its sender's object: $out"
+grew=$(value "$out" grew); (( grew < 200 )) || fail "10 hints of 30 MB grew the shell by $grew MB: $out"
+pass "10 hints of 30 MB: the same, $grew MB"
+out=$(run_scen hugeacts)
+has "$out" pictures '"cards=2 pictures=0 senders=0"' || fail "a message of many buttons kept its sender's object: $out"
+grew=$(value "$out" grew); (( grew < 600 )) || fail "2 messages of many buttons grew the shell by $grew MB: $out"
+pass "2 messages of 400,000 buttons: the same, $grew MB"
+
+# ---- Text a sender chooses doesn't stall the shared shell ----
+out=$(run_scen stall)
+worst=$(sed -n 's/^gap=\[\(.*\)\]$/\1/p' <<<"$out" | sort -n | tail -1)
+[[ $(grep -c '^gap=' <<<"$out") == 4 && -n $worst ]] || fail "(setup) no timings: $out"
+(( worst < 500 )) || fail "a hostile body stalled the shell for $worst ms: $out"
+pass "32 KB of the worst text stalls the shell for at most $worst ms"
+
+# ---- A code or link copy that goes wrong ----
+out=$(run_scen codefail)
+has "$out" said '"Sign-in|Couldn.t copy the code."' || has "$out" said '"Couldn.t copy the code.|Sign-in"' || fail "a failed code copy closed its card, or didn't say so: $out"
+pass "a failed code copy keeps its card and says so"
+: >"$E/clip-stdin"
+run_scen linkrace >/dev/null
+[[ $(grep -c 'URLMARKER77' "$E/clip-stdin") == 2 && -z $(grep -vc 'URLMARKER77' "$E/clip-stdin" | grep -v '^0$') ]] || fail "a second link click lost its copy: $(cat "$E/clip-stdin")"
+pass "a second link click waits for the first copy"
 
 # ---- A removed row and live.json ----
 out=$(run_scen removed)

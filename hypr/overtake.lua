@@ -10,9 +10,8 @@ o.bind("SUPER + CTRL + ALT + SPACE", "Next Overtake wallpaper", "overtake next-w
 -- the snap shortcuts place them. `overtake off` tiles them again.
 o.window(".*", { float = true, center = true })
 
--- Omarchy suppresses every app's own maximize request. Overtake Mode honours them,
--- so replace that suppression with a harmless one (later rules win).
-o.window(".*", { suppress_event = "fullscreenoutput" })
+-- Omarchy suppresses every app's own maximize request, and rules add up, so that
+-- stays so here (measured). Overtake's title bars maximize through a dispatch.
 
 -- Resize windows by dragging their edges and corners.
 hl.config({ general = { resize_on_border = true } })

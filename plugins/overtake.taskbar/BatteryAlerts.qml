@@ -7,8 +7,8 @@ import Quickshell.Services.UPower
 // (the laptop, and Bluetooth or USB mice, keyboards, headsets, controllers,
 // ...) has a Low and a Critical level. Dropping to one sends a notification
 // from "Battery", so it also lands in the notification center and can be set
-// to Quiet there; each level fires once, and again only after the device has
-// charged back above it. Levels are set in Settings > System > Battery alerts
+// to Quiet there; each level fires once, and again after the device has charged
+// back above it or the shell has restarted. Levels are set in Settings > System > Battery alerts
 // and kept in ~/.config/overtake/battery-alerts.json:
 //   { "devices": { "laptop": { "low": 20, "critical": 10, "enabled": true },
 //                  "MX Master 3S": { "low": 15, "critical": 5, "name": "MX Master 3S", "kind": "Mouse" } } }
@@ -39,7 +39,8 @@ Item {
 
   // ---------- Devices ----------
   function isBattery(d) {
-    return !!d && d.type !== UPowerDeviceType.LinePower && (d.isLaptopBattery || d.percentage > 0)
+    // (0% is a battery only for a device already known as one: other things report 0 too)
+    return !!d && d.type !== UPowerDeviceType.LinePower && (d.isLaptopBattery || d.percentage > 0 || !!ownOf(config.devices, keyOf(d)))
   }
   function liveDevices() { return (UPower.devices.values || []).filter(isBattery) }
   // A device names itself: a name a plain object already has ("__proto__",
@@ -128,8 +129,8 @@ Item {
       if (known && known.name) return
       if (!next) next = JSON.parse(JSON.stringify(config))
       var own = ownOf(next.devices, key) || (next.devices[key] = {})
-      own.name = nameOf(d)
-      own.kind = kindOf(d)
+      own.name = String(nameOf(d)).slice(0, 256)   // (a name is the device's to choose)
+      own.kind = String(kindOf(d)).slice(0, 64)
     })
     if (next) save(next)
   }

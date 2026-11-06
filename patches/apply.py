@@ -10,7 +10,7 @@ to Omarchy's own plugin instead of shipping a broken one.
 import sys, os
 
 PATCHES = {
-    "workspaces": ("Workspaces.qml",
+    "workspaces": [("Workspaces.qml",
 '''  function workspaceIds() {
     var base = root.block * root.slots
     var ids = [base + 1, base + 2, base + 3, base + 4, base + 5]
@@ -56,6 +56,15 @@ PATCHES = {
     guests.sort(function(left, right) { return left - right })
     return ids.concat(guests)
   }'''),
+      # Overtake Mode: a click on the layout mark doesn't change the layout here.
+      # Omarchy's floating one brings title bars and a Dock that don't mix with
+      # Overtake's, and it would stay after switching back.
+      ("Workspaces.qml",
+'''  function cycleLayout() {
+    if (!root.bar) return''',
+'''  function cycleLayout() {
+    return   // Overtake Mode
+    if (!root.bar) return''')],
     "bluetooth": ("Panel.qml",
 '''      if (b === Qt.RightButton) root.toggleBluetooth()
       else root.toggle()''',
@@ -91,14 +100,22 @@ PATCHES = {
   Process {
     id: overtakeCodeClip
     property string value: ""
+    property string forKey: ""   // the card it came from, kept if the copy fails
     function send(v) {
       running = false
       value = v
       stdinEnabled = true
       running = true
     }
+    function failed() {
+      codeTaken.keys = codeTaken.keys.filter(function(k) { return k !== forKey })
+      service.showPlaceholder("Couldn't copy the code.")
+    }
     command: ["wl-copy", "--sensitive"]
     onStarted: { write(value); value = ""; stdinEnabled = false }
+    onExited: function(code) { if (code !== 0) failed() }
+    // (couldn't start at all: no exit comes, and the value was never taken)
+    onRunningChanged: if (!running && value !== "") { value = ""; failed() }
   }
 
   // Overtake Mode: a link in a notification's text can carry a reset or sign-in
@@ -111,8 +128,9 @@ PATCHES = {
     property string value: ""
     property string done: ""
     property string failed: ""
+    property var waiting: null   // a click while a copy is still running
     function send(v, sayDone, sayFailed) {
-      running = false
+      if (running) { waiting = [v, sayDone, sayFailed]; return }
       value = v
       done = sayDone
       failed = sayFailed
@@ -122,8 +140,12 @@ PATCHES = {
     command: ["wl-copy", "--sensitive"]
     onStarted: { write(value); value = ""; stdinEnabled = false }
     onExited: function(code) { service.showPlaceholder(code === 0 ? done : failed) }
-    // (couldn't start at all: no exit comes, and the value was never taken)
-    onRunningChanged: if (!running && value !== "") { value = ""; service.showPlaceholder(failed) }
+    onRunningChanged: {
+      if (running) return
+      // (couldn't start at all: no exit comes, and the value was never taken)
+      if (value !== "") { value = ""; service.showPlaceholder(failed) }
+      if (waiting) { var next = waiting; waiting = null; send(next[0], next[1], next[2]) }
+    }
   }
   function overtakeOpenLink(raw) {
     // (the text's own link arrives with its & still written &amp;: measured)
@@ -153,6 +175,19 @@ PATCHES = {
   // that, a card keeps its text and icon, and the sender's object is let go,
   // which takes its buttons with it.
   readonly property int overtakeMaxPictures: 8
+  // The same goes for text, buttons and hints, which can be read: a sender's
+  // object past these sizes is let go at once. (The card's own copies are
+  // already cut to Omarchy's limits and this file's, in Store.js.)
+  function overtakeOversized(n) {
+    if (String(n.body || "").length > 65536 || String(n.summary || "").length > 8192) return true
+    if ((n.actions || []).length > 32) return true
+    var hints = n.hints || {}, total = 0
+    Object.keys(hints).forEach(function(k) {
+      var v = hints[k]
+      total += k.length + (typeof v === "string" ? v.length : v ? (v.byteLength || v.length || 0) : 0)
+    })
+    return total > 65536
+  }
   property var overtakePictures: ({})   // card key -> true
   function overtakePictureFits(key, row) {
     if (!/^image:\\/\\/qsimage\\//.test(String(row.image || ""))) {
@@ -198,6 +233,22 @@ PATCHES = {
 '''    if (!liveKeys[key]) return
     delete overtakePictures[key]   // Overtake Mode
     delete liveKeys[key]'''),
+      ("Service.qml",
+'''    copySecret(value)
+    // A copied code finishes its card''',
+'''    overtakeCodeClip.forKey = String(key)   // Overtake Mode
+    copySecret(value)
+    // A copied code finishes its card'''),
+      # Overtake Mode: on text a sender chooses, this pattern takes quadratic time
+      # in the shell every plugin shares (measured: over a second for 32 KB of "<",
+      # for each notification, in stock too). So a body is cut to 8 KB, and "<" no
+      # longer restarts the search.
+      ("Store.js",
+'''              body: Security.bounded(n.body, Security.MAX_BODY) }''',
+'''              body: Security.bounded(n.body, 8192) }   // Overtake Mode: see apply.py'''),
+      ("Store.js",
+'''.replace(/<[^>]+>/g, " ")''',
+'''.replace(/<[^<>]*>/g, " ")'''),
       # The minute-later check reads at most a code's length of the
       # clipboard (whatever was copied since could be any size).
       ("Service.qml",
@@ -286,7 +337,7 @@ PATCHES = {
     if (muted) {
       if (!Delivery.isEphemeral(row)) storeRecord(row, muted)''',
 '''    // Overtake Mode: see overtakePictureFits
-    if (!service.overtakePictureFits(key, row)) { row.image = ""; service.release(key) }
+    if (service.overtakeOversized(notification) || !service.overtakePictureFits(key, row)) { row.image = ""; service.release(key) }
     var muted = service.overtakeMuted(row)   // Overtake Mode: Do Not Disturb, then the app's setting
     if (muted) {
       if (muted !== "off" && !Delivery.isEphemeral(row)) storeRecord(row, muted)'''),

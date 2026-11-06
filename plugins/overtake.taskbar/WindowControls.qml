@@ -7,7 +7,7 @@ import qs.Commons
 import qs.Commons as Commons
 
 // Overtake Mode's title bar for the focused window, with Snap
-// Layouts. Omarchy 4.0.6 has no title bars, so this floats as a layer-shell
+// Layouts. Omarchy's own title bars only come with its floating workspaces, so this floats as a layer-shell
 // surface just above the window (inside its top edge when there's no room).
 //
 //  - Drag the bar to move the window. Dragging near the top of the screen
@@ -25,7 +25,7 @@ import qs.Commons as Commons
 // title in the middle. A drag shows the snap bar too, and dragging a window
 // to a side of the screen also tiles it there (a corner: a quarter); the
 // workspace boxes cover the menu bar while dragging. Holding the pointer on
-// the green dot (or Super+Z) opens a menu of tiles instead of the snap bar.
+// the green dot opens a menu of tiles instead of the snap bar.
 Item {
   id: root
   OvertakeFolders { id: folders }   // Overtake's folders private before they're used
@@ -295,9 +295,30 @@ Item {
   // Hyprland animates every move, so a window dragged through IPC trails
   // behind the pointer. Switch the move animation off for the drag.
   function setMoveAnimation(on) {
+    if (!on) moveAnimationRead.running = true
+    var was = root.moveAnimation
     Quickshell.execDetached(["hyprctl", "eval", on
-      ? "hl.animation({ leaf = \"windowsMove\", enabled = true, speed = 3.79, bezier = \"easeOutQuint\" })"
+      ? "hl.animation({ leaf = \"windowsMove\", enabled = " + was.enabled + ", speed = " + was.speed + ", bezier = \"" + was.bezier + "\" })"
       : "hl.animation({ leaf = \"windowsMove\", enabled = false })"])
+  }
+  // What it was, to put back after a drag: your config's or your theme's
+  // (moves follow "windows" until something sets their own).
+  property var moveAnimation: ({ enabled: true, speed: 3.79, bezier: "easeOutQuint" })
+  function readMoveAnimation(text) {
+    try {
+      var all = JSON.parse(text)[0]
+      var named = function(n) { return all.filter(function(a) { return a.name === n })[0] }
+      var a = named("windowsMove")
+      if (a && !a.overridden && a.enabled) a = named("windows")
+      // (written into a Lua string, so only the shape a real curve name has)
+      if (a && a.overridden && /^[A-Za-z0-9_-]{1,64}$/.test(a.bezier) && a.speed > 0)
+        root.moveAnimation = { enabled: !!a.enabled, speed: Number(a.speed), bezier: a.bezier }
+    } catch (e) {}
+  }
+  Process {
+    id: moveAnimationRead
+    command: ["hyprctl", "animations", "-j"]
+    stdout: StdioCollector { onStreamFinished: root.readMoveAnimation(text) }
   }
 
   function beginDrag(x, y) {
@@ -1124,7 +1145,7 @@ Item {
     }
   }
 
-  // ---------- Studio: tile menu (hold on the green dot, or Super+Z) ----------
+  // ---------- Studio: tile menu (hold on the green dot) ----------
   PanelWindow {
     id: tileMenu
     visible: root.modeOn && root.studio && root.pickerOpen && root.eligible && root.screenForWindow !== null

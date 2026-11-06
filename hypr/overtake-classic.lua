@@ -26,8 +26,9 @@ o.bind("SUPER + DOWN", "Minimize window", "overtake minimize")
 hl.unbind("SUPER + UP")
 o.bind("SUPER + UP", "Maximize window", "overtake maximize")
 
--- Was: toggle workspace layout (no shortcut while Overtake Mode is on; use
--- `omarchy hyprland workspace layout toggle`).
+-- Was: cycle workspace layout. Omarchy's layouts bring their own title bars and
+-- Dock, which don't mix with Overtake's, so neither shortcut does that here.
+hl.unbind("SUPER + ALT + L")
 hl.unbind("SUPER + L")
 o.bind("SUPER + L", "Lock", "omarchy-system-lock")
 
@@ -43,4 +44,6 @@ hl.unbind("SUPER + X")
 o.bind("SUPER + X", "Quick link menu", "overtake start quick")
 
 -- Tapping the Super key on its own opens Start.
+hl.unbind("SUPER + ALT + SPACE")
+o.bind("SUPER + ALT + SPACE", "All apps", "overtake start all")
 o.bind("SUPER + SUPER_L", "Start menu", "overtake start", { release = true })

@@ -228,29 +228,44 @@ done
 # on or off, for the plugins to watch (`overtake on|off` keeps it current)
 if [[ -f $HOME/.local/state/overtake/enabled ]]; then echo on; else echo off; fi >"$HOME/.local/state/overtake/mode"
 
+# Overtake's own files, whole or not at all: a full disk during an update leaves
+# the old file working (the command is what switches back and uninstalls).
+put_file() {  # put_file <mode> <source> <target>
+  local tmp
+  mkdir -p "$(dirname "$3")"
+  tmp=$(mktemp "$3.XXXXXX") || { echo "Couldn't write next to $3; the old one stays. Free some space and run this again." >&2; exit 1; }
+  if ! { cat <"$2" >"$tmp" && chmod "$1" "$tmp" && mv -f "$tmp" "$3"; }; then
+    rm -f "$tmp"
+    echo "Couldn't write $3; the old one stays. Free some space and run this again." >&2
+    exit 1
+  fi
+}
+
 # 1. The command.
-install -Dm755 "$REPO/bin/overtake" "$HOME/.local/bin/overtake"
+put_file 755 "$REPO/bin/overtake" "$HOME/.local/bin/overtake"
 # and the uninstaller, so `overtake uninstall` works without this folder
-install -Dm755 "$REPO/uninstall.sh" "$HOME/.local/share/overtake/uninstall.sh"
+put_file 755 "$REPO/uninstall.sh" "$HOME/.local/share/overtake/uninstall.sh"
 # and the patcher, so the copies of Omarchy's plugins can be rebuilt after an update
-install -Dm644 "$REPO/patches/apply.py" "$HOME/.local/share/overtake/apply.py"
-install -Dm644 "$REPO/NOTICE.md" "$HOME/.local/share/overtake/NOTICE.md"
+put_file 644 "$REPO/patches/apply.py" "$HOME/.local/share/overtake/apply.py"
+put_file 644 "$REPO/NOTICE.md" "$HOME/.local/share/overtake/NOTICE.md"
 say "command: ~/.local/bin/overtake"
 
 # 2. Hyprland: the Overtake shortcuts file, the switch shortcut, and the login hook.
 # (files that weren't there go again on uninstall, if nothing else was added)
 [[ -e $HYPR/bindings.lua ]] || touch "$HOME/.local/state/overtake/created-bindings"
 [[ -e $HYPR/autostart.lua ]] || touch "$HOME/.local/state/overtake/created-autostart"
-install -Dm644 "$REPO/hypr/overtake.lua" "$HYPR/overtake.lua"
-install -Dm644 "$REPO/hypr/overtake-classic.lua" "$HYPR/overtake-classic.lua"
-install -Dm644 "$REPO/hypr/overtake-studio.lua" "$HYPR/overtake-studio.lua"
+put_file 644 "$REPO/hypr/overtake.lua" "$HYPR/overtake.lua"
+put_file 644 "$REPO/hypr/overtake-classic.lua" "$HYPR/overtake-classic.lua"
+put_file 644 "$REPO/hypr/overtake-studio.lua" "$HYPR/overtake-studio.lua"
 set_block "$HYPR/bindings.lua" "--" '-- Overtake Mode: SUPER+CTRL+SHIFT+W goes to the next mode, Omarchy -> Classic -> Studio (or `overtake cycle|on|off`).
 -- Its shortcuts load only while the mode is on.
 o.bind("SUPER + CTRL + SHIFT + W", "Next desktop mode", "overtake cycle")
 local overtake_flag = io.open((os.getenv("HOME") or "") .. "/.local/state/overtake/enabled", "r")
 if overtake_flag then
   overtake_flag:close()
-  dofile((os.getenv("HOME") or "") .. "/.config/hypr/overtake.lua")
+  -- (protected: an error in that file must not stop the rest of your config)
+  local ok, err = pcall(dofile, (os.getenv("HOME") or "") .. "/.config/hypr/overtake.lua")
+  if not ok then print("overtake: " .. tostring(err)) end
 end'
 set_block "$HYPR/autostart.lua" "--" '-- Overtake Mode: at login, check and rebuild its patched copies of Omarchy plugins, and restart its wallpaper slideshow if the mode is on.
 o.launch_on_start("overtake resume")'
@@ -262,9 +277,19 @@ say "Hyprland: ~/.config/hypr/overtake{,-classic,-studio}.lua, plus marked block
 #    applies is left out, and Overtake uses Omarchy's own one instead.
 mkdir -p "$PLUGINS"
 OWN_PLUGINS="overtake.taskbar overtake.notification-center overtake.menubar overtake.control-center"
+# (each built beside the old one, which goes only once the new one is in place)
 for plugin in $OWN_PLUGINS; do
-  rm -rf "${PLUGINS:?}/$plugin"
-  cp -r "$REPO/plugins/$plugin" "$PLUGINS/$plugin"
+  new="$PLUGINS/.overtake-build.new-$plugin"
+  old="$PLUGINS/.overtake-build.old-$plugin"
+  rm -rf "${new:?}" "${old:?}"
+  if ! cp -r "$REPO/plugins/$plugin" "$new"; then
+    rm -rf "${new:?}"
+    echo "Couldn't copy $plugin; the old one stays. Free some space and run this again." >&2
+    exit 1
+  fi
+  [[ ! -e $PLUGINS/$plugin ]] || mv -T "$PLUGINS/$plugin" "$old"
+  mv -T "$new" "$PLUGINS/$plugin"
+  rm -rf "${old:?}"
 done
 
 # The five patched copies (workspaces, bluetooth, audio; notifications with
@@ -281,15 +306,6 @@ cat >"$HOME/.config/omarchy/hooks/post-update.d/overtake.hook" <<'EOF'
 if [ -x "$HOME/.local/bin/overtake" ]; then "$HOME/.local/bin/overtake" build-copies update; fi
 EOF
 say "hook: ~/.config/omarchy/hooks/post-update.d/overtake.hook"
-# Which of Omarchy's own you had turned off yourself, so ./uninstall.sh leaves
-# those off instead of turning them back on.
-if [[ ! -e $HOME/.local/state/overtake/disabled-before ]]; then
-  # (not one that Overtake's own copy switched off)
-  jq -r '(if (.cloneSourceRestores | type) == "array" then .cloneSourceRestores else [] end) as $r
-    | (.disabledPlugins // [])[] | select(. == "omarchy.notifications" or . == "omarchy.battery")
-    | select(("overtake." + ltrimstr("omarchy.")) as $c | $r | index($c) | not)' \
-    "$HOME/.config/omarchy/shell.json" >"$HOME/.local/state/overtake/disabled-before" 2>/dev/null || true
-fi
 # Omarchy's own notifications and battery run in Omarchy mode; Overtake's
 # copies are switched in only while Classic or Studio is on.
 if [[ -f $HOME/.local/state/overtake/enabled ]]; then
@@ -342,10 +358,11 @@ for file in desktop-icons.txt no-controls.txt start-pinned.txt dock-pinned.txt; 
   [[ -e $CONFIG/$file ]] || cp "$REPO/config/$file" "$CONFIG/$file"
 done
 mkdir -p "$PICTURES/slideshow"
-cp "$REPO"/wallpapers/*.png "$PICTURES/slideshow/"
+# (--remove-destination: a link you put here is replaced, what it points at isn't touched)
+cp --remove-destination "$REPO"/wallpapers/*.png "$PICTURES/slideshow/"
 mkdir -p "$PICTURES/studio"
 for file in "$REPO"/wallpapers/studio/*; do
-  [[ -f $file ]] && cp "$file" "$PICTURES/studio/"
+  [[ -f $file ]] && cp --remove-destination "$file" "$PICTURES/studio/"
 done
 # Studio's first drawn set, since dropped: only a file exactly as that version
 # shipped it. One you made under the same name stays.

@@ -812,7 +812,7 @@ Panel {
           width: parent.width
           wrapMode: Text.Wrap
           text: root.knownApps.length
-            ? "Show: pop-ups, then kept here.  Quiet: kept here, no pop-ups except verification codes and critical battery alerts.  Off: nothing from that app."
+            ? "Show: pop-ups, then kept here.  Quiet: kept here, no pop-ups except verification codes, critical battery alerts, Omarchy's own messages and critical alerts from scripts; temporary notifications still pop up, as they can't be kept.  Off: nothing from that app."
             : "Apps appear here once they've sent a notification."
           color: root.panelFg
           opacity: .6
