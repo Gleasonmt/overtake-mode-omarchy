@@ -95,8 +95,7 @@ function Clock() {
   return c
 }
 
-// A FileView as Quickshell 0.3 behaves (measured with a real `qs`, see
-// REVIEWING): setText of the text it last tried to write is skipped; a
+// A FileView as Quickshell 0.3 behaves (measured with a real `qs`): setText of the text it last tried to write is skipped; a
 // failed write still counts as tried; a write refused at open (permissions)
 // emits saveFailed, but one that fails at commit (disk full) only logs and
 // emits saved; reload() from inside a save signal does nothing, and from

@@ -138,7 +138,7 @@ case "$*" in
   *activewindow*) cat "$HYPR/activewindow.json" ;;
   *activeworkspace*) cat "$HYPR/activeworkspace.json" ;;
   *workspaces*) cat "$HYPR/workspaces.json" ;;
-  *getoption*) echo '{"int":0,"str":""}' ;;
+  *getoption*) echo '{"option":"cursor.no_warps","bool":false,"set":false}' ;;
   *-j*) echo '{}' ;;
 esac
 EOF

@@ -56,7 +56,7 @@ Item {
     iconsText = text
     icons = DesktopList.lines(text).filter(DesktopList.isIcon)
       .map(function(line) { return { id: DesktopList.idOf(line), label: DesktopList.labelOf(line) } })
-      .filter(function(icon) { return root.builtIn[icon.id] || DesktopEntries.byId(icon.id) })
+      .filter(function(icon) { return root.builtInOf(icon.id) || DesktopEntries.byId(icon.id) })
   }
   function writeIcons(text) {
     folders.write(iconsFile, text)
@@ -79,6 +79,8 @@ Item {
   }
 
   // Icons that aren't a desktop entry: what they open and how they look.
+  // (own keys only: an id comes from a text file, and could be "constructor")
+  function builtInOf(id) { return Object.prototype.hasOwnProperty.call(root.builtIn, id) ? root.builtIn[id] : null }
   readonly property var builtIn: ({
     trash: { icon: "user-trash", label: "Trash", command: ["uwsm-app", "--", "nautilus", "trash:///"] },
     browser: { icon: "web-browser", label: "Browser", command: ["omarchy-launch-browser"] },
@@ -86,24 +88,24 @@ Item {
   })
 
   function entryFor(icon) {
-    return root.builtIn[icon.id] ? null : DesktopEntries.byId(icon.id)
+    return root.builtInOf(icon.id) ? null : DesktopEntries.byId(icon.id)
   }
 
   function labelFor(icon) {
     if (icon.label) return icon.label
-    if (root.builtIn[icon.id]) return root.builtIn[icon.id].label
+    if (root.builtInOf(icon.id)) return root.builtInOf(icon.id).label
     var entry = entryFor(icon)
     return entry ? entry.name : icon.id
   }
 
   function iconSource(icon) {
-    var name = root.builtIn[icon.id] ? root.builtIn[icon.id].icon : (entryFor(icon) ? entryFor(icon).icon : "")
+    var name = root.builtInOf(icon.id) ? root.builtInOf(icon.id).icon : (entryFor(icon) ? entryFor(icon).icon : "")
     var source = name ? Quickshell.iconPath(name, true) : ""
     return source || Quickshell.iconPath("application-x-executable", true)
   }
 
   function open(icon) {
-    if (root.builtIn[icon.id]) Quickshell.execDetached(root.builtIn[icon.id].command)
+    if (root.builtInOf(icon.id)) Quickshell.execDetached(root.builtInOf(icon.id).command)
     else Quickshell.execDetached(["uwsm-app", "--", "gtk-launch", icon.id + ".desktop"])
     root.selected = ""
   }
@@ -164,7 +166,7 @@ Item {
   }
 
   function iconMenu(icon) {
-    var isApp = !root.builtIn[icon.id]
+    var isApp = !root.builtInOf(icon.id)
     // What Start and the taskbar pin: the app itself, or for Trash its
     // launcher (installed by Overtake).
     var pinId = isApp ? icon.id : (icon.id === "trash" && DesktopEntries.byId("overtake-trash") ? "overtake-trash" : "")

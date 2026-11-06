@@ -391,6 +391,9 @@ then `omarchy plugin remove gleasonmt.overtake-mode`. Until the plugin is remove
   post-update hook; one whose changes no longer fit is removed, Omarchy's own is used until an Overtake update supports that Omarchy, and a notification says so (held until the shell can show it, if it isn't up yet). A rebuild that fails for another reason keeps the earlier copy, and a notification says that too.
 - Choosing a default workspace layout in Omarchy's Appearance menu while a mode is on takes effect there too; pick it in Omarchy mode.
 - An app's own maximize request is ignored, as in Omarchy; use the title bar's button.
+- `omarchy refresh hyprland` replaces `bindings.lua` and `autostart.lua`, and with them Overtake's blocks; run `./install.sh` again afterwards.
+- If Omarchy changes so that the notifications copy no longer fits, per-app Quiet and Off do nothing until an Overtake update, and a notification says the copy was left out.
+- A battery alert that can't be delivered (the notification service restarting at that moment) isn't sent again until the device has charged back above that level.
 - Network picking, Bluetooth pairing and detailed sound settings open
   Omarchy's own panels; screen resolution and keyboard layouts open the
   config file.

@@ -454,7 +454,7 @@ Item {
     Connections { target: root; function onOpenChanged() { if (root.open) card.refresh() } }
     Timer { id: refreshLater; interval: 900; onTriggered: card.refresh() }
     function act(command) { root.sh(command); refreshLater.restart() }
-    function label(option) { return row.labels && row.labels[option] ? row.labels[option] : option }
+    function label(option) { return row.labels && Object.prototype.hasOwnProperty.call(row.labels, option) ? row.labels[option] : option }
 
     Process { id: whenProbe; onExited: function(code) { card.shown = code === 0 } }
     Process { id: stateProbe; onExited: function(code) { card.stateOn = code === 0 } }

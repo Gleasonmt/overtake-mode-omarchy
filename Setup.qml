@@ -91,7 +91,7 @@ Item {
   // twice, even for two reloads at once). Those of shells that have ended go.
   Process {
     id: oncePerShell
-    command: ["sh", "-c", "[ -n \"$XDG_RUNTIME_DIR\" ] || exit 0; f=\"$XDG_RUNTIME_DIR/overtake-reminded.$1\"; " +
+    command: ["sh", "-c", "[ -n \"$XDG_RUNTIME_DIR\" ] || exit 1; f=\"$XDG_RUNTIME_DIR/overtake-reminded.$1\"; " +
       "mkdir \"$f\" 2>/dev/null || exit 1; for d in \"$XDG_RUNTIME_DIR\"/overtake-reminded.*; do kill -0 \"${d##*.}\" 2>/dev/null || rmdir \"$d\" 2>/dev/null; done; exit 0", "sh", String(Quickshell.processId)]
     onExited: function(code) {
       if (code === 0)

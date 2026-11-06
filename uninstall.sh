@@ -245,6 +245,9 @@ rm -rf "${PLUGINS:?}/overtake.taskbar" "${PLUGINS:?}/overtake.workspaces" \
        "$HOME/.local/state/overtake" "${XDG_CACHE_HOME:-$HOME/.cache}/overtake" "$HOME/.local/share/overtake"
 
 if [[ $PURGE ]]; then
+  if [[ $(readlink -f "$HOME/.config/omarchy/current/background" 2>/dev/null) == "$HOME/Pictures/overtake/"* ]]; then
+    echo "Your current wallpaper was one of Overtake's, now gone: pick another in Omarchy's Appearance menu."
+  fi
   rm -rf "$HOME/.config/overtake" "$HOME/Pictures/overtake"
 fi
 
