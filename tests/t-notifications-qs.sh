@@ -11,7 +11,7 @@
 #   A second build keeps the real cards and the real center, in an ordinary
 #   window on Qt's VNC platform (no network here: its own network namespace).
 #   That platform is used because, unlike offscreen, it opens links the real way
-#   (a portal if there is one, then xdg-open). It covers what a click opens and
+#   (with no portal on this bus, through xdg-open). It covers what a click opens and
 #   copies, senders' pictures, and what the center says. Clicks are made by
 #   calling the handlers, with no synthetic input.
 source "$(dirname "$0")/lib.sh"
@@ -275,6 +275,8 @@ ctl() { echo "$1 $(date +%s%N)" > "$HOME/ctl"; sleep "${2:-0.5}"; }
 start() { ( [[ -n ${FILELIMIT:-} ]] && { trap '' XFSZ; ulimit -f "$FILELIMIT"; }; exec qs -p "$E/$ROOT/shell.qml" ) >>"$E/qs-$SCEN.log" 2>&1 & QS=$!; sleep "$WAITS"; }
 stop() { kill -TERM "$QS"; wait "$QS" 2>/dev/null; }
 reply() { sed 's/^.*CTL/CTL/' "$E/qs-$SCEN.log" | grep -a "^CTL $1 " | tail -1 | sed 's/^[^>]*> //'; }
+# Until that many cards are up and their pictures have settled (cards go on arriving after the sender returns).
+allcards() { local last=""; for _ in {1..12}; do ctl pictures 0.5; [[ $(reply pictures) == *"cards=$1 "* && $(reply pictures) == "$last" ]] && return; last=$(reply pictures); done; }
 rss() { awk '/VmRSS/ { print int($2 / 1024) }' "/proc/$QS/status"; }
 send() { python3 -I "$REPO/tests/t-notifications-send.py" "$@" >/dev/null; }
 modes() { stat -c '%a %n' "$N" "$N"/* 2>/dev/null | sed "s#$N#N#" | tr '\n' ' '; }
@@ -294,7 +296,6 @@ fill() { dd if=/dev/zero of="$N/filler" bs=4k 2>/dev/null; sync; }
 [[ $SCEN == refused ]] || start
 case $SCEN in
   link)    # a link in the text, clicked; then a card with one, clicked
-    dbus-monitor --session "destination='org.freedesktop.portal.Desktop'" > "$E/portal-$SCEN.log" 2>&1 & MON=$!
     printf '%s' 'https://example.com/reset?token=URLMARKER77&u=me' > "$HOME/body"
     watch_argv
     send --app Mail --summary "Reset" --body-file "$HOME/body"; sleep 1.5
@@ -304,7 +305,7 @@ case $SCEN in
     echo "said=[$(reply summaries)]"
     ctl clickcard 1.5
     echo "card=[$(reply clickcard)]"
-    unwatch; kill "$MON" 2>/dev/null
+    unwatch
     ;;
   linkfail)   # the copy fails: the card says so
     printf '%s' 'https://example.com/reset?token=URLMARKER77' > "$HOME/body"
@@ -344,23 +345,20 @@ case $SCEN in
   flood)   # big raw pictures: memory stays bounded while the cards are up
     base=$(rss)
     send --app Evil --summary "Big" --image-data 4000x4000 --count 20
-    sleep 1
-    ctl pictures 0.3
+    allcards 20
     echo "pictures=[$(reply pictures)]"
     echo "grew=[$(( $(rss) - base ))]"
     ;;
   floodlie)   # the size claimed is tiny, the data isn't
     base=$(rss)
     send --app Evil --summary "Big" --image-data 1x1 --lie-size 64000000 --count 20
-    sleep 1
-    ctl pictures 0.3
+    allcards 20
     echo "pictures=[$(reply pictures)]"
     echo "grew=[$(( $(rss) - base ))]"
     ;;
   floodback)  # room again once the cards are gone
     send --app Evil --summary "Big" --image-data 64x64 --count 12
-    sleep 1
-    ctl pictures 0.3
+    allcards 12
     echo "before=[$(reply pictures)]"
     ctl closeall 1
     send --app Evil --summary "Next" --image-data 64x64
@@ -580,7 +578,8 @@ case $SCEN in
     ;;
   race)    # a card saved in the same tick as Clear all isn't lost from the file
     notify-send -a Signal "Alice" "SECRET-1 on screen"; sleep 1.5
-    ctl racelive 4
+    ctl racelive 2
+    for _ in {1..13}; do [[ -n $(live) ]] && break; sleep 1; done   # (retries are about 6 s apart)
     echo "live=[$(live)]"
     ;;
   dnd)
@@ -631,7 +630,6 @@ log=$(cat "$E/clip-argv" 2>/dev/null)
 [[ $(grep -c 'token=URLMARKER77&u=me' "$E/clip-stdin") == 2 ]] || fail "the full link didn't reach wl-copy on stdin, twice: $(cat "$E/clip-stdin")"
 if grep -q URLMARKER77 "$E/clip-argv"; then fail "the link's token reached a logged argument: $log"; fi
 [[ ! -s $E/argv-hits-link ]] || fail "the link's token was in a running program's arguments: $(cat "$E/argv-hits-link")"
-if grep -q URLMARKER77 "$E/portal-link.log"; then fail "the link's token reached the portal: $(grep URLMARKER77 "$E/portal-link.log" | head -3)"; fi
 has "$out" said ".*Full link copied. Opening example.com only.*" || fail "the card didn't say what happened: $out"
 if grep -q URLMARKER77 <<<"$out"; then fail "the token was in what the card says: $out"; fi
 pass "a link's full address goes to the clipboard on stdin, only https://<host>/ opens, and the card says so"
