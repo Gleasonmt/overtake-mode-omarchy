@@ -477,6 +477,13 @@ grep -qxF "$hostile" "$HYPR/named-dispatches" || fail "a hostile workspace name 
 use_workspace 1
 pass "a monitor name that would break its Lua string isn't sent; a workspace name is only ever data"
 
+# ---------- A notification's app name is literal text to Omarchy's focus command ----------
+fresh
+: >"$ARGV_LOG"
+sbx "$H" "$O" notification-open 'a.b*c+d?e(f)g[h]i{j}k|l^m$n\o' >>"$T/log" 2>&1 || true
+log_text | grep -aqF 'omarchy-hyprland-focus-app a\.b\*c\+d\?e\(f\)g\[h\]i\{j\}k\|l\^m\$n\\o' || fail "the app name reached omarchy-hyprland-focus-app as a pattern: $(log_text | grep -a focus-app)"
+pass "a notification's app name reaches omarchy-hyprland-focus-app as literal text"
+
 # ---------- CI ----------
 grep -q '^    timeout-minutes: ' .github/workflows/tests.yml || fail "CI has no time limit"
 grep -q 'cancel-in-progress: true' .github/workflows/tests.yml || fail "CI doesn't cancel superseded runs"

@@ -44,7 +44,7 @@ stay.)
 
 Needs Omarchy 4.5 or later (tested on 4.5.0). Everything it uses ships with Omarchy,
 including `jq`, `python3` (with its GObject bindings), `hyprctl`, `fd`, `curl`,
-`flock`, ImageMagick (`magick`), `gtk-launch` and `wl-copy`. Optional: Nautilus for the Trash app.
+`flock`, ImageMagick (`magick`), `gtk-launch` and `wl-copy`. Optional: Nautilus for the Trash app. (`tests/run.sh` needs `node`, and `fd` and `qs` for the real parts, which are skipped when `qs` is absent; `t-full-disk.sh` needs `unshare -r -m`.)
 
 Then switch it on with **Super + Ctrl + Shift + W**, `overtake on`, or
 **Omarchy menu → Overtake Mode**. Each press of the shortcut goes to the next
@@ -59,7 +59,7 @@ git fetch --tags && git checkout "$(git tag --sort=-v:refname | head -1)" && ./i
 ```
 
 Added it with `omarchy plugin add` (or from the plugin marketplace)? That only
-copies this repository into `~/.config/omarchy/plugins/gleasonmt.overtake-mode`,
+copies this repository's default branch into `~/.config/omarchy/plugins/gleasonmt.overtake-mode`,
 whose small root plugin (`Setup.qml`) reminds you to finish with
 `./install.sh` in that folder. Overtake Mode is several plugins plus a command and Hyprland settings, so the installer is
 what sets it up; after `omarchy plugin update`, run `./install.sh` there again (the same reminder asks you to, until the installed version catches up).
@@ -119,8 +119,8 @@ grouped by app, with per-app Show / Quiet / Off and Do Not Disturb.
   notifications, click one to act on it (runs its action or brings the app
   forward), or clear one, an app's, or all. It holds what Omarchy keeps: the
   last 100, for a day. The gear opens **Manage**, where each app is set to
-  Show, Quiet (no pop-ups, still collected) or Off (saved in
-  `~/.config/overtake/notifications.json`). Do Not Disturb sits at the bottom.
+  Show, Quiet (no pop-ups except verification codes and critical battery alerts, still collected) or Off (saved in
+  `~/.config/overtake/notifications.json`). Do Not Disturb sits at the bottom. It hides most pop-ups; verification codes, critical battery alerts, Omarchy's own messages and critical alerts from scripts still show, and plain `notify-send` messages and temporary notifications aren't kept.
 - **Touchpad right-click in the corner** — the bottom-right of the touchpad
   right-clicks, as on most laptops (Omarchy uses a two-finger click).
 - **Battery alerts for every device** — the laptop and anything connected that
@@ -285,18 +285,19 @@ All in `~/.config/overtake/`:
 | `~/.config/omarchy/plugins/overtake.taskbar` | taskbar, Start menu, title bars, desktop icons, Settings; Studio's Dock, Spotlight, App Switcher, Mission Control and Force Quit |
 | `~/.config/omarchy/plugins/overtake.menubar`, `overtake.control-center` | Studio's menu bar, and its Spotlight and Control Center buttons |
 | `~/.config/omarchy/plugins/overtake.{workspaces,bluetooth,audio}` | copies of Omarchy's own widgets, made from your installed Omarchy, with small changes (no gaps in the workspace list; right-click opens the Bluetooth and sound panels instead of turning Bluetooth off or muting) |
-| `~/.config/omarchy/plugins/overtake.notifications` | a copy of Omarchy's notifications (one file changed, `Service.qml`) where, while the mode is on, critical toasts leave after 15 s for the notification center instead of staying, normal ones after 10 s, each app's Show / Quiet / Off from Manage applies, and a critical battery alert gets through Do Not Disturb; it also answers the notification center's remove and Clear all (Omarchy's history is the service's own file), writing them at once and in place as well, so they stick on a full disk (measured on tmpfs; a copy-on-write filesystem may still need space), and Clear all also takes what the center hasn't read yet and cards still on screen; each history write is read back and written again until the file matches; and it prunes history past Omarchy's one day every minute rather than only when a notification arrives. Switched on only while Classic or Studio is on; in Omarchy mode Omarchy's own runs |
+| `~/.config/omarchy/plugins/overtake.notifications` | a copy of Omarchy's notifications (two files changed, `Service.qml` and `Toast.qml`) where, while the mode is on, critical toasts leave after 15 s for the notification center instead of staying, normal ones after 10 s, each app's Show / Quiet / Off from Manage applies, and a critical battery alert gets through Do Not Disturb; it also answers the notification center's remove and Clear all (Omarchy's history is the service's own file), writing them at once and in place as well, so they stick on a full disk (measured on tmpfs; a copy-on-write filesystem may still need space), and Clear all also takes what the center hasn't read yet and cards still on screen; each history write is read back and written again until the file matches; and it prunes history past Omarchy's one day every minute rather than only when a notification arrives. It never decodes a picture an app supplies (a card shows the app's icon instead), and a link click copies the full link and opens only the site. Switched on only while Classic or Studio is on; in Omarchy mode Omarchy's own runs |
 | `~/.config/omarchy/plugins/overtake.battery` | a copy of Omarchy's battery service whose fixed 10% warning gives way to Overtake's battery alerts; switched on only while Classic or Studio is on |
 | `~/.config/omarchy/plugins/overtake.notification-center` | the bell and its panel; it reads Omarchy's notification history (`~/.local/state/omarchy/notifications/history.json`) and Do Not Disturb (`quiet.json`), watched, not polled. `omarchy-shell overtake.notification-center toggle` opens it |
 | `~/.config/omarchy/extensions/omarchy-menu.jsonc` | between markers: the Overtake Mode menu entry (how you switch modes) |
-| `~/.config/omarchy/shell.json` | only while Classic or Studio is on: Overtake's bar, and `overtake.notifications` and `overtake.battery` enabled (through `omarchy plugin enable`) in place of Omarchy's own; switching to Omarchy puts your bar and Omarchy's own back. If you turned Omarchy's own notifications or battery off yourself, before installing or since, uninstalling leaves them off |
+| `~/.config/omarchy/shell.json` | installing in Omarchy mode doesn't touch it; only while Classic or Studio is on: Overtake's bar, and `overtake.notifications` and `overtake.battery` enabled (through `omarchy plugin enable`) in place of Omarchy's own; switching to Omarchy puts your bar and Omarchy's own back. If you turned Omarchy's own notifications or battery off yourself, before installing or since, uninstalling leaves them off |
 | `~/.config/overtake/`, `~/Pictures/overtake/` | your settings and the wallpapers |
 | `~/.local/state/overtake/` | its state: the mode, saved Omarchy bar and looks, window places and names (readable only by you) |
 | `~/.cache/overtake/` | the lists behind the desktop's Change background (links to the pictures). When you open it, Omarchy's own picker (`omarchy-menu-images`) shows them, with its previews in its own cache, as for Omarchy's own Background menu |
 | `~/.local/share/overtake/` | a copy of the uninstaller, so `overtake uninstall` works without the repository, and of the patcher (`patches/apply.py`, `NOTICE.md`) for rebuilding the copies, and a `version` file with the installed version |
 | `~/.config/omarchy/hooks/post-update.d/overtake.hook` | runs `overtake build-copies update` near the end of `omarchy update`: the copies of Omarchy's plugins are rebuilt from the updated Omarchy, and the shell reloads a changed plugin folder by itself. The same check runs at login (`overtake resume`), so an Omarchy update made outside `omarchy update` is caught too |
 | `~/.local/share/applications/overtake-trash.desktop` | Trash as an app, for Start, the taskbar and the desktop |
-| `~/.config/omarchy/branding/screensaver.txt` | only when you pick screensaver art in Settings: replaced, with yours kept once as `screensaver.txt.before-overtake` and put back on uninstall |
+| `~/.config/omarchy/branding/screensaver.txt` | only when you pick screensaver art in Settings: replaced, with whatever was there kept once, in every Settings choice, as `screensaver.txt.before-overtake` and put back on uninstall |
+| `~/Pictures/overtake/studio/` | on upgrade, six old Studio pictures are removed, each only if byte identical to what shipped |
 
 While the mode is on, `overtake` also saves your Omarchy bar layout and
 swaps in its own (`~/.config/omarchy/shell.json`), adds a marked bar-size
@@ -305,7 +306,7 @@ title-bar buttons to none (`gsettings` `org.gnome.desktop.wm.preferences
 button-layout`, since Overtake's title bars have them), tiles any workspace you set to Omarchy's floating layout (`~/.local/state/omarchy/workspace-layouts`), and puts all of it back when you switch to Omarchy. Your saved Omarchy layout lives in
 `~/.local/state/overtake`.
 
-`./uninstall.sh` undoes every row above, except that it keeps your settings
+`./uninstall.sh` undoes every row above (installing in Omarchy mode and uninstalling from it leave `shell.json` byte identical), except that it keeps your settings
 and wallpapers (`~/.config/overtake`, `~/Pictures/overtake`) unless you add
 `--purge` (which also deletes pictures you added to those folders); previews
 Omarchy's own picker made when you used Change background stay in Omarchy's
@@ -349,7 +350,7 @@ overtake uninstall        # the same, from anywhere (takes the same options)
 
 It lists what it will remove and asks first (`--yes` skips the question).
 If you added the repository with `omarchy plugin add`, run `overtake uninstall`,
-then `omarchy plugin remove gleasonmt.overtake-mode`.
+then `omarchy plugin remove gleasonmt.overtake-mode`. Until the plugin is removed, its reminder keeps appearing.
 
 ## Known limits
 
@@ -377,8 +378,8 @@ then `omarchy plugin remove gleasonmt.overtake-mode`.
 ## Wallpapers
 
 Made for this project: the Classic slideshow pictures are drawn by code written
-with an AI assistant (`wallpapers/src` has the scripts, which redraw each one
-exactly), and the Studio snow leopard was made with an AI image model.
+with an AI assistant (`wallpapers/src` has the scripts, which redraw each one,
+and the one base drawing they use), and the Studio snow leopard was made with an AI image model.
 
 Some pictures include the Omarchy logo.
 

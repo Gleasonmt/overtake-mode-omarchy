@@ -1295,7 +1295,7 @@ focus_app() {  # focus_app <app> [exact]: its most recent window (class contains
 notification_open() {
   local app=$1
   [[ -n $app ]] || return 1
-  focus_app "$app" exact || omarchy-hyprland-focus-app "$app" >/dev/null 2>&1
+  focus_app "$app" exact || omarchy-hyprland-focus-app "$(printf '%s' "$app" | sed 's/[][\\.^$*+?(){}|]/\\&/g')" >/dev/null 2>&1
 }
 
 # Clicking empty desktop: minimize every window on the workspace that screen

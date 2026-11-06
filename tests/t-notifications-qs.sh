@@ -267,7 +267,7 @@ case $SCEN in
   full*|stop|stale|aged|removed|dndsave|rohome) mount -t tmpfs -o size=256k tmpfs "$N";;
 esac
 case $SCEN in
-  link*|focus|pathimage|rawimage|flood*|dndrules|dndsave|rohome|onlyhidden|appmodes|critical)
+  link*|focus|pathimage|rawclaim|flood*|dndrules|dndsave|rohome|onlyhidden|appmodes|critical)
     ROOT=rootw; WAITS=5
     export QT_QPA_PLATFORM=vnc QT_QUICK_BACKEND=software;;
 esac
@@ -361,12 +361,15 @@ case $SCEN in
     ctl count 0.5
     echo "count=[$(reply count)]"
     ;;
-  rawimage)    # pixels handed over still show
-    send --app Chat --summary "Hi" --image-data 64x64; sleep 1.5
+  rawclaim)    # image-data claiming more pixels than it sends: stock Omarchy's shell dies on this
+    send --app Chat --summary "Claims" --image-data 2000x2000 --lie-size 16; sleep 2
+    kill -0 "$QS" 2>/dev/null && echo "alive=[yes]" || echo "alive=[no]"
     ctl picture 0.5
     echo "picture=[$(reply picture)]"
+    ctl summaries 0.5
+    echo "shown=[$(reply summaries)]"
     ;;
-  flood)   # big raw pictures: memory stays bounded while the cards are up
+  flood)   # big raw pictures: never drawn, but the bytes stay while a sender's object does
     base=$(rss)
     send --app Evil --summary "Big" --image-data 4000x4000 --count 20
     allcards 20
@@ -698,15 +701,17 @@ has "$out" opened2 124 || fail "a picture named by a file:// URL was opened by t
 if grep -E '^picture=.*(pic2?\.png|status=1)' <<<"$out"; then fail "a card shows a picture from a path: $out"; fi
 pass "a picture named by a path is never opened"
 
-out=$(run_scen rawimage)
-has "$out" picture '"image://qsimage/[0-9]*/[0-9]* status=1"' || fail "a sender's raw pixels didn't show: $out"
-pass "pixels handed over in image-data still show"
+out=$(run_scen rawclaim)
+has "$out" alive yes || fail "image-data claiming too many pixels crashed the shell: $out"
+has "$out" shown '"Claims"' || fail "(setup) the card wasn't there: $out"
+if grep -E '^picture=.*qsimage' <<<"$out"; then fail "a card loads pixels a sender handed over: $out"; fi
+pass "image-data claiming too many pixels doesn't crash the shell; the picture is never loaded"
 
 out=$(run_scen flood)
-has "$out" pictures '"cards=20 pictures=0 senders=8"' || fail "the limit on raw pictures isn't what's expected: $out"
+has "$out" pictures '"cards=20 pictures=8 senders=8"' || fail "the limit on raw pictures isn't what's expected: $out"
 grew=$(value "$out" grew)
 (( grew < 800 )) || fail "20 pictures of 64 MB grew the shell by $grew MB: $out"
-pass "20 raw pictures of 64 MB grow the shell by $grew MB, not 2500; the cards all show"
+pass "20 raw pictures of 64 MB grow the shell by $grew MB, not 1250; the cards all show"
 out=$(run_scen floodlie)
 has "$out" pictures '"cards=20 pictures=8 senders=8"' || fail "the limit on raw pictures with a false size: $out"
 grew=$(value "$out" grew)

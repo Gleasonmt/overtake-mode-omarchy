@@ -146,12 +146,12 @@ PATCHES = {
     return String(name).replace(/[\\\\^$.|?*+()[\\]{}]/g, "\\\\$&")
   }
 
-  // Overtake Mode: a sender's raw picture (the image-data hint) stays in memory
-  // for as long as its card does, up to the bus's 64 MiB for each picture, and
-  // nothing tells this code its size. So only this many cards may hold one;
-  // past that, a card keeps its text and icon, and the sender's object is let
-  // go, which takes its buttons with it. A picture bigger than a card could use
-  // (see Toast.qml) is dropped once it has loaded, and the card keeps its buttons.
+  // Overtake Mode: a sender's raw picture (the image-data hint) is never drawn
+  // (see Toast.qml), but Quickshell keeps its bytes for as long as the sender's
+  // object lives: up to the bus's 64 MiB for each picture (measured), and nothing
+  // tells this code its size. So only this many cards may hold on to one; past
+  // that, a card keeps its text and icon, and the sender's object is let go,
+  // which takes its buttons with it.
   readonly property int overtakeMaxPictures: 8
   property var overtakePictures: ({})   // card key -> true
   function overtakePictureFits(key, row) {
@@ -163,10 +163,6 @@ PATCHES = {
     if (Object.keys(overtakePictures).length >= overtakeMaxPictures) return false
     overtakePictures[key] = true
     return true
-  }
-  function overtakeDropPicture(key) {
-    var at = rowIndexFor(key)
-    if (at >= 0) toasts.setProperty(at, "image", "")
   }'''),
       ("Service.qml",
 '''    runClip(["wl-copy", "--sensitive", "--", value])''',
@@ -179,29 +175,22 @@ PATCHES = {
       else if (String(row.app || "")) Util.execArgv(["omarchy-hyprland-focus-app", service.overtakeLiteral(String(row.app))])   // Overtake Mode'''),
       ("Service.qml",
 '''              onLinkOpened: service.stopKeyboard()''',
-'''              onLinkOpened: function(url) { service.stopKeyboard(); service.overtakeOpenLink(url) }   // Overtake Mode
-              onPictureTooBig: service.overtakeDropPicture(model.key)   // Overtake Mode'''),
-      # Overtake Mode: a local file named by a sender is never read. On this Qt,
-      # a small PNG with compressed text chunks allocates gigabytes before the
-      # size limit below applies, and this is the shared shell. Pixels the
-      # sender handed over (qsimage) and the installed icons below still show.
+'''              onLinkOpened: function(url) { service.stopKeyboard(); service.overtakeOpenLink(url) }   // Overtake Mode'''),
+      # Overtake Mode: no picture a sender supplies is ever decoded, and the card
+      # shows the installed icon for the app instead. On this Qt, a small PNG with
+      # compressed text chunks allocates gigabytes (a named file), and image-data
+      # claiming more pixels than it sends segfaults Qt's image loader (both
+      # measured), and this is the shared shell.
       ("Toast.qml",
-'''                                       ? String(card.row.image) : Security.localImageUrl(card.row.image)''',
-'''                                       ? String(card.row.image) : ""   // Overtake Mode: no file a sender names'''),
+'''        readonly property string sent: /^image:\\/\\/qsimage\\/[0-9]+\\/[0-9]+$/.test(String(card.row.image || ""))
+                                       ? String(card.row.image) : Security.localImageUrl(card.row.image)''',
+'''        readonly property string sent: ""   // Overtake Mode: no picture a sender supplies'''),
       ("Toast.qml",
 '''  signal linkOpened()''',
-'''  signal linkOpened(string url)   // Overtake Mode: the service decides what opens
-  signal pictureTooBig()          // Overtake Mode'''),
+'''  signal linkOpened(string url)   // Overtake Mode: the service decides what opens'''),
       ("Toast.qml",
 '''          onLinkActivated: function(url) { card.linkOpened(); Security.openExternalUrl(url) }''',
 '''          onLinkActivated: function(url) { card.linkOpened(url) }   // Overtake Mode: full link to the clipboard, only the site opens'''),
-      ("Toast.qml",
-'''          onStatusChanged: if (status === Image.Error && thumb.failed < thumb.sources.length) thumb.failed += 1''',
-'''          onStatusChanged: {
-            if (status === Image.Error && thumb.failed < thumb.sources.length) thumb.failed += 1
-            // Overtake Mode: more than a megapixel in a 40-pixel slot only costs memory
-            if (status === Image.Ready && thumb.photo && implicitWidth * implicitHeight > 1048576) card.pictureTooBig()
-          }'''),
       # Overtake Mode: the card's picture is no longer counted once it's gone.
       ("Service.qml",
 '''    if (!liveKeys[key]) return
