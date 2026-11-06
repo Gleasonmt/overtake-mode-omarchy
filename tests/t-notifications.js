@@ -139,11 +139,18 @@ function FileView(disk, S) {
 function Service(disk) {
   const clock = Clock()
   const S = { Store, service: null, handlers: {},
-              historyLoaded: false, historyEntries: [], liveEntries: [], unsaved: {}, liveLoaded: false, quietLoaded: false }
+              historyLoaded: false, historyEntries: [], liveEntries: [], unsaved: {}, liveLoaded: false, quietLoaded: false,
+              storeReady: true, overtakePrepareNext: [], overtakePrepareNow: [], overtakePrepareFailed: false }
   S.service = S
   const fn = src => src ? new Function("S", "with (S) { return (" + src + ") }")(S) : undefined
-  for (const name of ["saveSoon", "flushStore", "loadHistory", "currentHistory", "forget", "forgetAll", "storeDrop", "overtakeCheckFile", "overtakeComparable", "overtakeRemoveInPlace", "overtakeSaveFailed"])
+  for (const name of ["saveSoon", "flushStore", "overtakeWriteStore", "overtakeWhenPrepared", "overtakeStartPrepare", "overtakePrepareExited", "overtakeNotLoadedReply", "overtakeReadHistoryBack", "loadHistory", "currentHistory", "forget", "forgetAll", "storeDrop", "overtakeCheckFile", "overtakeComparable", "overtakeRemoveInPlace", "overtakeSaveFailed"])
     S[name] = fn(extract(svc, name))
+  // The folder preparation: a process, so its exit comes later (on the clock's
+  // next tick), and `prepareCode` is what it exits with.
+  S.prepareCode = 0
+  S.storePrepare = { busy: false, runs: 0, get running() { return this.busy },
+    set running(v) { if (!v) return; this.busy = true; this.runs++
+      clock.soon.push(() => { this.busy = false; S.overtakePrepareExited(S.prepareCode) }) } }
   for (const [name, arg] of [["onSaved", ""], ["onSaveFailed", ""], ["onLoaded", "text"], ["onLoadFailed", ""]]) {
     const body = handler(name)
     const run = body ? new Function("S", "t", "with (S) { const text = () => t; " + body + " }") : () => {}
@@ -155,16 +162,18 @@ function Service(disk) {
     S[id] = t
   }
   S.historyFile = FileView(disk, S)
-  // the second FileView: atomicWrites false. On a full disk
-  // a shrink truncates in place and succeeds (measured); refused at open it fails.
-  // reload() is asynchronous (measured): the file is read a moment later.
+  // the in-place removal: read by a second FileView, written by a helper (its
+  // real failures are covered in real Quickshell). On a full disk a shrink
+  // succeeds (measured); refused at open it fails. reload() is asynchronous
+  // (measured): the file is read a moment later.
   const inPlace = { path: null,
-    reload() { S.clock.soon.push(() => { if (S.historyLoaded && disk.text !== null) S.overtakeRemoveInPlace(disk.text) }) },
-    setText(t) { if (S.historyFile.fail !== "open") disk.text = onDisk(t) } }
+    reload() { S.clock.soon.push(() => { if (S.historyLoaded && disk.text !== null) S.overtakeRemoveInPlace(disk.text) }) } }
   S.overtakeInPlace = S.overtakeInPlaceFile = inPlace
+  S.overtakeHistoryWrite = { send(t) { if (S.historyFile.fail !== "open") disk.text = onDisk(t) } }
   S.overtakeLiveInPlace = { reload() {} }   // (live.json: covered in real Quickshell)
+  S.liveFile = { setText() {} }
   S.clock = clock
-  S.start = () => S.historyFile.reload()        // the first load
+  S.start = () => { S.liveLoaded = true; S.historyFile.reload() }        // the first loads
   S.quit = () => {}                              // shell gone: no timer fires again
   return S
 }
@@ -184,7 +193,47 @@ const settle = s => s.clock.advance(400)   // the save timer and anything it sta
   s.storeRecord = (k, t) => { s.historyEntries = Store.addHistory(s.historyEntries, Store.closedEntry(row(k, t), "expired", Date.now() / 1000), Date.now() / 1000); s.saveSoon("history") }
   s.storeRecord("nA1", "SECRET-1"); s.storeRecord("nA2", "SECRET-2"); settle(s)
   const r = s.forget("nA1 nA2")      // no timer fires afterwards: the shell is gone
-  check("Clear all is on disk at once, without waiting for the save timer", r === "ok" && !/SECRET/.test(disk.text))
+  s.clock.advance(0)                 // (only the folder check returns)
+  check("Clear all is on disk as soon as the folder check returns, without waiting for the save timer", r === "ok" && !/SECRET/.test(disk.text))
+}
+// 2a. Nothing is written until the folder check has finished, and while it
+//     fails the write is held, not lost.
+{
+  const disk = { text: "" }, s = Service(disk); s.start(); settle(s)
+  s.storeRecord = (k, t) => { s.historyEntries = Store.addHistory(s.historyEntries, Store.closedEntry(row(k, t), "expired", Date.now() / 1000), Date.now() / 1000); s.saveSoon("history") }
+  s.storeRecord("nH1", "HELD-1"); s.flushStore()
+  check("a write waits for the folder check", s.storePrepare.busy && !/HELD-1/.test(disk.text))
+  s.prepareCode = 1; s.clock.advance(0)
+  check("a failed folder check holds the write", !/HELD-1/.test(disk.text) && s.overtakePrepareRetry.running)
+  s.prepareCode = 0; s.clock.advance(5000)
+  check("and it goes as soon as the check passes", /HELD-1/.test(disk.text))
+}
+// 2b. Clear all waits for live.json too: a card restored after it would come back.
+{
+  const s = Service({ text: "" }); s.historyFile.reload(); settle(s)
+  check("forgetAll before live.json has loaded is refused", s.historyLoaded && !s.liveLoaded && s.forgetAll() === "notready")
+}
+// 2b'. Cards aren't restored until Do Not Disturb is known, whichever file
+//      loads first (the real order varies, so it's forced here).
+{
+  const s = Service({ text: "" }), restored = []
+  s.restoreRows = rows => rows.forEach(r => restored.push(r.key))
+  s.overtakeLiveWaiting = null
+  s.doNotDisturb = false
+  s.liveKeys = {}
+  s.loadLive = new Function("S", "with (S) { return (" + extract(svc, "loadLive") + ") }")(s)
+  s.applyQuiet = new Function("S", "with (S) { return (" + extract(svc, "applyQuiet") + ") }")(s)
+  s.loadLive(JSON.stringify([{ key: "nL1", app: "Signal", summary: "x", ts: Date.now() / 1000 }]) + "\n")
+  check("live.json read before quiet.json waits", restored.length === 0 && !s.liveLoaded)
+  s.applyQuiet({ dnd: true })
+  check("and is restored once Do Not Disturb is known", restored.join() === "nL1" && s.liveLoaded && s.doNotDisturb === true)
+}
+// 2c. A folder that can't be prepared isn't "still loading".
+{
+  const s = Service({ text: "" }); s.overtakePrepareFailed = true
+  check("forget on a folder that can't be prepared says so", s.forget("nA") === "unwritable")
+  check("forgetAll on a folder that can't be prepared says so", s.forgetAll() === "unwritable")
+  check("and each asks for another try", s.storePrepare.runs >= 1)
 }
 // 3. A failed write during Clear all is written again until the file matches,
 //    both when the write is refused (saveFailed) and when it fails at commit
@@ -226,6 +275,7 @@ for (const how of ["open", "commit"]) {
   s.liveEntries = [{ key: "nG1" }]
   s.historyEntries = Store.addHistory(s.historyEntries, Store.closedEntry(row("nG2", "SECRET-A"), "expired", Date.now() / 1000), Date.now() / 1000); s.saveSoon("history"); settle(s)
   const r = s.forgetAll()
+  s.clock.advance(0)
   check("forgetAll clears history and the live cards", r === "ok" && s.historyEntries.length === 0 && s.liveEntries.length === 0 && !/SECRET-A/.test(disk.text))
 }
 // 3b. A history file deleted while a write fails is written again from memory.
@@ -291,12 +341,73 @@ check("the clipboard check is capped at a code's length", /wl-paste --no-newline
 {
   const panel = fs.readFileSync(path.join(repo, "plugins/overtake.notification-center/Panel.qml"), "utf8")
   const root = {}
-  const parseHistory = new Function("root", extract(panel, "parseHistory").replace(/lastHiddenKeys = /, "root.lastHiddenKeys = ") + "; return parseHistory")(root)
+  const limits = { historyMaxChars: 100 * 4096 * 2, historyMaxRows: 100 }
+  const parseHistory = new Function("root", "historyMaxChars", "historyMaxRows", extract(panel, "parseHistory").replace(/lastHiddenKeys = /, "root.lastHiddenKeys = ") + "; return parseHistory")(root, limits.historyMaxChars, limits.historyMaxRows)
   const now = Date.now() / 1000
   const shown = parseHistory(JSON.stringify([
     { key: "n1", app: "Signal", ts: now - 60, closed_ts: now - 30 },
     { key: "n2", app: "Signal", ts: now - 90000, closed_ts: now - 89000 },
   ]))
   check("the center leaves out an entry closed more than a day ago", shown.length === 1 && shown[0].key === "n1")
+  const capped = parseHistory
+  const many = n => Array.from({ length: n }, (_, i) => ({ key: "n" + i, app: "A", ts: now - 60, closed_ts: now - 30 }))
+  check("the center doesn't parse a history file past Omarchy's size limit", capped(" ".repeat(limits.historyMaxChars) + JSON.stringify(many(1))).length === 0)
+  check("the center reads at most Omarchy's 100 rows", capped(JSON.stringify(many(150))).length === 100)
+  check("the center's limits are Omarchy's", /historyMaxRows: 100\b/.test(panel) && /historyMaxChars: 100 \* 4096 \* 2\b/.test(panel)
+        && Store.HISTORY_LIMIT === 100 && Store.HISTORY_ROW_CHARS === 4096)
+}
+// 6. Clear all is offered while only rows the panel hides remain.
+{
+  const panel = fs.readFileSync(path.join(repo, "plugins/overtake.notification-center/Panel.qml"), "utf8")
+  check("Clear all counts the rows the panel hides", /canClear: entries\.length > 0 \|\| hiddenKeys\.length > 0/.test(panel)
+        && /visible: root\.view === "list" && root\.canClear/.test(panel))
+}
+// 7. What the center says about Do Not Disturb is what the service does
+//    (the behaviour itself is checked in real Quickshell).
+{
+  const panel = fs.readFileSync(path.join(repo, "plugins/overtake.notification-center/Panel.qml"), "utf8")
+  for (const words of ["verification codes", "critical battery alerts", "critical alerts from scripts", "plain notify-send messages", "temporary"])
+    check(`the Do Not Disturb text mentions ${words}`, panel.includes(words))
+  check("the old claim (only battery alerts get through) is gone", !panel.includes("pop-ups are hidden (except critical battery alerts)"))
+}
+// 8. Omapager's notice: the engine in the copied Service.qml began as Omapager.
+{
+  const notice = fs.readFileSync(path.join(repo, "NOTICE.md"), "utf8")
+  check("(setup) the copy still carries Omapager's credit", /Omapager, Copyright \(c\) 2026 Neil Jagdish Patel/.test(svc))
+  check("NOTICE.md has Omapager's copyright line", notice.includes("Copyright (c) 2026 Neil Jagdish Patel"))
+  check("NOTICE.md has two copies of the permission text (Omarchy's, Omapager's)", notice.split("Permission is hereby granted").length === 3)
+}
+// 9. Markup.render, the one thing that feeds the StyledText body, on hostile
+//    input: only the listed tags come out, and only links Security allows.
+{
+  const Markup = load("Markup"), Security = load("Security")
+  const hostile = [
+    '<img>', '<img src="https://evil.test/x.png">', '<IMG SRC=https://evil.test/x.png>', '<img/src=x>',
+    '&lt;img src="https://evil.test/x.png"&gt;', '&amp;lt;img src="https://evil.test/x.png"&amp;gt;',
+    '&amp;amp;lt;img src=x&amp;amp;gt;', '&amp;amp;amp;lt;img src=x&amp;amp;amp;gt;', '&#60;img src=x&#62;', '&#x3c;img src=x&#x3e;',
+    '<a href="https://ok.test/" onclick="x"><img src="https://evil.test/x.png"></a>',
+    '<a href="javascript:alert(1)">x</a>', '<a href="file:///etc/passwd">x</a>', '<a href="https://u:p@evil.test/">x</a>',
+    '<a href="https://evil.test/%0d%0ax">x</a>', '<a href="https://ok.test/\'onmouseover=\'x">x</a>',
+    '<a href=https://ok.test/><img src=x></a>', '<b onclick="x">y</b>', '<font color=red size=9>x</font>', '<span style="x">y</span>',
+    '<style>*{}</style>', '<script>x</script>', '<table><tr><td>x</td></tr></table>', '<h1>x</h1>', '<p>x</p>', '<hr>', '<ul><li>x</li></ul>',
+    '<div>x</div>', '<pre>x</pre>', '<u><b><i><s><em><strong>x', '<br/><br /><br>', '<a href="mailto:a@ok.test?body=x">y</a>',
+    'https://ok.test/?a=1&b="<img src=x>', 'see https://ok.test/a&lt;img src=x&gt;', '<img\nsrc=x>', '<\x00img src=x>', '<a\thref="https://ok.test/">y</a>',
+    '&#x26;lt;img src=x&#x26;gt;', '&#38;#60;img src=x&#38;#62;',
+  ]
+  const allowed = /^<\/?(?:b|i|u|s|strong)>$|^<br\/>$|^<\/a>$/
+  const badTags = []
+  for (const text of hostile) {
+    const out = Markup.render(text)
+    for (const tag of out.match(/<[^>]*>?/g) || []) {
+      const a = tag.match(/^<a href="([^"]*)">$/)
+      const href = a && a[1].replace(/&amp;/g, "&")
+      if (!allowed.test(tag) && !(a && Security.safeExternalUrl(href) === href)) badTags.push(JSON.stringify(text) + " gives " + tag)
+    }
+  }
+  if (badTags.length) console.log(badTags.join("\n"))
+  check(`Markup.render on ${hostile.length} hostile inputs gives only the allowed tags and links`, badTags.length === 0)
+  check("(control) that check sees a bare tag", !allowed.test("<img src=x>"))
+  check("(control) a good link still comes through", /<a href="https:\/\/ok\.test\/a">/.test(Markup.render('<a href="https://ok.test/a">y</a>')))
+  check("(control) a bold still comes through", Markup.render("<b>y</b>") === "<b>y</b>")
 }
 process.exit(failed ? 1 : 0)

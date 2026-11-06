@@ -106,12 +106,17 @@ Panel {
   function reload() { historyView.reload() }
   property var hiddenKeys: []      // history rows the panel doesn't show (Omarchy's own feedback)
   property var lastHiddenKeys: []
+  // Omarchy's own limits on this file: 100 rows of 4096 characters, and a file
+  // more than twice that long isn't read at all.
+  readonly property int historyMaxRows: 100
+  readonly property int historyMaxChars: 100 * 4096 * 2
   function parseHistory(raw) {
-    var list
-    try { list = JSON.parse(String(raw || "").trim() || "[]") } catch (e) { return [] }
+    var list, text = String(raw || "")
+    if (text.length > historyMaxChars) return []
+    try { list = JSON.parse(text.trim() || "[]") } catch (e) { return [] }
     if (!Array.isArray(list)) return []
     var out = [], hidden = []
-    list.forEach(function(e) {
+    list.slice(0, historyMaxRows).forEach(function(e) {
       if (!e || typeof e !== "object" || typeof e.key !== "string") return
       // past Omarchy's one day: not shown, whatever the file still holds
       if (Number(e.closed_ts || e.ts || 0) < Date.now() / 1000 - 86400) return
@@ -206,7 +211,8 @@ Panel {
 
   // Clear all is the service's: everything up to the click, also what the
   // panel hasn't read yet (a silenced copy just filed, a card closing) and
-  // Omarchy's own feedback it hides.
+  // Omarchy's own feedback it hides, so that alone still offers it.
+  readonly property bool canClear: entries.length > 0 || hiddenKeys.length > 0
   property bool pendingAll: false
   function clearAll() {
     pendingKeys = entries.map(function(e) { return e.key }).concat(hiddenKeys)
@@ -234,6 +240,7 @@ Panel {
         var reply = String(text || "").trim()
         // "none": already gone (taken out, or aged out of Omarchy's day)
         if (reply === "notready") root.showNotice("Notifications are still loading; try again in a moment.")
+        else if (reply === "unwritable") root.showNotice("Couldn't remove: Omarchy's notification history can't be written (is the disk read-only?). Waiting won't fix this; it needs the disk writable again.")
         else if (reply !== "ok" && reply !== "none")
           root.showNotice("Couldn't remove: this needs Overtake's notifications, which run in Classic and Studio while they still fit your Omarchy.")
         // taken out by the service: watched until the file shows them gone
@@ -328,6 +335,28 @@ Panel {
   function toggleDnd() {
     dnd = !dnd
     Quickshell.execDetached(["omarchy-shell", "notifications", "setDnd", dnd ? "on" : "off"])
+    dndCheck.restart()
+  }
+  // The switch is saved by the service, and a write that fails on a full disk
+  // is still reported as saved. So the file itself is read a moment later: if
+  // it doesn't say what the switch says, the user hears about it.
+  Timer {
+    id: dndCheck
+    interval: 2000
+    onTriggered: dndCheckView.reload()
+  }
+  FileView {   // (a separate view: the one below takes the file's word for the switch)
+    id: dndCheckView
+    path: root.quietFile
+    printErrors: false
+    onLoaded: root.checkDndSaved(text())
+    onLoadFailed: root.checkDndSaved("")
+  }
+  function checkDndSaved(raw) {
+    var saved = false
+    try { saved = JSON.parse(String(raw)).dnd === true } catch (e) {}
+    if (saved !== root.dnd)
+      root.showNotice("Do not disturb changed for now, but couldn't be saved (is the disk full or read-only?). It may not last past a restart. Overtake keeps trying while this session runs.")
   }
   // Omarchy saves Do Not Disturb to this file on every change: watched, not polled.
   FileView {
@@ -505,7 +534,7 @@ Panel {
             spacing: Style.space(10)
             LinkText {
               anchors.verticalCenter: parent.verticalCenter
-              visible: root.view === "list" && root.entries.length > 0
+              visible: root.view === "list" && root.canClear
               text: "Clear all"
               onClicked: root.clearAll()
             }
@@ -783,7 +812,7 @@ Panel {
           width: parent.width
           wrapMode: Text.Wrap
           text: root.knownApps.length
-            ? "Show: pop-ups, then kept here.  Quiet: kept here, no pop-ups.  Off: nothing from that app."
+            ? "Show: pop-ups, then kept here.  Quiet: kept here, no pop-ups except verification codes and critical battery alerts.  Off: nothing from that app."
             : "Apps appear here once they've sent a notification."
           color: root.panelFg
           opacity: .6
@@ -928,8 +957,8 @@ Panel {
               width: parent.width
               wrapMode: Text.Wrap
               text: root.dnd
-                ? "On: pop-ups are hidden (except critical battery alerts); notifications still collect here"
-                : "Off: notifications pop up, then collect here"
+                ? "On: most pop-ups are hidden and collect here. Still shown: verification codes, critical battery alerts, Omarchy's own messages and critical alerts from scripts. Not kept: plain notify-send messages and temporary notifications."
+                : "Off: notifications pop up, then collect here (temporary ones aren't kept)"
               color: root.panelFg
               opacity: .55
               font.family: root.fontFamily
