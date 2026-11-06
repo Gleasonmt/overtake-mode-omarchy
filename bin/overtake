@@ -318,11 +318,11 @@ build_copies() {  # build_copies all|update
         | del(.omarchy.clonePaths)' "$tmp/manifest.json" >"$tmp/manifest.json.new" 2>/dev/null &&
        mv "$tmp/manifest.json.new" "$tmp/manifest.json" &&
        cp "$share/NOTICE.md" "$tmp/NOTICE.md" 2>/dev/null &&
-       { # (Python only warns when a file it closes on its own can't be written:
-         # that is a failed build too, not a copy cut short)
-         applied=$(python3 -I "$share/apply.py" "$name" "$tmp" 2>&1 >/dev/null); n=$?
+       { # (3: the patch doesn't fit. Any other failure, such as a write that
+         # fails at close, is a failed build that keeps the copy from before.)
+         python3 -I "$share/apply.py" "$name" "$tmp" >/dev/null 2>&1; n=$?
          [[ $n != 3 ]] || fits=""
-         [[ $n == 0 && $applied != *"Exception ignored"* ]]; }; then
+         (( n == 0 )); }; then
       if [[ -d $target ]] && diff -rq "$tmp" "$target" >/dev/null 2>&1; then
         rm -rf "${tmp:?}"            # unchanged: leave the running copy alone
         chmod 755 "$target"          # (copies built by 0.1.8 are 0700)

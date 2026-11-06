@@ -259,15 +259,24 @@ grep -q "stays in use.*audio" "$T/out" || { cat "$T/out"; fail "a failed move wa
 ls -A "$H/.config/omarchy/plugins" | grep -q '^\.overtake-build' && fail "a build folder was left behind"
 pass "the copy from before goes only once the new one is in its place"
 
-# A write that fails at close: Python only warns, and exits 0. (Real ENOSPC,
-# from /dev/full.) That's a failed build, not a copy cut short.
+# A patcher that fails for any reason but "doesn't fit": the copy from before stays.
 fresh
 echo older >"$H/.config/omarchy/plugins/overtake.audio/older"
-printf 'open("/dev/full", "w").write("x")\n' >"$H/.local/share/overtake/apply.py"
+printf 'with open("/dev/full", "w") as f:\n    f.write("x")\n' >"$H/.local/share/overtake/apply.py"
 sbx "$H" "$O" build-copies update >"$T/out" 2>&1 || { cat "$T/out"; fail "build-copies"; }
-[[ -f $H/.config/omarchy/plugins/overtake.audio/older ]] || { cat "$T/out"; fail "a build whose write failed at close replaced a working copy"; }
-grep -q "stays in use" "$T/out" || { cat "$T/out"; fail "a write that failed at close wasn't reported"; }
-pass "a patch whose write fails at close counts as a failed build"
+[[ -f $H/.config/omarchy/plugins/overtake.audio/older ]] || { cat "$T/out"; fail "a failed build replaced a working copy"; }
+grep -q "stays in use" "$T/out" || { cat "$T/out"; fail "a failed build wasn't reported"; }
+pass "a patcher that fails keeps the copy from before, and says so"
+
+# The real patcher on a write that fails only at close: small enough to sit in
+# Python's buffer, under a file-size limit of 0 (EFBIG, wherever this runs). Left
+# to close by itself, Python would exit 0: silently on older versions.
+LIMITED="$T/limited"; mkdir -p "$LIMITED"
+printf '      if (b === Qt.RightButton) root.toggleBluetooth()\n      else root.toggle()\n' >"$LIMITED/Panel.qml"
+if ( trap '' XFSZ; ulimit -f 0; python3 -I patches/apply.py bluetooth "$LIMITED" ) >/dev/null 2>&1; then
+  fail "the patcher exited 0 when its write failed at close"
+fi
+pass "the real patcher fails when its write fails at close"
 
 # ---------- No Omarchy to build from ----------
 fresh
