@@ -455,6 +455,8 @@ PY
   rm -rf "$TH/clean"; sbx "$H" "$O" theme-previews >>"$T/log" 2>&1
   [[ ! -e $C/clean.jpg ]] || fail "a removed theme's copy stayed"
   pass "a theme's preview is drawn only from a stripped copy made in a child; links are refused"
+else
+  echo "skipped: no vipsthumbnail (theme previews)"
 fi
 # Settings draws a theme from git only from those copies.
 if grep -nE 'omarchy/themes/.*preview|"/preview\.(jpg|png)"' plugins/overtake.taskbar/Settings.qml | grep -v omarchyDir | grep -q .; then
