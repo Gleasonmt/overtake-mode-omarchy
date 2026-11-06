@@ -1978,6 +1978,9 @@ has_control_chars() {  # (ASCII controls, and the ones UTF-8 can spell: U+0080 t
 # Settings' gallery draws a theme from git only from these: stripped and
 # re-encoded here, in a child under a memory and time limit, as Omarchy's own
 # picker does (vipsthumbnail ... [strip]). A crafted picture costs that child.
+# (a crafted file makes the child abort under its memory limit. A core limit of 1 is
+# the one value that stops a piped core handler, so there's no dump, and no "process
+# crashed" notice for doing its job.)
 theme_previews() {
   local dir theme name src out tmp f
   dir="${XDG_CACHE_HOME:-$HOME/.cache}/overtake/theme-previews"
@@ -2002,7 +2005,7 @@ theme_previews() {
     [[ $out -nt $src ]] && continue
     tmp=$(mktemp "$dir/.preview.XXXXXX.jpg") || continue
     if (( $(stat -c %s "$src") <= 33554432 )) &&
-       ( ulimit -v 1048576; ulimit -c 0; exec env VIPS_CONCURRENCY=1 timeout 20 vipsthumbnail "$src" --size 640x360 -o "$tmp[Q=82,strip]" ) >/dev/null 2>&1; then
+       ( exec env VIPS_CONCURRENCY=1 prlimit --core=1 --as=1073741824 timeout 20 vipsthumbnail "$src" --size 640x360 -o "$tmp[Q=82,strip]" ) >/dev/null 2>&1; then
       chmod 600 "$tmp"; mv -f "$tmp" "$out"
     else
       # (remembered as no picture, until the theme's file changes)
@@ -2034,7 +2037,7 @@ icon_copies() {
         : >"$out.new"
         # (the type comes from what's in the file; over 32 MB isn't an icon)
         if head -c 33554433 <"$src" >"$tmp" && (( $(stat -c %s "$tmp") <= 33554432 )) &&
-           ( ulimit -v 1048576; ulimit -c 0; exec 9>&-; exec env VIPS_CONCURRENCY=1 timeout 10 vipsthumbnail "$tmp" --size 256x256 -o "$out.new.png[strip]" ) >/dev/null 2>&1; then
+           ( exec 9>&-; exec env VIPS_CONCURRENCY=1 prlimit --core=1 --as=1073741824 timeout 10 vipsthumbnail "$tmp" --size 256x256 -o "$out.new.png[strip]" ) >/dev/null 2>&1; then
           chmod 600 "$out.new.png"; mv -f "$out.new.png" "$out"
         else
           rm -f "$out.new.png"; : >"$out"; chmod 600 "$out"

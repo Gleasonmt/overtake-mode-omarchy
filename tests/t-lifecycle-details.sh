@@ -570,7 +570,8 @@ PY
   log_text >"$T/l"; grep -aq 'vipsthumbnail' "$T/l" || fail "(setup) the child didn't run"
   [[ $(stat -c %a "$CD") == 700 && $(stat -c %a "$CD/index") == 600 ]] || fail "icon copies aren't private"
   rm -f "$STUB/vipsthumbnail"
-  pass "icons in your folder get stripped copies from a limited child; a crafted one and a pipe get none; no name in a command line"
+    grep -c 'prlimit --core=1 --as=' "$REPO/bin/overtake" | grep -qx 2 || fail "a child that aborts on a crafted file can leave a core dump, and a crash notice"
+pass "icons in your folder get stripped copies from a limited child; a crafted one and a pipe get none; no name in a command line"
 else
   echo "skipped: no vipsthumbnail (icon copies)"
 fi
