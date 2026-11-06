@@ -99,10 +99,116 @@ PATCHES = {
     }
     command: ["wl-copy", "--sensitive"]
     onStarted: { write(value); value = ""; stdinEnabled = false }
+  }
+
+  // Overtake Mode: a link in a notification's text can carry a reset or sign-in
+  // token, and whatever opens it keeps it in its command line, readable by
+  // other accounts. So a click puts the full link on the clipboard, over stdin
+  // and kept out of clipboard history, and opens only https://<host>/. An email
+  // address is copied and nothing is opened. The card says what happened.
+  Process {
+    id: overtakeLinkClip
+    property string value: ""
+    property string done: ""
+    property string failed: ""
+    function send(v, sayDone, sayFailed) {
+      running = false
+      value = v
+      done = sayDone
+      failed = sayFailed
+      stdinEnabled = true
+      running = true
+    }
+    command: ["wl-copy", "--sensitive"]
+    onStarted: { write(value); value = ""; stdinEnabled = false }
+    onExited: function(code) { service.showPlaceholder(code === 0 ? done : failed) }
+    // (couldn't start at all: no exit comes, and the value was never taken)
+    onRunningChanged: if (!running && value !== "") { value = ""; service.showPlaceholder(failed) }
+  }
+  function overtakeOpenLink(raw) {
+    // (the text's own link arrives with its & still written &amp;: measured)
+    var safe = Security.safeExternalUrl(String(raw || "").replace(/&amp;/g, "&"))
+    if (!safe) return
+    var host = Security.hostOf(safe)
+    if (!host) {   // mailto: only the address, nothing to open
+      overtakeLinkClip.send(safe.replace(/^mailto:/i, ""), "Email address copied.", "Couldn't copy the email address.")
+      return
+    }
+    overtakeLinkClip.send(safe, "Full link copied. Opening " + host + " only.", "Couldn't copy the full link. Opening " + host + " only.")
+    Security.openExternalUrl("https://" + host + "/")
+  }
+
+  // Overtake Mode: omarchy-hyprland-focus-app reads its argument as a regular
+  // expression, and here it's a name the sender chose: ".*" would match any
+  // window, and a crafted pattern could tie up jq. So the name goes as literal
+  // text. It still matches anywhere in a window's class, as Omarchy's does.
+  function overtakeLiteral(name) {
+    return String(name).replace(/[\\\\^$.|?*+()[\\]{}]/g, "\\\\$&")
+  }
+
+  // Overtake Mode: a sender's raw picture (the image-data hint) stays in memory
+  // for as long as its card does, up to the bus's 64 MiB for each picture, and
+  // nothing tells this code its size. So only this many cards may hold one;
+  // past that, a card keeps its text and icon, and the sender's object is let
+  // go, which takes its buttons with it. A picture bigger than a card could use
+  // (see Toast.qml) is dropped once it has loaded, and the card keeps its buttons.
+  readonly property int overtakeMaxPictures: 8
+  property var overtakePictures: ({})   // card key -> true
+  function overtakePictureFits(key, row) {
+    if (!/^image:\\/\\/qsimage\\//.test(String(row.image || ""))) {
+      delete overtakePictures[key]
+      return true
+    }
+    if (overtakePictures[key]) return true
+    if (Object.keys(overtakePictures).length >= overtakeMaxPictures) return false
+    overtakePictures[key] = true
+    return true
+  }
+  function overtakeDropPicture(key) {
+    var at = rowIndexFor(key)
+    if (at >= 0) toasts.setProperty(at, "image", "")
   }'''),
       ("Service.qml",
 '''    runClip(["wl-copy", "--sensitive", "--", value])''',
 '''    overtakeCodeClip.send(value)   // Overtake Mode: on stdin, not in argv'''),
+      # A link from the message text: see overtakeOpenLink.
+      ("Service.qml",
+'''      else if (String(row.link || "")) Security.openExternalUrl(String(row.link))
+      else if (String(row.app || "")) Util.execArgv(["omarchy-hyprland-focus-app", String(row.app)])''',
+'''      else if (String(row.link || "")) service.overtakeOpenLink(String(row.link))   // Overtake Mode
+      else if (String(row.app || "")) Util.execArgv(["omarchy-hyprland-focus-app", service.overtakeLiteral(String(row.app))])   // Overtake Mode'''),
+      ("Service.qml",
+'''              onLinkOpened: service.stopKeyboard()''',
+'''              onLinkOpened: function(url) { service.stopKeyboard(); service.overtakeOpenLink(url) }   // Overtake Mode
+              onPictureTooBig: service.overtakeDropPicture(model.key)   // Overtake Mode'''),
+      # Overtake Mode: a local file named by a sender is never read. On this Qt,
+      # a small PNG with compressed text chunks allocates gigabytes before the
+      # size limit below applies, and this is the shared shell. Pixels the
+      # sender handed over (qsimage) and the installed icons below still show.
+      ("Toast.qml",
+'''                                       ? String(card.row.image) : Security.localImageUrl(card.row.image)''',
+'''                                       ? String(card.row.image) : ""   // Overtake Mode: no file a sender names'''),
+      ("Toast.qml",
+'''  signal linkOpened()''',
+'''  signal linkOpened(string url)   // Overtake Mode: the service decides what opens
+  signal pictureTooBig()          // Overtake Mode'''),
+      ("Toast.qml",
+'''          onLinkActivated: function(url) { card.linkOpened(); Security.openExternalUrl(url) }''',
+'''          onLinkActivated: function(url) { card.linkOpened(url) }   // Overtake Mode: full link to the clipboard, only the site opens'''),
+      ("Toast.qml",
+'''          onStatusChanged: if (status === Image.Error && thumb.failed < thumb.sources.length) thumb.failed += 1''',
+'''          onStatusChanged: {
+            if (status === Image.Error && thumb.failed < thumb.sources.length) thumb.failed += 1
+            // Overtake Mode: more than a megapixel in a 40-pixel slot only costs memory
+            if (status === Image.Ready && thumb.photo && implicitWidth * implicitHeight > 1048576) card.pictureTooBig()
+          }'''),
+      # Overtake Mode: the card's picture is no longer counted once it's gone.
+      ("Service.qml",
+'''    if (!liveKeys[key]) return
+    delete liveKeys[key]''',
+'''    if (!liveKeys[key]) return
+    delete overtakePictures[key]   // Overtake Mode
+    delete liveKeys[key]'''),
       # The minute-later check reads at most a code's length of the
       # clipboard (whatever was copied since could be any size).
       ("Service.qml",
@@ -154,6 +260,32 @@ PATCHES = {
     if (app === "Battery" && Number(row.urgency) === NotificationUrgency.Critical) return "bypass"
     return mode === "quiet" ? "quiet" : ""
   }
+  // Overtake Mode: why this row gets no card ("" when it gets one): Do Not
+  // Disturb, then the app's setting. Still shown through Do Not Disturb, as in
+  // Omarchy: a verification code, Omarchy's own toasts, and a bare notify-send
+  // marked critical; and here a critical battery alert. A quiet app's card that
+  // can't be kept (ephemeral) still shows, as there'd be nothing to file.
+  function overtakeMuted(row) {
+    var muted = Delivery.quietReason(row, doNotDisturb)
+    var overtakeMode = service.overtakeModeFor(row)
+    if (overtakeMode === "off") muted = "off"
+    else if (overtakeMode === "bypass") muted = ""
+    else if (overtakeMode === "quiet" && !muted && !Delivery.bypassesQuiet(row)
+             && !String(row.code || "") && !Delivery.isEphemeral(row)) muted = "silenced"
+    return muted
+  }
+  // Overtake Mode: a card coming back after a restart is held to the same rules
+  // as a new one: past its day it's gone (a card stays on screen for seconds,
+  // and this row hasn't been listed as history), and under Do Not Disturb or a
+  // quiet app it goes to history instead of popping up. True if it stays off
+  // screen.
+  function overtakeRestoreHeldBack(row) {
+    if (Number(row.ts) <= Date.now() / 1000 - Store.RETENTION_HOURS * 3600) return true
+    var muted = overtakeMuted(row)
+    if (!muted) return false
+    if (muted !== "off" && !Delivery.isEphemeral(row)) storeRecord(row, muted)
+    return true
+  }
 
   readonly property int lowDuration: 5000
   readonly property int normalDuration: overtakeOn ? 10000 : 8000  // Overtake Mode: 10 s'''),
@@ -164,15 +296,9 @@ PATCHES = {
 '''    var muted = Delivery.quietReason(row, doNotDisturb)
     if (muted) {
       if (!Delivery.isEphemeral(row)) storeRecord(row, muted)''',
-'''    var muted = Delivery.quietReason(row, doNotDisturb)
-    // Overtake Mode: the app's setting from the notification center, and a
-    // critical battery alert past Do Not Disturb. A quiet app's card that
-    // can't be kept (ephemeral) still shows, as there'd be nothing to file.
-    var overtakeMode = service.overtakeModeFor(row)
-    if (overtakeMode === "off") muted = "off"
-    else if (overtakeMode === "bypass") muted = ""
-    else if (overtakeMode === "quiet" && !muted && !Delivery.bypassesQuiet(row)
-             && !String(row.code || "") && !Delivery.isEphemeral(row)) muted = "silenced"
+'''    // Overtake Mode: see overtakePictureFits
+    if (!service.overtakePictureFits(key, row)) { row.image = ""; service.release(key) }
+    var muted = service.overtakeMuted(row)   // Overtake Mode: Do Not Disturb, then the app's setting
     if (muted) {
       if (muted !== "off" && !Delivery.isEphemeral(row)) storeRecord(row, muted)'''),
       # A restored critical card (after a shell restart) would wait forever too.
@@ -181,7 +307,180 @@ PATCHES = {
       if (!row) continue''',
 '''      var row = Store.restored(rows[i])
       if (!row) continue
+      if (!replay && service.overtakeRestoreHeldBack(row)) continue  // Overtake Mode
       if (service.overtakeOn && row.urgency === NotificationUrgency.Critical) row.duration = 15000  // Overtake Mode'''),
+      # Do Not Disturb has to be known before a card is restored, and the files
+      # load in no fixed order. So live.json waits for quiet.json.
+      ("Service.qml",
+'''  function loadLive(text) {
+    if (liveLoaded) return
+    var stored = Store.parseLive(text)''',
+'''  property var overtakeLiveWaiting: null   // Overtake Mode: live.json, read before quiet.json
+  function loadLive(text) {
+    if (liveLoaded) return
+    if (!quietLoaded) { overtakeLiveWaiting = String(text); return }   // Overtake Mode
+    var stored = Store.parseLive(text)'''),
+      ("Service.qml",
+'''    quietLoaded = true
+    if (unsaved.quiet) saveSoon("quiet")''',
+'''    quietLoaded = true
+    if (unsaved.quiet) saveSoon("quiet")
+    if (overtakeLiveWaiting !== null) { var waiting = overtakeLiveWaiting; overtakeLiveWaiting = null; loadLive(waiting) }   // Overtake Mode'''),
+      # Do Not Disturb is read back too: a write that fails at commit (disk
+      # full) is still reported as saved. It's written again until the file
+      # says the same; the center tells the user if it can't be saved.
+      ("Service.qml",
+'''    id: quietFile
+    path: service.storeReady ? service.stateDir + "/quiet.json" : ""
+    atomicWrites: true
+    printErrors: false
+    onLoaded: service.loadQuiet(text())
+    onLoadFailed: service.loadQuiet("")
+  }''',
+'''    id: quietFile
+    path: service.storeReady ? service.stateDir + "/quiet.json" : ""
+    atomicWrites: true
+    printErrors: false
+    onSaved: overtakeQuietCheck.restart()       // Overtake Mode
+    onSaveFailed: overtakeQuietCheck.restart()
+    onLoaded: { service.overtakeCheckQuiet(text()); service.loadQuiet(text()) }
+    onLoadFailed: { service.overtakeCheckQuiet(""); service.loadQuiet("") }
+  }
+  Timer {
+    id: overtakeQuietCheck
+    interval: 1000
+    onTriggered: service.overtakeWhenPrepared(service.overtakeReadQuietBack)
+  }
+  Timer {
+    id: overtakeQuietRetry
+    interval: 5000
+    onTriggered: service.saveSoon("quiet")
+  }
+  function overtakeReadQuietBack() { quietFile.reload() }
+  function overtakeCheckQuiet(text) {
+    if (!quietLoaded) return
+    var read = Store.parseQuiet(text)
+    if ((read ? read.dnd : false) === doNotDisturb) overtakeQuietRetry.stop()
+    else overtakeQuietRetry.restart()
+  }'''),
+      # live.json is read back after every write as well, so a card that closed
+      # while the disk was full is taken out of the file then, and a removed
+      # row can't come back through it after a restart.
+      ("Service.qml",
+'''    id: liveFile
+    path: service.storeReady ? service.stateDir + "/live.json" : ""
+    atomicWrites: true
+    printErrors: false
+    onLoaded: service.loadLive(text())''',
+'''    id: liveFile
+    path: service.storeReady ? service.stateDir + "/live.json" : ""
+    atomicWrites: true
+    printErrors: false
+    onSaved: overtakeLiveReadBack.restart()       // Overtake Mode
+    onSaveFailed: overtakeLiveReadBack.restart()
+    onLoaded: service.loadLive(text())'''),
+      # Omarchy prepares the folder once, at startup. If it's deleted while the
+      # shell runs, the next write would recreate it with default permissions
+      # (FileView makes missing folders itself): 0755, with a 0644 file in it.
+      # So every write now waits for the same preparation to finish first.
+      ("Service.qml",
+'''  function flushStore() {
+    if (unsaved.live && liveLoaded) {''',
+'''  function flushStore() {
+    // Overtake Mode: nothing is written until the folder is known to be private
+    if ((unsaved.live && liveLoaded) || (unsaved.history && historyLoaded) || (unsaved.quiet && quietLoaded))
+      overtakeWhenPrepared(overtakeWriteStore)
+  }
+  function overtakeWriteStore() {
+    if (unsaved.live && liveLoaded) {'''),
+      ("Service.qml",
+'''    command: ["bash", "-c",
+      "umask 077\\n" +
+      "dir=$1\\n" +
+      "mkdir -p -- \\"$dir\\" && chmod 700 -- \\"$dir\\" || exit 1\\n" +
+      "for name in live.json history.json quiet.json; do\\n" +
+      "  file=$dir/$name\\n" +
+      "  if [[ -L $file ]]; then rm -f -- \\"$file\\"; fi\\n" +
+      "  if [[ -f $file ]]; then chmod 600 -- \\"$file\\"; elif [[ ! -e $file ]]; then : >\\"$file\\"; fi\\n" +
+      "done\\n",
+      "omarchy-notifications-state", service.stateDir]
+    onExited: function(code) { service.storeReady = code === 0 }
+  }
+
+  Component.onCompleted: storePrepare.running = true
+  // A reload or a clean exit inside the save delay still writes.
+  Component.onDestruction: flushStore()''',
+'''    command: ["bash", "-c", service.overtakePrepareScript, "omarchy-notifications-state", service.stateDir]
+    onExited: function(code) { service.overtakePrepareExited(code) }   // Overtake Mode
+  }
+  // Overtake Mode: Omarchy's script, except that a file it can't create is a
+  // failure (a write after that would create it with default permissions).
+  readonly property string overtakePrepareScript:
+      "umask 077\\n" +
+      "dir=$1\\n" +
+      "mkdir -p -- \\"$dir\\" && chmod 700 -- \\"$dir\\" || exit 1\\n" +
+      "for name in live.json history.json quiet.json; do\\n" +
+      "  file=$dir/$name\\n" +
+      "  if [[ -L $file ]]; then rm -f -- \\"$file\\"; fi\\n" +
+      "  if [[ -f $file ]]; then chmod 600 -- \\"$file\\" || exit 1; elif [[ ! -e $file ]]; then : >\\"$file\\" || exit 1; fi\\n" +
+      "done\\n"
+
+  // Overtake Mode: the folder made private (again) before each write and each
+  // read-back. A write held here runs when the script has finished, and is
+  // tried again every 5 s while the script fails. It runs once more for
+  // whatever asked while it was already running, as the folder may have gone
+  // since it looked.
+  property var overtakePrepareNext: []
+  property var overtakePrepareNow: []
+  property bool overtakePrepareFailed: false
+  function overtakeWhenPrepared(run) {
+    if (overtakePrepareNext.indexOf(run) === -1) overtakePrepareNext.push(run)
+    overtakeStartPrepare()
+  }
+  function overtakeStartPrepare() {
+    if (storePrepare.running || overtakePrepareRetry.running) return
+    overtakePrepareNow = overtakePrepareNext
+    overtakePrepareNext = []
+    storePrepare.running = true
+  }
+  function overtakePrepareExited(code) {
+    var ran = overtakePrepareNow
+    overtakePrepareNow = []
+    overtakePrepareFailed = code !== 0
+    if (code !== 0) {
+      overtakePrepareNext = ran.concat(overtakePrepareNext.filter(function(run) { return ran.indexOf(run) === -1 }))
+      if (overtakePrepareNext.length) overtakePrepareRetry.restart()
+      return
+    }
+    storeReady = true
+    ran.forEach(function(run) { run() })
+    if (overtakePrepareNext.length) overtakeStartPrepare()
+  }
+  Timer {
+    id: overtakePrepareRetry
+    interval: 5000
+    onTriggered: service.overtakeStartPrepare()
+  }
+  // What the center hears when history hasn't loaded: still starting, or the
+  // folder can't be prepared (a read-only home), which waiting won't fix. It's
+  // tried again now, in case that has changed.
+  function overtakeNotLoadedReply() {
+    if (!overtakePrepareFailed) return "notready"
+    overtakeStartPrepare()
+    return "unwritable"
+  }
+  // No process can be waited for at exit, so a write still due goes now, and a
+  // detached copy of the script puts the permissions right just after it, in
+  // case the folder was deleted a moment ago.
+  function overtakeFlushAtExit() {
+    if (!((unsaved.live && liveLoaded) || (unsaved.history && historyLoaded) || (unsaved.quiet && quietLoaded))) return
+    Quickshell.execDetached(["bash", "-c", "sleep 0.3\\n" + overtakePrepareScript, "omarchy-notifications-state", stateDir])
+    overtakeWriteStore()
+  }
+
+  Component.onCompleted: storePrepare.running = true
+  // A reload or a clean exit inside the save delay still writes.
+  Component.onDestruction: overtakeFlushAtExit()   // Overtake Mode'''),
       ("Service.qml",
 '''    function count(): string { return String(toasts.count) }''',
 '''    function count(): string { return String(toasts.count) }
@@ -191,12 +490,13 @@ PATCHES = {
     // second, so a shutdown right after can't lose it.
     function forget(keys: string): string {
       var drop = String(keys || "").split(" ").filter(function(k) { return k !== "" })
-      if (!service.historyLoaded) return "notready"   // (not read yet: it would come back)
+      if (!service.historyLoaded) return service.overtakeNotLoadedReply()   // (not read yet: it would come back)
       if (!drop.length) return "none"
       var kept = service.historyEntries.filter(function(e) { return drop.indexOf(String(e.key)) === -1 })
       if (kept.length === service.historyEntries.length) return "none"
       service.historyEntries = kept
       service.overtakeInPlace.reload()   // onLoaded takes the rows out of what's on disk now
+      service.overtakeLiveInPlace.reload()   // (a row that closed while the disk was full may still be in live.json)
       service.saveSoon("history")
       service.flushStore()
       return "ok"
@@ -209,7 +509,8 @@ PATCHES = {
     // itself into history as it closes. (Those stay on screen until they
     // time out, but leave nothing behind.)
     function forgetAll(): string {
-      if (!service.historyLoaded) return "notready"
+      // (both read first: a card restored after this would come back)
+      if (!service.historyLoaded || !service.liveLoaded) return service.overtakeNotLoadedReply()
       service.liveEntries.map(function(e) { return String(e.key) })
         .forEach(function(key) { service.storeDrop(key) })
       service.overtakeLiveInPlace.reload()
@@ -253,8 +554,9 @@ PATCHES = {
   Timer {
     id: overtakeVerify
     interval: 1000
-    onTriggered: historyFile.reload()
+    onTriggered: service.overtakeWhenPrepared(service.overtakeReadHistoryBack)
   }
+  function overtakeReadHistoryBack() { historyFile.reload() }
   function overtakeCheckFile(text) {
     if (!historyLoaded) return
     overtakeInPlaceFile.reload()
@@ -286,58 +588,105 @@ PATCHES = {
   // full disk the usual write (a new file renamed over it) gets no space, so
   // a restart would read the row again. reload() is asynchronous, so this
   // happens when the file has been read: the file as it stands less the rows
-  // no longer in memory, never longer than what it overwrites, so it reuses
-  // the file's own space; cut short, it is no JSON, which the loader reads as
-  // no history, never as a removed row.
+  // no longer in memory.
+  //
+  // FileView can't do this write safely: without atomicWrites it opens the file
+  // truncated, so if the disk then refuses the write, the other rows are gone
+  // too. This small script overwrites without truncating instead. See its
+  // comments for why a refused write leaves every row in place.
+  readonly property string overtakeInPlaceScript:
+      "LC_ALL=C\\n" +              // (lengths below are in bytes)
+      "file=$1\\n" +
+      // The text comes on stdin, never as an argument.
+      "new=$(cat; printf x); new=${new%x}\\n" +
+      // Never creates the file, or follows a link.
+      "[[ -f $file && ! -L $file ]] || exit 3\\n" +
+      "old=$(cat -- \\"$file\\"; printf x) || exit 1; old=${old%x}\\n" +
+      "[[ $(stat -c %s -- \\"$file\\") == \\"${#old}\\" ]] || exit 3\\n" +
+      // Only ever shorter, so it can reuse the file's own space.
+      "(( ${#new} <= ${#old} )) || exit 3\\n" +
+      // Spaces up to the old length: JSON allows them, so the file is complete
+      // JSON whether or not the cut at the end works.
+      "printf -v pad '%*s' \\"$(( ${#old} - ${#new} ))\\" ''\\n" +
+      "write() { dd of=\\"$file\\" oflag=nofollow conv=notrunc,nocreat bs=1M iflag=fullblock status=none 2>/dev/null; }\\n" +
+      // A write cut short leaves new text in front of old: the old text goes
+      // back over it, in the space that write already got.
+      "if ! printf '%s%s' \\"$new\\" \\"$pad\\" | write; then printf '%s' \\"$old\\" | write; exit 1; fi\\n" +
+      "truncate -s \\"${#new}\\" -- \\"$file\\" 2>/dev/null\\n" +
+      "exit 0\\n"
+  component OvertakeInPlaceWrite: Process {
+    property string script: ""
+    property string file: ""
+    property string value: ""
+    property string next: ""
+    property bool queued: false
+    function send(text) {
+      if (running) { next = text; queued = true; return }
+      value = text
+      stdinEnabled = true
+      running = true
+    }
+    command: ["bash", "-c", script, "overtake-in-place", file]
+    onStarted: { write(value); value = ""; stdinEnabled = false }
+    onExited: if (queued) { queued = false; send(next); next = "" }
+  }
+  OvertakeInPlaceWrite { id: overtakeHistoryWrite; script: service.overtakeInPlaceScript; file: historyFile.path }
+  OvertakeInPlaceWrite { id: overtakeLiveWrite; script: service.overtakeInPlaceScript; file: liveFile.path }
   property alias overtakeInPlace: overtakeInPlaceFile
-  FileView {
+  FileView {   // (only ever read)
     id: overtakeInPlaceFile
     path: historyFile.path
-    atomicWrites: false
     printErrors: false
     onLoaded: if (service.historyLoaded) service.overtakeRemoveInPlace(text())
   }
-  // The same for the cards on screen (live.json), at Clear all: otherwise one
-  // comes back after a restart on a full disk and files itself as it closes.
+  // The same for the cards on screen (live.json), after each write and at each
+  // removal: otherwise a card comes back after a restart on a full disk and
+  // files itself as it closes.
   property alias overtakeLiveInPlace: overtakeLiveInPlaceFile
-  FileView {
+  FileView {   // (only ever read)
     id: overtakeLiveInPlaceFile
     path: liveFile.path
-    atomicWrites: false
     printErrors: false
     onLoaded: {
       if (!service.liveLoaded) return
-      var rows, keep = Object.create(null)
-      try { rows = JSON.parse(String(text())) } catch (e) { return }
+      var raw = String(text()), rows, keep = Object.create(null)
+      try { rows = JSON.parse(raw.trim() || "[]") } catch (e) { return }
       if (!Array.isArray(rows)) return
       service.liveEntries.forEach(function(e) { keep[String(e.key)] = true })
       var left = rows.filter(function(e) { return !!e && typeof e === "object" && keep[String(e.key)] === true })
-      if (left.length !== rows.length) setText(JSON.stringify(left) + "\\n")
-      // A card that arrived as this was read can be missing from the file now:
-      // written again from memory (reloaded first: FileView skips the text it
-      // last wrote), and read back a second later, a few times at most.
+      var gone = left.length !== rows.length
+      if (gone) overtakeLiveWrite.send(service.overtakeComparable(JSON.stringify(left) + "\\n"))
+      // A card that arrived as this was read, or whose write didn't land, can
+      // be missing from the file: written again from memory (reloaded first:
+      // FileView skips the text it last wrote), and then about every 6 s until
+      // the file has it.
       var have = Object.create(null)
       left.forEach(function(e) { have[String(e.key)] = true })
-      if (service.liveEntries.some(function(e) { return have[String(e.key)] !== true })) {
-        liveFile.reload()
-        service.saveSoon("live")
-        if (overtakeLiveReadBack.tries++ < 5) overtakeLiveReadBack.restart()
-      } else overtakeLiveReadBack.tries = 0
+      var missing = service.liveEntries.some(function(e) { return have[String(e.key)] !== true })
+      if (missing && overtakeLiveReadBack.tries++ === 0) overtakeLiveRetry.triggered()
+      else if (missing || gone) overtakeLiveRetry.restart()
+      else overtakeLiveReadBack.tries = 0
     }
   }
   Timer {
     id: overtakeLiveReadBack
     property int tries: 0
     interval: 1000
-    onTriggered: overtakeLiveInPlaceFile.reload()
+    onTriggered: service.overtakeWhenPrepared(service.overtakeReadLiveBack)
   }
+  Timer {
+    id: overtakeLiveRetry
+    interval: 5000
+    onTriggered: { liveFile.reload(); service.saveSoon("live"); overtakeLiveReadBack.restart() }
+  }
+  function overtakeReadLiveBack() { overtakeLiveInPlaceFile.reload() }
   function overtakeRemoveInPlace(diskText) {
     var rows, keep = Object.create(null)   // (a key may be "__proto__")
     try { rows = JSON.parse(String(diskText)) } catch (e) { return }
     if (!Array.isArray(rows)) return
     historyEntries.forEach(function(e) { keep[String(e.key)] = true })
     var left = rows.filter(function(e) { return !!e && typeof e === "object" && keep[String(e.key)] === true })
-    if (left.length !== rows.length) overtakeInPlaceFile.setText(JSON.stringify(left) + "\\n")
+    if (left.length !== rows.length) overtakeHistoryWrite.send(overtakeComparable(JSON.stringify(left) + "\\n"))
   }'''),
       ("Service.qml",
 '''    id: historyFile
