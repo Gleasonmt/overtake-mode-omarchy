@@ -247,6 +247,28 @@ grep -q 'check and rebuild its patched copies' "$H/.config/hypr/autostart.lua" |
 grep -q 'check and$' <<<"$(sbx "$H" ./install.sh --dry-run)" || fail "the install list doesn't say the login line rebuilds the copies"
 pass "comments and the install list describe what the code does"
 
+# ...and the copy from before isn't lost if the new one can't be moved into place.
+fresh
+echo older >"$H/.config/omarchy/plugins/overtake.audio/older"
+stub mv 'if [[ $1 == -T && $3 == */overtake.audio && $2 == */.overtake-build.?????? ]]; then echo "mv: no" >&2; exit 1; fi
+exec /usr/bin/mv "$@"'
+sbx "$H" "$O" build-copies update >"$T/out" 2>&1 || { cat "$T/out"; fail "build-copies"; }
+rm -f "$STUB/mv"
+[[ -f $H/.config/omarchy/plugins/overtake.audio/older ]] || { cat "$T/out"; fail "the copy from before was lost when the new one couldn't be moved in"; }
+grep -q "stays in use.*audio" "$T/out" || { cat "$T/out"; fail "a failed move wasn't reported"; }
+ls -A "$H/.config/omarchy/plugins" | grep -q '^\.overtake-build' && fail "a build folder was left behind"
+pass "the copy from before goes only once the new one is in its place"
+
+# A write that fails at close: Python only warns, and exits 0. (Real ENOSPC,
+# from /dev/full.) That's a failed build, not a copy cut short.
+fresh
+echo older >"$H/.config/omarchy/plugins/overtake.audio/older"
+printf 'open("/dev/full", "w").write("x")\n' >"$H/.local/share/overtake/apply.py"
+sbx "$H" "$O" build-copies update >"$T/out" 2>&1 || { cat "$T/out"; fail "build-copies"; }
+[[ -f $H/.config/omarchy/plugins/overtake.audio/older ]] || { cat "$T/out"; fail "a build whose write failed at close replaced a working copy"; }
+grep -q "stays in use" "$T/out" || { cat "$T/out"; fail "a write that failed at close wasn't reported"; }
+pass "a patch whose write fails at close counts as a failed build"
+
 # ---------- No Omarchy to build from ----------
 fresh
 cp "$(config)" "$T/sj.before"

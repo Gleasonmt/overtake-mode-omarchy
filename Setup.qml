@@ -86,12 +86,13 @@ Item {
   }
 
   // Omarchy reloads a plugin whenever its plugins change, not only when the
-  // shell starts. This shell's process id, noted in the runtime folder, says
-  // the reminder was already given by this shell.
+  // shell starts. A folder named for this shell's process id, in the runtime
+  // folder, says this shell has already given the reminder (mkdir can't succeed
+  // twice, even for two reloads at once).
   Process {
     id: oncePerShell
-    command: ["sh", "-c", "[ -n \"$XDG_RUNTIME_DIR\" ] || exit 0; f=\"$XDG_RUNTIME_DIR/overtake-reminded\"; " +
-      "[ \"$(cat \"$f\" 2>/dev/null)\" != \"$1\" ] || exit 1; echo \"$1\" >\"$f\"", "sh", String(Quickshell.processId)]
+    command: ["sh", "-c", "[ -n \"$XDG_RUNTIME_DIR\" ] || exit 0; f=\"$XDG_RUNTIME_DIR/overtake-reminded.$1\"; " +
+      "mkdir \"$f\" 2>/dev/null || exit 1; for d in \"$XDG_RUNTIME_DIR\"/overtake-reminded.*; do [ \"$d\" = \"$f\" ] || rmdir \"$d\" 2>/dev/null; done; exit 0", "sh", String(Quickshell.processId)]
     onExited: function(code) {
       if (code === 0)
         Quickshell.execDetached(["notify-send", "-a", "Overtake Mode", "--", root.reminderTitle, root.reminderBody])

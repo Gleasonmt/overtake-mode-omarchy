@@ -54,12 +54,14 @@ run snap right 0xa1
 run unsnap 0xa1
 run snap left 0xa1
 rm -f "$H/.local/state/overtake/no-fill"
-run fill-gap 0xa2
+run fill-gap 0xa1
 run show-desktop
 use_workspace "2"; jq '.windows = 0' "$HYPR/activeworkspace.json" >"$HYPR/x"; mv "$HYPR/x" "$HYPR/activeworkspace.json"
 run show-desktop                                               # back to the named one
 use_workspace "$WS"
 run fix-bar
+for c in maximize show make-room close; do run "$c" 0xa1; done
+run send 2 0xa1 10 40
 
 # A browser window's address, with a page title that's private
 jq --arg t "Page $MARK" '(.[].class) = "chromium" | (.[].title) = $t' "$HYPR/clients.json" >"$HYPR/c2"
@@ -80,6 +82,7 @@ run screensaver show wallpaper
 [[ -e $H/.config/omarchy/branding/screensaver.txt.before-overtake ]] || fail "screensaver art wasn't exercised"
 run style studio                                               # a wallpaper you picked, kept per look
 run style classic
+run next-wallpaper                                             # (the slideshow up again, so off must bring yours back)
 run off                                                        # saved bar (with the marker) restored; your wallpaper back
 
 [[ -s $ARGV_LOG ]] || fail "no commands were logged (the harness isn't working)"

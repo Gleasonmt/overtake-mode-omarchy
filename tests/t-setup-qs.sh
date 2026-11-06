@@ -37,7 +37,7 @@ start_shell() {  # a shell start, with its reloads; new process, new shell
   sleep 0.2   # (the last card, started as the shell quit)
 }
 cards() { grep -c "${1:-.}" "$E/cards" 2>/dev/null || true; }
-reset() { rm -rf "$HOME_" "$E/cards" "$E/run/overtake-reminded"; mkdir -p "$HOME_/.local/share/overtake" "$HOME_/.local/bin"; : >"$E/cards"; }
+reset() { rm -rf "$HOME_" "$E/cards" "$E/run"/overtake-reminded.*; mkdir -p "$HOME_/.local/share/overtake" "$HOME_/.local/bin"; : >"$E/cards"; }
 installed() {  # installed <recorded version> <the command's text>
   printf '%s\n' "$1" >"$HOME_/.local/share/overtake/version"
   printf '%s' "$2" >"$HOME_/.local/bin/overtake"; chmod +x "$HOME_/.local/bin/overtake"
@@ -50,6 +50,7 @@ start_shell
 grep -q 'Run ./install.sh in' "$E/cards" || fail "the wrong reminder for a missing install"
 start_shell
 [[ $(cards) == 2 ]] || fail "the next shell start didn't remind again ($(cards) in all)"
+[[ $(find "$E/run" -maxdepth 1 -name 'overtake-reminded.*' | wc -l) == 1 ]] || fail "marks of earlier shells pile up in the runtime folder"
 pass "not installed: one reminder per shell start, however many reloads"
 
 reset; installed 0.1.15 "$SAME"
