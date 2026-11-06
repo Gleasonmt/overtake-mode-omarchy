@@ -381,14 +381,14 @@ ceb87066830adfcd800d5bec3db4fe347f2270875a4b2c6ef684edef4a5166b5 4-aurora.png
 DIGESTS
 say "settings: ~/.config/overtake (existing files kept); wallpapers: ~/Pictures/overtake/{slideshow,studio}"
 
-# Trash as an app, so it can be found in Start, pinned to Start or the
+# The Recycle Bin as an app, so it can be found in Start, pinned to Start or the
 # taskbar, and added back to the desktop after being removed from it.
 mkdir -p "$APPS"
 cat >"$APPS/overtake-trash.desktop" <<'DESKTOP'
 [Desktop Entry]
-Name=Trash
+Name=Recycle Bin
 Comment=Files you've deleted
-Keywords=recycle;bin;deleted;
+Keywords=trash;deleted;
 Exec=nautilus --new-window trash:///
 Icon=user-trash
 Type=Application

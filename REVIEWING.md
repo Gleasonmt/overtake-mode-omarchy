@@ -53,7 +53,7 @@ Precedents: [macOS Dock #13499](https://github.com/omacom/omarchy-plugin-marketp
   and looks apply only while Classic or Studio is on; switching to Omarchy
   puts each one back (`turn_off`, `switch_copies off`). What stays in every
   mode: the mode shortcut and a login line (`overtake resume`, which in every mode checks the patched copies against the installed Omarchy and rebuilds them if needed; in Omarchy mode that is all it does, apart from retrying a notice the shell wasn't up for), both in marked blocks; the Overtake Mode entry in the Omarchy
-  menu; the post-update hook; and a Trash entry in the app launcher. There are no optional extras.
+  menu; the post-update hook; and a Recycle Bin entry in the app launcher. There are no optional extras.
 - Edits to existing files are between `>>> overtake` / `<<< overtake` markers
   (`bindings.lua`, `autostart.lua`, `omarchy-menu.jsonc`). The README's
   [What it installs](README.md#what-it-installs) table lists every path.

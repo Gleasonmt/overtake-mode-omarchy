@@ -28,6 +28,15 @@ rm -f "$UNFIT/bar/widgets/Workspaces.qml"
 
 # ---------- A new window at a reused address ----------
 fresh
+# ---------- What a new desktop calls things ----------
+icons=$(grep -v '^#' "$H/.config/overtake/desktop-icons.txt")
+grep -qx 'trash | Recycle Bin' <<<"$icons" || fail "the default desktop has no Recycle Bin"
+# (a label naming a browser has to open that browser, not the default one)
+grep -qx 'chromium | Chromium' <<<"$icons" || fail "the default desktop has no Chromium"
+grep -q '^browser' <<<"$icons" && fail "the default desktop still has the default-browser icon"
+grep -qx 'Name=Recycle Bin' "$H/.local/share/applications/overtake-trash.desktop" || fail "the launcher entry isn't called Recycle Bin"
+pass "a new desktop has Recycle Bin and Chromium, the launcher entry matches, and Chromium's icon is Chromium itself"
+
 sbx "$H" "$O" on >>"$T/log" 2>&1 || { cat "$T/log"; fail "on"; }
 echo "$MARK name" | sbx "$H" "$O" name 0xa1 -
 jq -e '.["0xa1"]' "$H/.local/state/overtake/names.json" >/dev/null || fail "the window's name wasn't kept (test setup)"

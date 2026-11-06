@@ -136,7 +136,7 @@ Item {
     onFileChanged: reload()
     onLoaded: root.desktopIconsText = text()
   }
-  // The desktop's own Trash icon (with Empty Trash) stands for the Trash app.
+  // The desktop's own Recycle Bin icon (with Empty Recycle Bin) stands for the Recycle Bin app.
   function desktopId(app) { return app && app.id === "overtake-trash" ? "trash" : (app ? app.id : "") }
   function toggleDesktop(app) {
     if (!app) return

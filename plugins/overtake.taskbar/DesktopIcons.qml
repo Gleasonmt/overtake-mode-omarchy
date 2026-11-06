@@ -13,7 +13,7 @@ import "DesktopList.js" as DesktopList
 // the Studio look): click selects,
 // double-click opens, dragging moves an icon up or down the column, and
 // right-click gives Open, Pin to Start, Pin to taskbar, Remove desktop icon,
-// Rename and Move up / down (and Empty Trash on the Trash). Right-click on the
+// Rename and Move up / down (and Empty Recycle Bin on the Recycle Bin). Right-click on the
 // desktop itself gives the view options (icon size, sort, show icons), Add a
 // shortcut, background and theme, screensaver, Personalize, Display settings
 // and a terminal. A plain click on the desktop minimizes the windows on that
@@ -82,7 +82,7 @@ Item {
   // (own keys only: an id comes from a text file, and could be "constructor")
   function builtInOf(id) { return Object.prototype.hasOwnProperty.call(root.builtIn, id) ? root.builtIn[id] : null }
   readonly property var builtIn: ({
-    trash: { icon: "user-trash", label: "Trash", command: ["uwsm-app", "--", "nautilus", "trash:///"] },
+    trash: { icon: "user-trash", label: "Recycle Bin", command: ["uwsm-app", "--", "nautilus", "trash:///"] },
     browser: { icon: "web-browser", label: "Browser", command: ["omarchy-launch-browser"] },
     terminal: { icon: "utilities-terminal", label: "Terminal", command: ["uwsm-app", "--", "omarchy-launch-terminal"] }
   })
@@ -167,14 +167,14 @@ Item {
 
   function iconMenu(icon) {
     var isApp = !root.builtInOf(icon.id)
-    // What Start and the taskbar pin: the app itself, or for Trash its
+    // What Start and the taskbar pin: the app itself, or for the Recycle Bin its
     // launcher (installed by Overtake).
     var pinId = isApp ? icon.id : (icon.id === "trash" && DesktopEntries.byId("overtake-trash") ? "overtake-trash" : "")
     var at = -1
     for (var i = 0; i < icons.length; i++) if (icons[i].id === icon.id) at = i
     var rows = [{ glyph: "", label: "Open", run: function() { root.open(icon) } }]
-    if (icon.id === "trash") rows.push({ glyph: "", label: "Empty Trash…", run: function() {
-      root.confirm = { text: "Permanently delete everything in the Trash?", button: "Empty Trash", run: function() { root.run("gio trash --empty") } }
+    if (icon.id === "trash") rows.push({ glyph: "", label: "Empty Recycle Bin…", run: function() {
+      root.confirm = { text: "Permanently delete everything in the Recycle Bin?", button: "Empty Recycle Bin", run: function() { root.run("gio trash --empty") } }
     }, keepOpen: true })
     if (pinId) rows.push({ glyph: "", label: startPins.indexOf(pinId) !== -1 ? "Unpin from Start" : "Pin to Start",
                            run: function() { root.toggleStartPin(pinId) } })
@@ -188,7 +188,7 @@ Item {
     return rows
   }
 
-  // Trash on the desktop or not (View > Show Trash). It comes back at the top.
+  // The Recycle Bin on the desktop or not (View > Show Recycle Bin). It comes back at the top.
   function toggleTrashIcon() {
     if (DesktopList.has(root.iconsText, "trash")) { root.writeIcons(DesktopList.remove(root.iconsText, "trash")); return }
     var next = DesktopList.add(root.iconsText, "trash", "")
@@ -204,7 +204,7 @@ Item {
       { glyph: "", label: "Medium icons", checked: size === "medium", run: function() { root.setView("iconSize", "medium") } },
       { glyph: "", label: "Small icons", checked: size === "small", run: function() { root.setView("iconSize", "small") } },
       { glyph: "", label: "Show desktop icons", checked: view.showIcons !== false, run: function() { root.setView("showIcons", view.showIcons === false) } },
-      { glyph: "", label: "Show Trash", checked: DesktopList.has(root.iconsText, "trash"), run: function() { root.toggleTrashIcon() } },
+      { glyph: "", label: "Show Recycle Bin", checked: DesktopList.has(root.iconsText, "trash"), run: function() { root.toggleTrashIcon() } },
       { glyph: "", label: "Sort by name", run: function() {
         root.writeIcons(DesktopList.sortBy(root.iconsText, function(id, label) { return root.labelFor({ id: id, label: label }) }))
       } },

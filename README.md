@@ -54,13 +54,13 @@ In Omarchy mode, Omarchy runs as it ships: Overtake's bar, notifications,
 battery alerts and shortcuts apply in Classic and Studio, and switching to
 Omarchy puts everything back. What stays in every mode: the mode shortcut, a
 login check that the patched copies still match your Omarchy, the Omarchy menu
-entry, the post-update hook and a Trash entry in the app launcher. (Changes you
+entry, the post-update hook and a Recycle Bin entry in the app launcher. (Changes you
 make yourself in Overtake's Settings, like the screensaver art, are yours and
 stay.)
 
 Needs Omarchy 4.5 or later (tested on 4.5.0). Everything it uses ships with Omarchy,
 including `jq`, `python3` (with its GObject bindings), `hyprctl`, `fd`, `curl`,
-`flock`, ImageMagick (`magick`), libvips (`vipsthumbnail`), `gtk-launch` and `wl-copy`. Optional: Nautilus for the Trash app. (`tests/run.sh` needs `node`, `jq` and `python3`; `qs`, `fd`, `dbus-run-session`, `notify-send` and `unshare -r -m -n` for the real parts, which are skipped without them; `t-full-disk.sh` needs `unshare -r -m`.)
+`flock`, ImageMagick (`magick`), libvips (`vipsthumbnail`), `gtk-launch` and `wl-copy`. Optional: Nautilus for the Recycle Bin app. (`tests/run.sh` needs `node`, `jq` and `python3`; `qs`, `fd`, `dbus-run-session`, `notify-send` and `unshare -r -m -n` for the real parts, which are skipped without them; `t-full-disk.sh` needs `unshare -r -m`.)
 
 Then switch it on with **Super + Ctrl + Shift + W**, `overtake on`, or
 **Omarchy menu → Overtake Mode**. Each press of the shortcut goes to the next
@@ -153,7 +153,7 @@ grouped by app, with per-app Show / Quiet / Off and Do Not Disturb.
 - **Themes in folders** — Settings → Personalization shows your themes first,
   each section foldable.
 - **Desktop with right-click menus** — right-click an icon to open, pin to
-  Start, rename, move or remove it (and empty the Trash); right-click the
+  Start, rename, move or remove it (and empty the Recycle Bin); right-click the
   desktop for icon size, sort, show/hide icons, add a shortcut (Start → right-
   click an app → Add to desktop), background, theme, Personalize and Display
   settings.
@@ -189,7 +189,7 @@ works as Command there (Super + Z is Undo, Super + I is Italic).
   status icons, Spotlight and Control Center on the right; the
   clock opens the notification center.
 - **Dock** — pinned and running apps (a dot means running), then Downloads
-  (click for the newest files) and Trash. Click to open or switch to an app
+  (click for the newest files) and the Recycle Bin. Click to open or switch to an app
   (clicking the focused app minimizes it, clicking it again brings it back; an
   app with several windows lists them, with their workspaces), middle-click
   for a new window, right-click for its windows, Keep in Dock,
@@ -287,7 +287,7 @@ All in `~/.config/overtake/`:
 - `start-pinned.txt` — Start menu pins (or right-click apps in Start)
 - `dock-pinned.txt` — Studio's Dock pins (or right-click apps in the Dock)
 - `studio.json` — Studio's Dock size, magnification and auto-hide (Settings sets them)
-- `desktop-icons.txt` — desktop icons (`trash`, `browser`, `terminal`, or any app)
+- `desktop-icons.txt` — desktop icons (`trash` for the Recycle Bin, `browser` for your default browser, `terminal`, or any app)
 - `no-controls.txt` — apps that keep their own window buttons instead of
   Overtake's title bar
 
@@ -313,7 +313,7 @@ All in `~/.config/overtake/`:
 | `~/.cache/overtake/` | the lists behind the desktop's Change background (links to the pictures). When you open it, Omarchy's own picker (`omarchy-menu-images`) shows them, with its previews in its own cache, as for Omarchy's own Background menu |
 | `~/.local/share/overtake/` | a copy of the uninstaller, so `overtake uninstall` works without the repository, and of the patcher (`patches/apply.py`, `NOTICE.md`) for rebuilding the copies, and a `version` file with the installed version |
 | `~/.config/omarchy/hooks/post-update.d/overtake.hook` | runs `overtake build-copies update` near the end of `omarchy update`: the copies of Omarchy's plugins are rebuilt from the updated Omarchy, and the shell reloads a changed plugin folder by itself. The same check runs at login (`overtake resume`), so an Omarchy update made outside `omarchy update` is caught too |
-| `~/.local/share/applications/overtake-trash.desktop` | Trash as an app, for Start, the taskbar and the desktop |
+| `~/.local/share/applications/overtake-trash.desktop` | The Recycle Bin as an app, for Start, the taskbar and the desktop |
 | `~/.config/omarchy/branding/screensaver.txt` | only when you pick screensaver art in Settings: replaced, with whatever was there kept once, in every Settings choice, as `screensaver.txt.before-overtake`. Uninstall puts it back if what's there now is what Overtake wrote; art you wrote or picked stays, with the old one left beside it |
 | `~/Pictures/overtake/studio/` | on upgrade, six old Studio pictures are removed, each only if byte identical to what shipped |
 

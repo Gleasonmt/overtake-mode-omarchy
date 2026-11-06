@@ -9,7 +9,7 @@ import qs.Commons as Commons
 
 // Studio's Dock: a glass shelf along the bottom of every screen.
 //
-//   [Apps] pinned and running apps | Downloads  Trash
+//   [Apps] pinned and running apps | Downloads  Recycle Bin
 //
 // A dot under an app means it's running (on any workspace). Click an app to
 // open it, or to bring up its most recent window (switching workspace when
@@ -133,7 +133,7 @@ Item {
     return Quickshell.iconPath(icon, true)
   }
 
-  // ---------- Trash ----------
+  // ---------- Recycle Bin ----------
   // (the folder is watched, not polled)
   readonly property bool trashFull: trashFiles.count > 0
   FolderListModel {
@@ -256,12 +256,12 @@ Item {
 
         DockIcon {
           iconSource: Quickshell.iconPath(root.trashFull ? "user-trash-full" : "user-trash", true)
-          label: "Trash"
+          label: "Recycle Bin"
           win: dockWindow
           onLeftClicked: Quickshell.execDetached(["nautilus", "--new-window", "trash:///"])
-          onRightClicked: root.openMenu("Trash", [
+          onRightClicked: root.openMenu("Recycle Bin", [
             { label: "Open", run: function() { Quickshell.execDetached(["nautilus", "--new-window", "trash:///"]) } },
-            { label: "Empty Trash…", run: function() { Quickshell.execDetached(["sh", "-c", "notify-send -a Trash 'Empty Trash' 'Open the Trash and choose Empty to delete its files for good.'; nautilus --new-window trash:///"]) } }
+            { label: "Empty Recycle Bin…", run: function() { Quickshell.execDetached(["sh", "-c", "notify-send -a 'Recycle Bin' 'Empty Recycle Bin' 'Open the Recycle Bin and choose Empty to delete its files for good.'; nautilus --new-window trash:///"]) } }
           ], dockWindow.modelData, centerX())
         }
       }
