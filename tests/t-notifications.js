@@ -213,6 +213,21 @@ const settle = s => s.clock.advance(400)   // the save timer and anything it sta
   const s = Service({ text: "" }); s.historyFile.reload(); settle(s)
   check("forgetAll before live.json has loaded is refused", s.historyLoaded && !s.liveLoaded && s.forgetAll() === "notready")
 }
+// 2b'. Cards aren't restored until Do Not Disturb is known, whichever file
+//      loads first (the real order varies, so it's forced here).
+{
+  const s = Service({ text: "" }), restored = []
+  s.restoreRows = rows => rows.forEach(r => restored.push(r.key))
+  s.overtakeLiveWaiting = null
+  s.doNotDisturb = false
+  s.liveKeys = {}
+  s.loadLive = new Function("S", "with (S) { return (" + extract(svc, "loadLive") + ") }")(s)
+  s.applyQuiet = new Function("S", "with (S) { return (" + extract(svc, "applyQuiet") + ") }")(s)
+  s.loadLive(JSON.stringify([{ key: "nL1", app: "Signal", summary: "x", ts: Date.now() / 1000 }]) + "\n")
+  check("live.json read before quiet.json waits", restored.length === 0 && !s.liveLoaded)
+  s.applyQuiet({ dnd: true })
+  check("and is restored once Do Not Disturb is known", restored.join() === "nL1" && s.liveLoaded && s.doNotDisturb === true)
+}
 // 2c. A folder that can't be prepared isn't "still loading".
 {
   const s = Service({ text: "" }); s.overtakePrepareFailed = true

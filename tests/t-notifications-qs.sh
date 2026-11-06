@@ -396,7 +396,7 @@ case $SCEN in
     echo "history=[$(secrets)]"
     ;;
   window)    # the folder deleted between a write and its read-back; no new notification
-    ctl dnd
+    ctl dnd 2.5    # (so Do Not Disturb's own read-back has finished)
     notify-send -a Signal "Alice" "SECRET-1 first"; sleep 0.3
     rm -rf "$N"
     watch_modes
@@ -450,7 +450,7 @@ case $SCEN in
     echo "before=[$(secrets)]"
     stop
     FILELIMIT=2 start       # (a real short write from the kernel, past 2 KiB)
-    ctl forgetoldest 2
+    ctl forgetfirst 2       # (the first in the file, so everything after it has to move)
     echo "after=[$(secrets)]"
     tr -d ' \n' < "$H" | python3 -I -c 'import json, sys; print("valid=[%d]" % len(json.load(sys.stdin)))' 2>/dev/null || echo "valid=[broken]"
     stop
