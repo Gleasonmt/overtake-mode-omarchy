@@ -42,7 +42,39 @@ def own_properties(src, m):
     return "".join(own)
 
 
+def without_comments(src):
+    """The source with // and /* */ comments blanked, leaving strings and line numbers alone."""
+    out, i, quote = [], 0, ""
+    while i < len(src):
+        c = src[i]
+        if quote:
+            out.append(c)
+            if c == "\\" and i + 1 < len(src):
+                out.append(src[i + 1])
+                i += 1
+            elif c == quote or (c == "\n" and quote != "`"):
+                quote = ""
+        elif c in "\"'`":
+            quote = c
+            out.append(c)
+        elif src.startswith("//", i):
+            while i < len(src) and src[i] != "\n":
+                i += 1
+            continue
+        elif src.startswith("/*", i):
+            end = src.find("*/", i + 2)
+            end = len(src) if end < 0 else end + 2
+            out.append("\n" * src.count("\n", i, end))
+            i = end
+            continue
+        else:
+            out.append(c)
+        i += 1
+    return "".join(out)
+
+
 def scan(label, text, problems, allow_exception=False):
+    text = without_comments(text)   # (a commented-out textFormat doesn't count)
     count, exceptions = 0, 0
     for kind in ("Text.RichText", "Text.MarkdownText"):
         if kind in text:

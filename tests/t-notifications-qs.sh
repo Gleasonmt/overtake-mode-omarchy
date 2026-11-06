@@ -267,7 +267,7 @@ case $SCEN in
   full*|stop|stale|aged|removed|dndsave|rohome) mount -t tmpfs -o size=256k tmpfs "$N";;
 esac
 case $SCEN in
-  link*|focus|pathimage|rawimage|flood*|dndrules|dndsave|rohome|onlyhidden)
+  link*|focus|pathimage|rawimage|flood*|dndrules|dndsave|rohome|onlyhidden|appmodes|critical)
     ROOT=rootw; WAITS=5
     export QT_QPA_PLATFORM=vnc QT_QUICK_BACKEND=software;;
 esac
@@ -295,6 +295,30 @@ fill() { dd if=/dev/zero of="$N/filler" bs=4k 2>/dev/null; sync; }
 [[ $SCEN == rohome ]] && { : > "$H"; : > "$N/live.json"; : > "$N/quiet.json"; mount --bind "$N" "$N"; mount -o remount,ro,bind "$N" || echo "reply=[(setup) not read-only]"; }
 [[ $SCEN == refused ]] || start
 case $SCEN in
+  appmodes)   # the center's per-app settings, as the service reads them
+    printf '{"apps":{"OffApp":"off","QuietApp":"quiet"}}\n' > "$HOME/.config/overtake/notifications.json"
+    sleep 1
+    notify-send -a OffApp "Off" "SECRET-1 $(pad)"
+    notify-send -a QuietApp "Quiet" "SECRET-2 $(pad)"
+    notify-send -a ShowApp "Show" "SECRET-3 $(pad)"
+    sleep 1.5
+    ctl summaries 0.5
+    echo "shown=[$(reply summaries)]"
+    echo "history=[$(secrets)]"
+    echo "live=[$(live)]"
+    ;;
+  critical)   # a critical card leaves after 15 s, and so does one restored after a restart
+    notify-send -a Alarm -u critical "One" "SECRET-1"; sleep 5
+    ctl summaries 0.2; echo "at5=[$(reply summaries)]"
+    sleep 12
+    ctl summaries 0.2; echo "at17=[$(reply summaries)]"
+    echo "filed=[$(secrets)]"
+    notify-send -a Alarm -u critical "Two" "SECRET-2"; sleep 1.5
+    stop; start          # (5 s of it passes here)
+    ctl summaries 0.2; echo "back=[$(reply summaries)]"
+    sleep 13
+    ctl summaries 0.2; echo "backgone=[$(reply summaries)]"
+    ;;
   link)    # a link in the text, clicked; then a card with one, clicked
     printf '%s' 'https://example.com/reset?token=URLMARKER77&u=me' > "$HOME/body"
     watch_argv
@@ -774,6 +798,20 @@ has "$out" notice '".*can.t be written.*"' || fail "the center said the wrong th
 if grep -q 'still loading' <<<"$out"; then fail "the center says still loading on a read-only folder: $out"; fi
 has "$out" writable2 '"none"' || fail "it didn't recover once the folder was writable: $out"
 pass "a read-only folder is reported as that, and recovers when writable"
+
+# ---- Each app's setting, and how long a critical card stays ----
+out=$(run_scen appmodes)
+has "$out" shown '"Show"' || fail "only the Show app's card should be up: $out"
+has "$out" live "SECRET-3 " || fail "(setup) the Show app's card wasn't in live.json: $out"
+has "$out" history "SECRET-2 " || fail "Off should keep nothing and Quiet should file its row: $out"
+pass "an app set to Off leaves nothing, Quiet files without a card, Show shows"
+out=$(run_scen critical)
+has "$out" at5 '"One"' || fail "a critical card left too soon: $out"
+has "$out" at17 '""' || fail "a critical card was still up after 17 s: $out"
+has "$out" filed "SECRET-1 " || fail "a critical card that left wasn't filed for the center: $out"
+has "$out" back '"Two"' || fail "(setup) a critical card wasn't restored: $out"
+has "$out" backgone '""' || fail "a restored critical card was still up after 15 s: $out"
+pass "a critical card leaves after 15 s for the center, a restored one too"
 
 # ---- Clear all with only hidden rows ----
 out=$(run_scen onlyhidden)

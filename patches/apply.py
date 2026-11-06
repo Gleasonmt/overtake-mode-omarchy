@@ -757,4 +757,7 @@ for filename, old, new in patches:
         sys.exit(3)   # (3: the patch doesn't fit; any other failure is something else)
     texts[path] = text.replace(old, new, 1)
 for path, text in texts.items():
-    open(path, "w").write(text)
+    # (`with`: a write that fails at close is an error here, not a cut-off copy
+    # and exit 0, as Python only warns when a file left open fails to close)
+    with open(path, "w") as out:
+        out.write(text)
