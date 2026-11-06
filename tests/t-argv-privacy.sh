@@ -79,6 +79,8 @@ mkdir -p "$H/Pictures/overtake/slideshow"; cp "$H/Pictures/overtake/slideshow/1-
 was=$(readlink "$BG"); ln -sfn "$H/Pictures/overtake/slideshow/$MARK.png" "$BG"
 run bg-picker
 ln -sfn "$was" "$BG"
+# (Omarchy's picker runs `find -samefile` on what's selected: a picture of yours isn't)
+tr '\0' ' ' <"$ARGV_LOG" | grep -a -- '--selected  ' >/dev/null || fail "a picture you added was named to Omarchy's picker as selected"
 run bg-picker apply
 run next-wallpaper
 ln -sfn "$H/Pictures/$MARK-holiday.png" "$BG"

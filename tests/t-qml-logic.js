@@ -79,47 +79,67 @@ function check(what, ok) {
 }
 
 
-// An app's Icon=: a theme name only, and every lookup goes through that check.
+// An icon by name: a plain name only, and every lookup goes through UserIcons.
 {
-  const src = fs.readFileSync(path.join(repo, "plugins/overtake.taskbar/IconName.js"), "utf8").replace(".pragma library", "")
-  const safe = new Function(src + "; return safe")()
+  const safe = new Function("return (" + extract("plugins/overtake.taskbar/UserIcons.qml", "safe") + ")")()
   for (const bad of ["/home/me/x.png", "/tmp/fifo", "file:///x.png", "image://icon/x", "../x", "a/b", "", null, "x".repeat(200), "a b"])
     check(`Icon=${String(bad).slice(0, 20)} is no icon name`, !safe(bad))
   for (const good of ["firefox", "org.gnome.Nautilus", "google-chrome", "libreoffice-writer", "gtk+"])
     check(`Icon=${good} is an icon name`, safe(good))
-  const dirs = ["plugins/overtake.taskbar", "plugins/overtake.menubar", "plugins/overtake.notification-center"]
-  for (const dir of dirs) for (const f of fs.readdirSync(path.join(repo, dir)).filter(n => n.endsWith(".qml"))) {
+  check("both plugins use the same UserIcons", fs.readFileSync(path.join(repo, "plugins/overtake.taskbar/UserIcons.qml"), "utf8") === fs.readFileSync(path.join(repo, "plugins/overtake.notification-center/UserIcons.qml"), "utf8"))
+  // Quickshell.iconPath only with a name written here: any other goes through UserIcons.
+  const dirs = ["plugins/overtake.taskbar", "plugins/overtake.menubar", "plugins/overtake.notification-center", "plugins/overtake.control-center"]
+  const tables = { "Dock.qml": "icon", "StartMenu.qml": ["icon", "name"] }   // (from their own tables of names)
+  for (const dir of dirs) for (const f of fs.readdirSync(path.join(repo, dir)).filter(n => n.endsWith(".qml") && n !== "UserIcons.qml")) {
     fs.readFileSync(path.join(repo, dir, f), "utf8").split("\n").forEach((line, n) => {
-      const arg = /iconPath\(\s*([^,)]*)/.exec(line)
-      if (!arg || /^["']/.test(arg[1]) || /^(root\.trashFull|dir) \? "/.test(arg[1])) return   // (literals)
-      const table = { "Dock.qml": ["icon"], "StartMenu.qml": ["icon", "name"] }   // (from their own tables of names)
-      const ok = /IconName\.safe\(|\.test\(/.test(line) || (table[f] || []).includes(arg[1])
-      check(`${f}:${n + 1} checks the name before looking it up: ${arg[1]}`, ok)
+      for (const m of line.matchAll(/iconPath\(\s*([^,)]*)/g)) {
+        const literal = /^["']/.test(m[1]) || /^(root\.trashFull|dir) \? "/.test(m[1]) || [].concat(tables[f] || []).includes(m[1])
+        check(`${f}:${n + 1} looks up only a written name: ${m[1]}`, literal)
+      }
     })
   }
+}
+
+// The center's click: the app's name stays out of the command.
+{
+  const panel = fs.readFileSync(path.join(repo, "plugins/overtake.notification-center/Panel.qml"), "utf8")
+  const lines = panel.split("\n").filter(l => /notification-open/.test(l))
+  check("the center runs notification-open with no name in it", lines.length > 0 && lines.every(l => /command: \["overtake", "notification-open"\]/.test(l)))
+}
+
+// A drag: the move animation goes off only after it's been read, or "off" is saved as yours.
+{
+  const fn = extract("plugins/overtake.taskbar/WindowControls.qml", "setMoveAnimation")
+  const calls = [], read = { running: false }
+  const Q = { root: { moveAnimation: { enabled: true, speed: 1, bezier: "x" } }, Quickshell: { execDetached: a => calls.push(a[2]) }, moveAnimationRead: read, moveAnimationOffNext: false }
+  const run = new Function("Q", "with (Q) { return (" + fn + ") }")(Q)
+  run(false)
+  check("starting a drag only reads the animation", read.running && calls.length === 0 && Q.moveAnimationOffNext)
+  run(true)
+  check("a drag ended before the read doesn't switch it off afterwards", !Q.moveAnimationOffNext && calls.length === 1 && /enabled = true/.test(calls[0]))
 }
 
 // A theme folder comes from git, and its name reaches sh -c through shq.
 {
   const shq = new Function("return (" + extract("plugins/overtake.taskbar/Settings.qml", "shq") + ")")()
   const dir = fs.mkdtempSync(path.join(process.env.TMPDIR || "/tmp", "shq"))
+  process.on("exit", () => fs.rmSync(dir, { recursive: true, force: true }))
   for (const name of ["$(touch pwned)", "`touch pwned`", "'; touch pwned; '", "a b", "'", "--help", "x\ny"]) {
     const out = bash.spawnSync("sh", ["-c", "printf %s " + shq(name)], { cwd: dir, encoding: "utf8" }).stdout
     check(`shq keeps ${JSON.stringify(name)} as one literal word`, (name === "--help" || out === name) && !fs.existsSync(path.join(dir, "pwned")))
   }
 }
 
-// recently-used.xbel: read right, and a piece with no end can't take minutes.
+// recently-used.xbel: read right, and no shape of it takes minutes.
 {
-  const read = extract("plugins/overtake.taskbar/StartMenu.qml", "readRecentFiles")
-  const re = /var re = (\/.*\/)\n/.exec(read)[1]
-  const split = /body\.split\("([^"]+)"\)/.exec(read)[1]
-  const parse = body => { const r = eval(re); return body.split(split).map(p => r.exec(p)).filter(Boolean).map(m => m[1]) }
+  const of = new Function("return (" + extract("plugins/overtake.taskbar/StartMenu.qml", "bookmarkOf") + ")")()
+  const parse = body => body.split("<bookmark ").map(of).filter(Boolean).map(m => m[1] + " " + m[2] + " " + m[3])
   const two = '<xbel><bookmark href="file:///a" modified="2026-01-01"><info><mime:mime-type type="text/plain"/></info></bookmark>\n<bookmark href="file:///b" modified="2026-01-02"><mime:mime-type type="image/png"/></bookmark></xbel>'
-  check("both bookmarks are read", JSON.stringify(parse(two)) === '["file:///a","file:///b"]')
-  const worst = '<bookmark href="x" modified="y">'.repeat(40000)
-  const t = Date.now(); parse(worst)
-  check(`a 1 MB file of unfinished bookmarks is quick (${Date.now() - t} ms)`, Date.now() - t < 1000)
+  check("both bookmarks are read", JSON.stringify(parse(two)) === '["file:///a 2026-01-01 text/plain","file:///b 2026-01-02 image/png"]')
+  for (const [what, body] of [["unfinished bookmarks", '<bookmark href="x" modified="y">'.repeat(40000)], ["one piece of repeated dates", '<bookmark href="x" ' + 'modified="y" '.repeat(100000)], ["a mime type never closed", '<bookmark href="x" modified="y"><mime:mime-type type="' + "z".repeat(1000000)]]) {
+    const t = Date.now(); parse(body)
+    check(`${what} are quick (${Date.now() - t} ms)`, Date.now() - t < 1000)
+  }
 }
 
 process.exit(failed ? 1 : 0)

@@ -131,6 +131,28 @@ PATCHES = {
     command: ["overtake", "notification-open"]
     onStarted: { write(value + "\\n"); value = ""; stdinEnabled = false }
   }
+  // Which icons a card may draw by name: see Icons.js.
+  readonly property string overtakeIconDir: (Quickshell.env("XDG_CACHE_HOME") || Quickshell.env("HOME") + "/.cache") + "/overtake/user-icons"
+  FileView {
+    id: overtakeIconList
+    path: service.overtakeIconDir + "/index"
+    watchChanges: true
+    printErrors: false
+    onFileChanged: reload()
+    onLoaded: { Icons.overtakeSetCopies(text(), service.overtakeIconDir); overtakeIconRetry.running = false }
+  }
+  // (a file that isn't there yet can't be watched)
+  Timer { id: overtakeIconRetry; interval: 2000; repeat: true; running: true; onTriggered: overtakeIconList.reload() }
+  FolderListModel {
+    folder: "file://" + (Quickshell.env("XDG_DATA_HOME") || Quickshell.env("HOME") + "/.local/share") + "/icons/hicolor/256x256/apps"
+    showDirs: false
+    nameFilters: ["*.png", "*.svg", "*.jpg", "*.jpeg", "*.xpm"]
+    onCountChanged: {
+      var names = []
+      for (var i = 0; i < count; i++) names.push(String(get(i, "fileName")).replace(/\\.[^.]*$/, ""))
+      Icons.overtakeSetSaved(names)
+    }
+  }
 
   // Overtake Mode: a link in a notification's text can carry a reset or sign-in
   // token, and whatever opens it keeps it in its command line, readable by
@@ -191,7 +213,12 @@ PATCHES = {
     if (actions.length > 32) return true
     var total = 0
     for (var i = 0; i < actions.length; i++) total += String(actions[i].identifier || "").length + String(actions[i].text || "").length
-    return total > 65536 || overtakeSizeOf(n.hints || {}, 0) > 65536
+    var hints = n.hints || {}, size = 0
+    // (a picture has its own limit, below)
+    Object.keys(hints).forEach(function(k) {
+      if (k !== "image-data" && k !== "image_data" && k !== "icon_data") size += k.length + overtakeSizeOf(hints[k], 0)
+    })
+    return total > 65536 || size > 65536
   }
   // Everything held in a value, however deep (a hint can be a list or a map of
   // anything), stopping as soon as it's clearly too much.
@@ -201,6 +228,9 @@ PATCHES = {
     if (v.byteLength !== undefined) return v.byteLength
     if (depth > 8) return 1048576
     var keys = Object.keys(v), total = keys.length
+    // A map or a struct reaches QML as an object with nothing to read: its size
+    // can't be known, so it's taken as too big. (No Omarchy or common app's hint is.)
+    if (!keys.length && !Array.isArray(v)) return 1048576
     for (var i = 0; i < keys.length && total <= 65536; i++) total += keys[i].length + overtakeSizeOf(v[keys[i]], depth + 1)
     return total
   }
@@ -239,7 +269,63 @@ PATCHES = {
 '''        readonly property string sent: ""   // Overtake Mode: no picture a sender supplies'''),
       ("Toast.qml",
 '''          return value.charAt(0) === "/" ? Util.fileUrl(value) : value ? Quickshell.iconPath(value, true) : ""''',
-'''          return /^[A-Za-z0-9_][A-Za-z0-9_.+-]{0,127}$/.test(value) ? Quickshell.iconPath(value, true) : ""   // Overtake Mode'''),
+'''          return Icons.overtakeSource(value, function(n) { return Quickshell.iconPath(n, true) })   // Overtake Mode'''),
+      ("Toast.qml",
+'''firstOf(want.themed, function(name) { return Quickshell.iconPath(name, true) })''',
+'''firstOf(want.themed, function(name) { return Icons.overtakeSource(name, function(n) { return Quickshell.iconPath(n, true) }) })'''),
+      # Overtake Mode: icons by name, see plugins/overtake.taskbar/UserIcons.qml.
+      ("Icons.js",
+'''function isSymbolic(source) {''',
+'''var overtakeCopies = null, overtakeDir = "", overtakeSaved = Object.create(null)
+function overtakeSetCopies(text, dir) {
+  var next = Object.create(null)
+  String(text).split("\\n").forEach(function(line) {
+    var at = line.indexOf("\\t")
+    if (at > 0) next[line.slice(0, at)] = line.slice(at + 1)
+  })
+  overtakeCopies = next
+  overtakeDir = dir
+}
+function overtakeSetSaved(names) {
+  var next = Object.create(null)
+  names.forEach(function(name) { next[name] = true })
+  overtakeSaved = next
+}
+function overtakeSource(name, lookup) {
+  name = String(name || "")
+  if (!/^[A-Za-z0-9_][A-Za-z0-9_.+-]{0,127}$/.test(name) || !overtakeCopies) return ""
+  if (name in overtakeCopies) return overtakeCopies[name] ? "file://" + overtakeDir + "/" + overtakeCopies[name] : ""
+  return name in overtakeSaved ? "" : lookup(name)
+}
+
+function isSymbolic(source) {'''),
+      ("Service.qml",
+'''import Quickshell.Services.Notifications
+''',
+'''import Quickshell.Services.Notifications
+import Qt.labs.folderlistmodel
+'''),
+      ("Service.qml",
+'''  function storeRecord(row, reason) {
+    var now = Date.now() / 1000
+    historyEntries = Store.addHistory(historyEntries, Store.closedEntry(row, reason, now), now)''',
+'''  function storeRecord(row, reason) {
+    var now = Date.now() / 1000
+    // (Overtake Mode: one row to a key, whichever file came back first after a restart)
+    historyEntries = Store.addHistory(historyEntries.filter(function(e) { return String(e.key) !== String(row.key) }), Store.closedEntry(row, reason, now), now)'''),
+      ("Service.qml",
+'''    var entry = Store.liveEntry(liveEntries, key)
+    if (!entry) return
+    storeDrop(key)
+    storeRecord(entry, reason)''',
+'''    var entry = Store.liveEntry(liveEntries, key)
+    if (!entry) return
+    overtakeUnfiled[String(key)] = entry   // Overtake Mode
+    storeDrop(key)
+    storeRecord(entry, reason)'''),
+      ("Service.qml",
+'''      liveFile.setText(Store.serialise(liveEntries))''',
+'''      liveFile.setText(Store.serialise(overtakeLiveRows()))   // Overtake Mode'''),
       ("Toast.qml",
 '''  signal linkOpened()''',
 '''  signal linkOpened(string url)   // Overtake Mode: the service decides what opens'''),
@@ -340,6 +426,8 @@ PATCHES = {
   // quiet app it goes to history instead of popping up. True if it stays off
   // screen.
   function overtakeRestoreHeldBack(row) {
+    // (history got it just before a stop: it isn't a card again)
+    if (historyEntries.some(function(e) { return String(e.key) === String(row.key) })) return true
     if (Number(row.ts) <= Date.now() / 1000 - Store.RETENTION_HOURS * 3600) return true
     var muted = overtakeMuted(row)
     if (!muted) return false
@@ -696,8 +784,20 @@ PATCHES = {
   // The same for the cards on screen (live.json), after each write and at each
   // removal: otherwise a card comes back after a restart on a full disk and
   // files itself as it closes.
-  property var overtakeFiled: Object.create(null)
-  property bool overtakeLiveUnfiled: false
+  // Rows closed, with what they looked like on screen, until history's file has
+  // them: until then live.json holds them too, or a disk with room for that small
+  // file and not for history would lose them.
+  property var overtakeUnfiled: Object.create(null)
+  function overtakeLiveRows() {
+    var rows = liveEntries.slice(), inHistory = Object.create(null), live = Object.create(null)
+    historyEntries.forEach(function(e) { inHistory[String(e.key)] = true })
+    liveEntries.forEach(function(e) { live[String(e.key)] = true })
+    Object.keys(overtakeUnfiled).forEach(function(k) {
+      if (inHistory[k] === true && live[k] !== true) rows.push(overtakeUnfiled[k])
+      else if (inHistory[k] !== true) delete overtakeUnfiled[k]   // (removed: gone at once)
+    })
+    return rows
+  }
   property alias overtakeLiveInPlace: overtakeLiveInPlaceFile
   FileView {   // (only ever read)
     id: overtakeLiveInPlaceFile
@@ -709,14 +809,9 @@ PATCHES = {
       try { rows = JSON.parse(raw.trim() || "[]") } catch (e) { return }
       if (!Array.isArray(rows)) return
       service.liveEntries.forEach(function(e) { keep[String(e.key)] = true })
-      // Closed, but history's file doesn't have it yet (a full disk): stays here until
-      // it does, or a restart would find it nowhere. A row you removed or
-      // cleared isn't in history at all, and goes at once.
-      var waiting = false
-      service.historyEntries.forEach(function(e) {
-        if (service.overtakeFiled[String(e.key)] !== true && keep[String(e.key)] !== true) { keep[String(e.key)] = true; waiting = true }
-      })
-      service.overtakeLiveUnfiled = waiting
+      // Closed, but history's file doesn't have it yet. (A row you removed or
+      // cleared isn't in history at all, and goes at once.)
+      service.overtakeLiveRows().forEach(function(e) { keep[String(e.key)] = true })
       var left = rows.filter(function(e) { return !!e && typeof e === "object" && keep[String(e.key)] === true })
       // A row no longer in memory: out of the file, then read again a second
       // later (about every 6 s if it's still there).
@@ -758,10 +853,11 @@ PATCHES = {
     if (!Array.isArray(rows)) return
     // What history's file really holds: a closed card leaves live.json only once
     // it's in here.
-    var filed = Object.create(null)
-    rows.forEach(function(e) { if (e && typeof e === "object") filed[String(e.key)] = true })
-    overtakeFiled = filed
-    if (overtakeLiveUnfiled) overtakeLiveInPlaceFile.reload()
+    var landed = false
+    rows.forEach(function(e) {
+      if (e && typeof e === "object" && overtakeUnfiled[String(e.key)]) { delete overtakeUnfiled[String(e.key)]; landed = true }
+    })
+    if (landed) overtakeLiveInPlaceFile.reload()
     historyEntries.forEach(function(e) { keep[String(e.key)] = true })
     var left = rows.filter(function(e) { return !!e && typeof e === "object" && keep[String(e.key)] === true })
     if (left.length !== rows.length) overtakeHistoryWrite.send(overtakeComparable(JSON.stringify(left) + "\\n"))

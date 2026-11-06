@@ -63,6 +63,13 @@ if [[ -n $MENU_FIRST && ! $MENU_FIRST =~ ^[[:space:]]*\{ ]]; then
   die "$MENU_CHECK doesn't start with { ; fix it first (Overtake adds its menu entry there)."
 fi
 
+# Lua stops at a top-level return: Overtake's lines after one would break the file.
+for file in "$HOME/.config/hypr/bindings.lua" "$HOME/.config/hypr/autostart.lua"; do
+  if [[ -f $file ]] && ! grep -q '>>> overtake' "$file" && grep -qE '^return\b' "$file"; then
+    die "$file has a return at its top level, and Overtake's lines would have to follow it. Move them above it or remove it, then run this again."
+  fi
+done
+
 # Everything below is listed here first, before anything is written.
 plan() {
   cat <<'EOF'
@@ -88,7 +95,7 @@ Overtake Mode will add (./uninstall.sh removes it, keeping ~/.config/overtake an
   6-sunrise.png, only if each is exactly the file that version shipped)
   ~/.local/state/overtake/, ~/.cache/overtake/
                                           its state (yours only), the Background lists
-                                          and stripped copies of theme previews
+                                          and stripped copies of theme previews and your icons
 EOF
   cat <<'EOF'
 
@@ -212,10 +219,6 @@ start, end = f"{prefix} >>> overtake", f"{prefix} <<< overtake"
 text = read_file(path)
 pattern = re.compile(re.escape(start) + r"([^\n]*)\n(?:(?!" + re.escape(start) + r").)*?" + re.escape(end) + r"\n?", re.S)
 found = pattern.search(text)
-# (Lua stops at a final return: lines added after it would break the whole file)
-code = [l for l in text.splitlines() if l.strip() and not l.strip().startswith(prefix)]
-if not found and prefix == "--" and code and re.match(r"\s*return\b", code[-1]):
-    sys.exit(f"overtake: {path} ends with a return, and Overtake's lines would have to follow it. Move them above the return or remove it, then run this again.")
 if found:
     new = f"{start}{found.group(1)}\n{block.rstrip()}\n{end}\n"
     text = text[:found.start()] + new + text[found.end():]
@@ -240,7 +243,7 @@ if [[ -f $HOME/.local/state/overtake/enabled ]]; then echo on; else echo off; fi
 put_file() {  # put_file <mode> <source> <target>
   local tmp
   mkdir -p "$(dirname "$3")"
-  tmp=$(mktemp "$3.XXXXXX") || { echo "Couldn't write next to $3; the old one stays. Free some space and run this again." >&2; exit 1; }
+  tmp=$(mktemp "$(dirname "$3")/.overtake-tmp.XXXXXX") || { echo "Couldn't write next to $3; the old one stays. Free some space and run this again." >&2; exit 1; }
   if ! { cat <"$2" >"$tmp" && chmod "$1" "$tmp" && mv -f "$tmp" "$3"; }; then
     rm -f "$tmp"
     echo "Couldn't write $3; the old one stays. Free some space and run this again." >&2

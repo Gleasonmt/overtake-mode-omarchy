@@ -6,7 +6,6 @@ import qs.Commons
 import qs.Commons as Commons
 import qs.Ui
 import "DesktopList.js" as DesktopList
-import "IconName.js" as IconName
 
 // Start menu (left-click Start, or `overtake start`) and
 // the Super+X quick-link menu (right-click Start, or `overtake start quick`).
@@ -19,6 +18,7 @@ import "IconName.js" as IconName
 // incubation, 2026-10-25). Pins live in ~/.config/overtake/start-pinned.txt.
 Item {
   id: root
+  readonly property UserIcons userIcons: UserIcons {}
   OvertakeFolders { id: folders }   // Overtake's folders private before they're used
 
   required property Item anchorItem
@@ -87,7 +87,7 @@ Item {
 
   // ---------- Apps (plain copies) ----------
   function iconSource(name) {
-    var source = IconName.safe(name) ? Quickshell.iconPath(name, true) : ""
+    var source = name ? userIcons.source(name) : ""
     return source || Quickshell.iconPath("application-x-executable", true)
   }
 
@@ -278,16 +278,24 @@ Item {
     command: ["tail", "-c", "4000000", root.home + "/.local/share/recently-used.xbel"]
     stdout: StdioCollector { onStreamFinished: root.readRecentFiles(text) }
   }
+  // Plain searches, each once: this file can be 4 MB, and a pattern that backtracks
+  // over it takes minutes in the shell.
+  function bookmarkOf(piece) {
+    var tag = piece.slice(0, Math.max(0, piece.indexOf(">")))
+    var href = /^href="([^"]+)"/.exec(tag), modified = /\bmodified="([^"]+)"/.exec(tag)
+    var at = piece.indexOf('<mime:mime-type type="')
+    if (!href || !modified || at < 0) return null
+    at += 22
+    var close = piece.indexOf('"', at)
+    return close > at ? [null, href[1], modified[1], piece.slice(at, close)] : null
+  }
   function readRecentFiles(body) {
     {
       var out = []
       // One bookmark at a time (its own mime type, never the next one's).
-      // (split on the start, so a piece can't hold a second one: this file can be
-      // 4 MB, and a search retried from each start in one piece takes minutes)
-      var re = /^href="([^"]+)"[^>]*modified="([^"]+)"[\s\S]*?<mime:mime-type type="([^"]+)"/
       var pieces = body.split("<bookmark ")
       for (var i = 0; i < pieces.length; i++) {
-        var m = re.exec(pieces[i])
+        var m = bookmarkOf(pieces[i])
         if (!m) continue
         // XML entities, &amp; last so nothing is decoded twice
         var href = m[1].replace(/&quot;/g, "\"").replace(/&apos;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&")
@@ -312,9 +320,8 @@ Item {
 
   function mimeIcon(mime) {
     // (a type named in a file: looked up only if it's a plain name)
-    var exact = String(mime).replace("/", "-"), general = String(mime).split("/")[0] + "-x-generic"
-    return (IconName.safe(exact) ? Quickshell.iconPath(exact, true) : "")
-      || (IconName.safe(general) ? Quickshell.iconPath(general, true) : "")
+    return userIcons.source(String(mime).replace("/", "-"))
+      || userIcons.source(String(mime).split("/")[0] + "-x-generic")
       || Quickshell.iconPath("text-x-generic", true)
   }
 

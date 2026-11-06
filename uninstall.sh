@@ -246,7 +246,7 @@ elif [[ -f $art.before-overtake ]]; then
 fi
 rm -f "$HOME/.local/bin/overtake" "$HYPR/overtake.lua" "$HYPR/overtake-classic.lua" "$HYPR/overtake-studio.lua"
 # (and temp files of Overtake's own, if an install was killed partway)
-rm -f "$HOME/.local/bin"/overtake.?????? "$HYPR"/overtake*.lua.??????
+rm -f "$HOME/.local/bin"/.overtake-tmp.* "$HYPR"/.overtake-tmp.* "$HOME/.config/omarchy/hooks/post-update.d"/.overtake-tmp.*
 rm -rf "${PLUGINS:?}/overtake.taskbar" "${PLUGINS:?}/overtake.workspaces" \
        "${PLUGINS:?}/overtake.bluetooth" "${PLUGINS:?}/overtake.audio" \
        "${PLUGINS:?}/overtake.notifications" "${PLUGINS:?}/overtake.notification-center" \

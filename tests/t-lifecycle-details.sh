@@ -13,7 +13,8 @@ fresh() {  # fresh: a new scratch home with Overtake installed; sets H and O
   O="$H/.local/bin/overtake"
   sbx "$H" ./install.sh --yes >"$T/log" 2>&1 || { cat "$T/log"; fail "install"; }
 }
-log_text() { tr '\0' ' ' <"$ARGV_LOG"; }
+# (a grep -q that stops early kills this writer: not a failure)
+log_text() { tr '\0' ' ' <"$ARGV_LOG" || true; }
 config() { echo "$H/.config/omarchy/shell.json"; }
 set_config() {  # set_config <jq filter>
   jq "$1" "$(config)" >"$T/s.json" && cat "$T/s.json" >"$(config)"
@@ -453,6 +454,127 @@ sbx "$H" "$O" send 23 0xa1 >>"$T/log" 2>&1 || true
 log_text | grep -aqF 'workspace = "23", follow = false' || fail "send to a second monitor's workspace didn't go there"
 pass "a window can be sent to another monitor's workspace numbers"
 
+# ---------- No session: what's left to do is kept ----------
+fresh
+cat >"$HYPR/clients.json" <<'EOF'
+[{"address":"0xb1","class":"a","initialClass":"a","title":"a","workspace":{"id":1,"name":"1"},"floating":false,"tags":["omarchy-mode-floated"],"at":[0,0],"size":[500,1000],"focusHistoryID":0,"mapped":true},
+ {"address":"0xb2","class":"b","initialClass":"b","title":"b","workspace":{"id":1,"name":"1"},"floating":false,"tags":[],"at":[510,0],"size":[1400,1000],"focusHistoryID":1,"mapped":true}]
+EOF
+sbx "$H" "$O" on >>"$T/log" 2>&1 || { cat "$T/log"; fail "on"; }
+S="$H/.local/state/overtake"
+[[ -s $S/tiled.json && -s $S/omarchy-floated ]] || fail "(setup) places and tags weren't saved"
+cp "$STUB/hyprctl" "$T/hyprctl.real"
+printf '#!/bin/bash\necho "HYPRLAND_INSTANCE_SIGNATURE not set!"; exit 1\n' >"$STUB/hyprctl"; chmod +x "$STUB/hyprctl"
+sbx "$H" "$O" off >"$T/out" 2>&1 && { cat "$T/out"; fail "off finished with no session"; }
+grep -q 'Traceback' "$T/out" && { cat "$T/out"; fail "a traceback outside the session"; }
+[[ -s $S/tiled.json && -s $S/omarchy-floated ]] || fail "off outside the session lost window places or Omarchy's tag"
+cp "$T/hyprctl.real" "$STUB/hyprctl"
+jq 'map(.floating = true)' "$HYPR/clients.json" >"$HYPR/x" && mv "$HYPR/x" "$HYPR/clients.json"
+sbx "$H" "$O" off >"$T/out" 2>&1 || { cat "$T/out"; fail "off in the session"; }
+log_text | grep -aqE 'splitratio 0\.[0-9]+ exact' || fail "off in the session didn't rebuild the split saved earlier"
+log_text | grep -aqF 'tag = "+omarchy-mode-floated", window = "address:0xb1"' || fail "off in the session didn't put the tag back"
+pass "off outside the session keeps window places and Omarchy's tag for the session's off"
+# A layout with no split to rebuild: tiled plainly, nothing refused.
+fresh
+: >"$ARGV_LOG"
+cat >"$HYPR/clients.json" <<'EOF'
+[{"address":"0xb1","class":"a","initialClass":"a","title":"a","workspace":{"id":1,"name":"1"},"floating":false,"tags":[],"at":[0,0],"size":[500,1000],"focusHistoryID":0,"mapped":true},
+ {"address":"0xb2","class":"b","initialClass":"b","title":"b","workspace":{"id":1,"name":"1"},"floating":false,"tags":[],"at":[510,0],"size":[1400,1000],"focusHistoryID":1,"mapped":true}]
+EOF
+cp "$HYPR/workspaces.json" "$T/ws.json"; echo '[{"id":1,"name":"1","monitor":"eDP-1","tiledLayout":"scrolling"}]' >"$HYPR/workspaces.json"
+sbx "$H" "$O" on >>"$T/log" 2>&1 || { cat "$T/log"; fail "on"; }
+jq 'map(.floating = true)' "$HYPR/clients.json" >"$HYPR/x" && mv "$HYPR/x" "$HYPR/clients.json"
+sbx "$H" "$O" off >"$T/out" 2>&1 || { cat "$T/out"; fail "off"; }
+log_text | grep -aqE 'splitratio|preselect' && fail "a scrolling workspace was sent dwindle's split commands"
+cp "$T/ws.json" "$HYPR/workspaces.json"
+pass "a workspace on another layout gets no split commands"
+# A warning in a batch's reply isn't a refusal.
+fresh
+cp "$STUB/hyprctl" "$T/hyprctl.real"
+printf '#!/bin/bash\nif [[ $1 == --batch ]]; then echo ok; echo "warning: cannot alter split ratio on no / single node"; exit 0; fi\nexec "%s" "$@"\n' "$T/hyprctl.real" >"$STUB/hyprctl"; chmod +x "$STUB/hyprctl"
+sbx "$H" "$O" on >>"$T/log" 2>&1 || { cat "$T/log"; fail "on"; }
+sbx "$H" "$O" off >"$T/out" 2>&1 || true
+grep -q 'refused' "$T/out" && { cat "$T/out"; fail "a warning was reported as refused"; }
+cp "$T/hyprctl.real" "$STUB/hyprctl"
+pass "a warning in a batch's reply isn't called a refusal"
+
+# ---------- shell.toml ----------
+fresh
+TOML="$H/.config/omarchy/shell.toml"
+printf 'a = 1\n# >>> overtake (managed by ~/.local/bin/overtake)\nmine = 1\nb = 2\n' >"$TOML"
+sbx "$H" "$O" on >>"$T/log" 2>&1 || { cat "$T/log"; fail "on"; }
+[[ $(<"$TOML") == *'mine = 1'* ]] || fail "on took your lines after a start marker with no end"
+sbx "$H" "$O" off >>"$T/log" 2>&1 || { cat "$T/log"; fail "off"; }
+[[ $(<"$TOML") == *'mine = 1'* ]] || fail "off took your lines after a start marker with no end"
+pass "a shell.toml start marker with no end keeps your lines"
+fresh
+TOML="$H/.config/omarchy/shell.toml"
+printf 'a = 1' >"$TOML"
+sbx "$H" "$O" on >>"$T/log" 2>&1 || { cat "$T/log"; fail "on"; }
+printf 'a = 1\n' >"$TOML"   # (the block taken out by hand, and a final newline of yours)
+sbx "$H" "$O" off >>"$T/log" 2>&1 || { cat "$T/log"; fail "off"; }
+sbx "$H" "$O" on >>"$T/log" 2>&1 || { cat "$T/log"; fail "on"; }
+sbx "$H" "$O" off >>"$T/log" 2>&1 || { cat "$T/log"; fail "off"; }
+[[ $(tail -c 2 "$TOML" | od -An -c | tr -d ' ') == '1\n' ]] || fail "a stale flag stripped your final newline: $(od -c "$TOML" | tail -2)"
+pass "a stale no-newline flag doesn't strip your final newline"
+
+# ---------- Agent terminals, and icon copies ----------
+fresh
+echo '[{"address":"0xc1","pid":1,"class":"org.omarchy.agent","initialClass":"org.omarchy.agent","title":"t","initialTitle":"kitty","workspace":{"id":1,"name":"1"},"monitor":0,"at":[0,0],"size":[800,600],"floating":false,"mapped":true,"focusHistoryID":0,"tags":[]}]' >"$HYPR/clients.json"
+: >"$ARGV_LOG"
+printf 'kitty\n' | sbx "$H" "$O" notification-open >>"$T/log" 2>&1 || fail "an agent terminal's window wasn't found"
+log_text | grep -aqF 'address:0xc1' || fail "an agent terminal's window wasn't focused"
+pass "a click finds an agent terminal by its first title"
+if command -v vipsthumbnail >/dev/null; then
+  real_vips_icons=$(command -v vipsthumbnail)
+  IC="$H/.local/share/icons/hicolor/256x256/apps"; mkdir -p "$IC"
+  python3 -I - "$IC" <<'PY'
+import struct, sys, zlib
+def chunk(kind, data):
+    return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+def png(extra=b""):
+    rows = (b"\0" + b"\x20\x60\xa0" * 64) * 64
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 64, 64, 8, 2, 0, 0, 0)) + extra + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b"")
+open(sys.argv[1] + "/siteclean.png", "wb").write(png())
+open(sys.argv[1] + "/sitebomb.png", "wb").write(png(chunk(b"zTXt", b"k\0\0" + zlib.compress(b"A" * 7000000, 9)) * 120))
+PY
+  cp "$IC/siteclean.png" "$IC/PRIVATEICONNAME.png"
+  # (XMP in a JPEG: what vips carries over unless told to strip)
+  "$real_vips_icons" "$IC/siteclean.png" --size 64x64 -o "$T/ibase.jpg"
+  python3 -I - "$T/ibase.jpg" "$IC/sitenoted.jpg" <<'PY'
+import struct, sys
+j = open(sys.argv[1], "rb").read()
+xmp = b"http://ns.adobe.com/xap/1.0/\0<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">ICONMARKER</x:xmpmeta>"
+open(sys.argv[2], "wb").write(j[:2] + b"\xff\xe1" + struct.pack(">H", len(xmp) + 2) + xmp + j[2:])
+PY
+  mkfifo "$IC/sitefifo.png"
+  real_vips=$(command -v vipsthumbnail); stub vipsthumbnail "exec $real_vips \"\$@\""
+  : >"$ARGV_LOG"
+  sbx "$H" "$O" icon-copies >"$T/out" 2>&1 || { cat "$T/out"; fail "icon-copies"; }
+  CD="$H/.cache/overtake/user-icons"
+  idx() { sed -n "s/^$1\t//p" "$CD/index"; }
+  [[ -n $(idx siteclean) && -s $CD/$(idx siteclean) ]] || fail "no copy of a clean icon: $(cat "$CD/index")"
+  [[ -n $(idx sitenoted) && -s $CD/$(idx sitenoted) ]] || fail "no copy of an icon with metadata: $(cat "$CD/index")"
+  grep -qa ICONMARKER "$CD/$(idx sitenoted)" && fail "an icon's own metadata survived in the copy"
+  python3 -I - "$CD/$(idx sitenoted)" <<'PY' || fail "a copy holds text or metadata chunks"
+import struct, sys
+d = open(sys.argv[1], "rb").read(); i = 8; bad = []
+while i < len(d):
+    n, kind = struct.unpack(">I4s", d[i:i + 8]); i += n + 12
+    if kind in (b"tEXt", b"zTXt", b"iTXt", b"eXIf", b"iCCP"): bad.append(kind)
+sys.exit(1 if bad else 0)
+PY
+  grep -q '^sitebomb' "$CD/index" && [[ -z $(idx sitebomb) ]] || fail "a crafted icon got a copy: $(cat "$CD/index")"
+  grep -q '^sitefifo' "$CD/index" && fail "a pipe was listed as an icon"
+  log_text | grep -aq PRIVATEICONNAME && fail "an icon's name was in a command line"
+  log_text >"$T/l"; grep -aq 'vipsthumbnail' "$T/l" || fail "(setup) the child didn't run"
+  [[ $(stat -c %a "$CD") == 700 && $(stat -c %a "$CD/index") == 600 ]] || fail "icon copies aren't private"
+  rm -f "$STUB/vipsthumbnail"
+  pass "icons in your folder get stripped copies from a limited child; a crafted one and a pipe get none; no name in a command line"
+else
+  echo "skipped: no vipsthumbnail (icon copies)"
+fi
+
 # ---------- Modes are kept ----------
 fresh
 LAY="$H/.local/state/omarchy/workspace-layouts"; mkdir -p "$LAY"; printf 'return { default = "floating" }\n' >"$LAY/one.lua"
@@ -471,13 +593,13 @@ pass "on, off and uninstall keep the modes of shell.json, shell.toml and a float
 # ---------- Uninstall: your bar, the wallpaper's message, stray temp files ----------
 fresh
 jq '.bar = {layout: {left: [{id:"overtake.bluetooth"},{id:"omarchy.menu"}], right: [{id:"overtake.notification-center"}]}}' "$H/.config/omarchy/shell.json" >"$T/j" && cat "$T/j" >"$H/.config/omarchy/shell.json"
-touch "$H/.local/bin/overtake.AbC123" "$H/.config/hypr/overtake.lua.XyZ789" "$H/.config/hypr/bindings.lua.backup"
+touch "$H/.local/bin/.overtake-tmp.AbC123" "$H/.config/hypr/.overtake-tmp.XyZ789" "$H/.local/bin/overtake.backup" "$H/.config/hypr/overtake.lua.backup"
 ln -sf "$H/Pictures/overtake/slideshow/1-hills-day.png" "$H/.local/state/omarchy/current/background"
 sbx "$H" ./uninstall.sh --yes --purge >"$T/out" 2>&1 || { cat "$T/out"; fail "uninstall"; }
 [[ $(jq -c '.bar.layout' "$H/.config/omarchy/shell.json") == '{"left":[{"id":"omarchy.bluetooth"},{"id":"omarchy.menu"}],"right":[]}' ]] || fail "uninstall left Overtake's widgets on your bar: $(jq -c '.bar.layout' "$H/.config/omarchy/shell.json")"
 grep -q "was one of Overtake's" "$T/out" || { cat "$T/out"; fail "--purge didn't say the wallpaper went"; }
-[[ ! -e $H/.local/bin/overtake.AbC123 && ! -e $H/.config/hypr/overtake.lua.XyZ789 ]] || fail "uninstall left a killed install's temp files"
-[[ -e $H/.config/hypr/bindings.lua.backup ]] || fail "uninstall removed a file of yours"
+[[ ! -e $H/.local/bin/.overtake-tmp.AbC123 && ! -e $H/.config/hypr/.overtake-tmp.XyZ789 ]] || fail "uninstall left a killed install's temp files"
+[[ -e $H/.local/bin/overtake.backup && -e $H/.config/hypr/overtake.lua.backup ]] || fail "uninstall removed a file of yours"
 pass "uninstall takes Overtake's widgets off your bar, says when a purged wallpaper was up, and clears its own temp files"
 
 # ---------- Block markers, a final return, a partial install ----------
@@ -490,9 +612,11 @@ sbx "$H" ./uninstall.sh --yes >>"$T/log" 2>&1 || { cat "$T/log"; fail "uninstall
 [[ $(<"$H/.config/hypr/autostart.lua") == *'mine = 1'* ]] || fail "a start marker with no end took your lines with it"
 pass "a start marker with no end doesn't take your lines with it"
 H="$T/ret"; make_home "$H"
-printf 'x = 1\nreturn {}\n' >"$H/.config/hypr/bindings.lua"; cp "$H/.config/hypr/bindings.lua" "$T/bind"
+printf 'x = 1\nreturn {\n  a = 1,\n}\n' >"$H/.config/hypr/bindings.lua"; cp "$H/.config/hypr/bindings.lua" "$T/bind"
+if sbx "$H" ./install.sh --dry-run >"$T/out" 2>&1; then cat "$T/out"; fail "--dry-run didn't say a final return stops it"; fi
 if sbx "$H" ./install.sh --yes >"$T/out" 2>&1; then cat "$T/out"; fail "install added lines after a final return"; fi
-grep -q 'ends with a return' "$T/out" || { cat "$T/out"; fail "install didn't say why it stopped"; }
+grep -q 'has a return at its top level' "$T/out" || { cat "$T/out"; fail "install didn't say why it stopped"; }
+[[ ! -e $H/.local/bin/overtake ]] || fail "install wrote files before stopping at a final return"
 cmp -s "$H/.config/hypr/bindings.lua" "$T/bind" || fail "bindings.lua changed"
 pass "a Lua file ending in return is left alone, and install says why"
 fresh
@@ -566,7 +690,7 @@ PY
   [[ -e $C/crafted.jpg && ! -s $C/crafted.jpg ]] || fail "a crafted preview was read past the memory limit"
   [[ ! -e $C/none.jpg ]] || fail "a theme with no preview got a copy"
   [[ $(stat -c %a "$C") == 700 && $(stat -c %a "$C/clean.jpg") == 600 ]] || fail "theme previews aren't private"
-  log_text | grep -aq 'vipsthumbnail' || fail "(setup) the child didn't run"
+  log_text >"$T/l"; grep -aq 'vipsthumbnail' "$T/l" || fail "(setup) the child didn't run"
   rm -f "$STUB/vipsthumbnail"
   rm -rf "$TH/clean"; sbx "$H" "$O" theme-previews >>"$T/log" 2>&1
   [[ ! -e $C/clean.jpg ]] || fail "a removed theme's copy stayed"

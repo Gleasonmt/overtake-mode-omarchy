@@ -453,7 +453,8 @@ Item {
   }
 
   // Omarchy 4.5 gives each monitor its own ten workspaces (11-20 on the second, and
-  // so on): the boxes are this window's monitor's, numbered as its bar numbers them.
+  // so on): the boxes are the block of the workspace this window is on, numbered as
+  // its bar numbers them.
   readonly property int wsBlock: currentWorkspace > 0 ? Math.floor((currentWorkspace - 1) / 10) : 0
   function windowsOn(n) {
     return (Hyprland.toplevels.values || []).filter(function(t) { return t && t.workspace && t.workspace.id === n }).length

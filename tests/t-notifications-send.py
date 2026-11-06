@@ -132,6 +132,18 @@ def notify(bus, args):
         w.s("x-big")
         w.g("s")
         w.s("x" * args.hint_size)
+    if args.var_hint:     # a string inside a variant inside the hint
+        w.align(8)
+        w.s("x-var")
+        w.g("v")
+        w.g("s")
+        w.s("x" * args.var_hint)
+    if args.struct_hint:  # a struct holding a string
+        w.align(8)
+        w.s("x-struct")
+        w.g("(s)")
+        w.align(8)
+        w.s("x" * args.struct_hint)
     if args.list_hint:    # a list of strings: ITEMSxSIZE
         items, size = (int(x) for x in args.list_hint.split("x"))
         w.align(8)
@@ -185,6 +197,8 @@ def main():
     p.add_argument("--icon-size", type=int, default=0)   # an app icon of that length
     p.add_argument("--action-text-size", type=int, default=0)  # each button's text
     p.add_argument("--list-hint", default="")
+    p.add_argument("--var-hint", type=int, default=0)
+    p.add_argument("--struct-hint", type=int, default=0)
     p.add_argument("--summary-file", default="")
     p.add_argument("--hold", action="store_true")
     args = p.parse_args()

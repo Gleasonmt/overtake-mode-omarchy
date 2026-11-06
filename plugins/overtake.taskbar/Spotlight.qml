@@ -5,7 +5,6 @@ import Quickshell.Io
 import Quickshell.Wayland
 import qs.Commons
 import qs.Commons as Commons
-import "IconName.js" as IconName
 
 // Studio's Spotlight (Super+Space): one search field for apps, actions,
 // files and quick sums, in the middle of the focused screen. Tab switches to
@@ -20,6 +19,7 @@ import "IconName.js" as IconName
 // lists swapped under a view crashed Quickshell, see StartMenu.qml).
 Item {
   id: root
+  readonly property UserIcons userIcons: UserIcons {}
 
   property bool active: false
   property AppModel appModel: null     // right-click an app in Apps: keep in / remove from the Dock
@@ -44,7 +44,7 @@ Item {
   function close() { open = false }
 
   function iconSource(name) {
-    var source = IconName.safe(name) ? Quickshell.iconPath(name, true) : ""
+    var source = name ? userIcons.source(name) : ""
     return source || Quickshell.iconPath("application-x-executable", true)
   }
 

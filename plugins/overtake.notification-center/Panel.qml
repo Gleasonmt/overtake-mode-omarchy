@@ -20,6 +20,7 @@ import qs.Ui
 // the date and time instead, as in a menu bar, with a dot for new ones.
 Panel {
   id: root
+  readonly property UserIcons userIcons: UserIcons {}
   OvertakeFolders { id: folders }   // Overtake's folders private before they're used
   moduleName: "overtake.notification-center"
   ipcTarget: "overtake.notification-center"
@@ -168,9 +169,12 @@ Panel {
   // A full disk's refused write is still reported as saved: read back, the list
   // shows what the file says, and a setting that didn't stick is said.
   property string modesWanted: ""
-  Timer { id: modesCheck; interval: 3000; onTriggered: modesView.reload() }
+  Timer { id: modesCheck; interval: 3000; onTriggered: { root.modesChecking = true; modesView.reload() } }
+  property bool modesChecking: false
   function checkModesSaved() {
-    if (!modesWanted) return
+    // (only the check's own read: a click's reload can come before its write lands)
+    if (!modesChecking || !modesWanted) return
+    modesChecking = false
     if (JSON.stringify(appModes) !== modesWanted) root.showNotice("That setting couldn't be saved (is the disk full or read-only?).")
     modesWanted = ""
   }
@@ -407,7 +411,7 @@ Panel {
   // keeps only those in history), so nothing the sender names is read or fetched.
   function iconFor(entry) {
     var icon = String(entry.appIcon || "")
-    return /^[A-Za-z0-9_.-]{1,256}$/.test(icon) ? Quickshell.iconPath(icon, true) : ""
+    return userIcons.source(icon)
   }
 
   // ---------- The bell ----------

@@ -15,7 +15,7 @@
 #   overtake minimize|maximize|close [address]  # active window when no address
 #   overtake restore <address> [stay] | restore-all
 #   overtake focus-app <name>      # go to an app's window on its own workspace (restoring it if minimized)
-#   overtake notification-open <app>  # notification center click without its own action: the app's window
+#   overtake notification-open        # a notification click without its own action: the app (on stdin), its window
 #   overtake minimize-all [monitor]   # clicking the desktop: minimize this workspace's windows
 #   overtake screensaver <on|off|enabled|start|lock|show|showing|preview> [...]  # Settings > Screensaver
 #   overtake hide-minimized   # taskbar: hide the minimized windows' workspace if it gets shown
@@ -388,10 +388,22 @@ add_bar_size() {
   fi
 }
 
+# shell.toml less Overtake's block. Lines are held from a start until its end: a start
+# with no end, and your lines after it, stay.
+toml_without_block() {
+  awk -v b="$TOML_BEGIN" -v e="$TOML_END" '
+    function flush(i) { for (i = 1; i <= n; i++) print held[i]; n = 0 }
+    $0 == b { flush(); open = 1; n = 1; held[1] = $0; next }
+    open && $0 == e { open = 0; n = 0; next }
+    open { held[++n] = $0; next }
+    { print }
+    END { flush() }' "$SHELL_TOML"
+}
+
 bar_size_toml() {  # bar_size_toml <bar size> <icon font>: shell.toml with Overtake's block (once) at the end
   # (awk ends a last line that has no newline: noted, so that goes again with the block)
   if [[ -s $SHELL_TOML && -n $(tail -c 1 "$SHELL_TOML") ]]; then touch "$STATE_DIR/shell-toml-no-newline"; fi
-  awk -v b="$TOML_BEGIN" -v e="$TOML_END" '$0 == b { skip = 1 } !skip { print } $0 == e { skip = 0 }' "$SHELL_TOML"
+  toml_without_block
   printf '%s\n[bar]\nsize-horizontal = %s\nicon-font = %s\n%s\n' "$TOML_BEGIN" "$1" "$2" "$TOML_END"
 }
 
@@ -431,14 +443,13 @@ replace_with() {  # replace_with <file> <command...>: the command's output becom
 remove_bar_size() {
   [[ -f $SHELL_TOML ]] || return 0
   # (a second `off` finds it gone, and leaves the file byte for byte)
-  if grep -qxF "$TOML_BEGIN" "$SHELL_TOML"; then
-    replace_with "$SHELL_TOML" awk -v b="$TOML_BEGIN" -v e="$TOML_END" \
-      '$0 == b { skip = 1 } !skip { print } $0 == e { skip = 0 }' "$SHELL_TOML"
+  if grep -qxF "$TOML_BEGIN" "$SHELL_TOML" && grep -qxF "$TOML_END" "$SHELL_TOML"; then
+    replace_with "$SHELL_TOML" toml_without_block
     if [[ -f $STATE_DIR/shell-toml-no-newline ]]; then
       [[ -n $(tail -c 1 "$SHELL_TOML") ]] || replace_with "$SHELL_TOML" head -c -1 "$SHELL_TOML"
-      rm -f "$STATE_DIR/shell-toml-no-newline"
     fi
   fi
+  rm -f "$STATE_DIR/shell-toml-no-newline"
   # Overtake created it and nothing else was added: the file goes too.
   if [[ -f $STATE_DIR/created-shell-toml && ! -L $SHELL_TOML && -z $(tr -d '[:space:]' <"$SHELL_TOML") ]]; then
     rm -f "$SHELL_TOML"
@@ -903,7 +914,7 @@ turn_on() {
   finish_switch_off
   # (an install stopped partway, say on a full disk: no bar without its plugin)
   local plugin
-  for plugin in overtake.taskbar overtake.menubar; do
+  for plugin in overtake.taskbar overtake.menubar overtake.notification-center overtake.control-center; do
     [[ -f $HOME/.config/omarchy/plugins/$plugin/manifest.json ]] || { echo "overtake: its plugins aren't all installed; run ./install.sh again" >&2; exit 1; }
   done
   mkdir -p -m 700 "$STATE_DIR"
@@ -957,6 +968,7 @@ OMARCHY_FLOATED="$STATE_DIR/omarchy-floated"
 retag_floated() {
   local addr
   [[ -s $OMARCHY_FLOATED ]] || return 0
+  hyprctl version >/dev/null 2>&1 || return 0   # (no session: kept for when there is one)
   for addr in $(jq -r '.[]? | select(type == "string" and test("^0x[0-9a-fA-F]+$"))' "$OMARCHY_FLOATED" 2>/dev/null); do
     hyprctl dispatch "hl.dsp.window.tag({ tag = \"+omarchy-mode-floated\", window = \"address:$addr\" })" >/dev/null 2>&1 || true
   done
@@ -967,7 +979,8 @@ retag_floated() {
 batch_checked() {
   local reply refused
   reply=$(hyprctl --batch "$1" 2>&1) || true
-  refused=$(grep -v '^ok$' <<<"$reply" | grep -v '^[[:space:]]*$') || return 0
+  # (a warning is Hyprland doing what it can, a split with one window in it, say)
+  refused=$(grep -v '^ok$' <<<"$reply" | grep -v '^[[:space:]]*$' | grep -v '^warning') || return 0
   printf '%s\n' "$refused" | head -20 >"$STATE_DIR/hyprland-refused.log" 2>/dev/null || true
   echo "overtake: Hyprland refused a step (see $STATE_DIR/hyprland-refused.log)" >&2
 }
@@ -1337,13 +1350,13 @@ hide_minimized() {
 # matched by class like omarchy-hyprland-focus-app, the most recently used
 # window first. A minimized one is restored to the workspace it came from and
 # followed there; any other is reached by switching to its workspace.
-focus_app() {  # focus_app <app> [exact]: its most recent window (class contains the name, or is it)
+focus_app() {  # focus_app <app> [exact|agent]: its most recent window (class contains the name, is it, or an agent terminal's title has it)
   local info addr ws lua
   # (the name through the environment: other accounts can't read that)
-  info=$(hyprctl clients -j | OVERTAKE_APP=$1 jq -c --arg exact "${2:-}" '
+  info=$(hyprctl clients -j | OVERTAKE_APP=$1 jq -c --arg how "${2:-}" '
     (env.OVERTAKE_APP | ascii_downcase) as $q
     | sort_by(.focusHistoryID)
-    | first(.[] | select([(.class // ""), (.initialClass // "")] | any(ascii_downcase | if $exact == "" then contains($q) else . == $q end))) // empty')
+    | first(.[] | select(if $how == "agent" then .initialClass == "org.omarchy.agent" and ((.initialTitle // "") | ascii_downcase | contains($q)) else [(.class // ""), (.initialClass // "")] | any(ascii_downcase | if $how == "" then contains($q) else . == $q end) end)) // empty')
   [[ -n $info ]] || return 1
   addr=$(jq -r .address <<<"$info") ws=$(jq -r .workspace.name <<<"$info")
   if [[ $ws == special:minimized ]]; then
@@ -1366,7 +1379,8 @@ notification_open() {
   # (a sender chooses this name: it comes on stdin, never as an argument)
   IFS= read -r -t 5 -n 4096 app || true
   [[ -n $app ]] || return 1
-  focus_app "$app" exact || focus_app "$app"
+  # (agent terminals share a class, with the terminal's name only in their first title)
+  focus_app "$app" exact || focus_app "$app" || focus_app "$app" agent
 }
 
 # Clicking empty desktop: minimize every window on the workspace that screen
@@ -1583,6 +1597,7 @@ float_all() {
 # so a list of "windows the mode floated" would miss them.
 tile_all() {
   local addr keep='[]'
+  hyprctl version >/dev/null 2>&1 || return 1   # (no session: kept for when there is one)
   [[ -s $KEEP_FLOATING ]] && keep=$(<"$KEEP_FLOATING")
   retile_saved "$keep"
   for addr in $(hyprctl clients -j | jq -r --argjson keep "$keep" \
@@ -1615,6 +1630,11 @@ try:
     live = {c["address"]: c for c in json.loads(subprocess.run(["hyprctl", "clients", "-j"], capture_output=True, text=True).stdout)}
 except ValueError:  # (no session: what's left is finished from inside one)
     sys.exit(1)
+layouts = {}
+try:
+    layouts = {w["id"]: w.get("tiledLayout") for w in json.loads(subprocess.run(["hyprctl", "workspaces", "-j"], capture_output=True, text=True).stdout)}
+except ValueError:
+    pass
 GAP = 30  # px: wider than any gap between tiles, narrower than a window
 
 def box(w):
@@ -1669,6 +1689,10 @@ for ws in sorted({w["ws"] for w in saved}, key=lambda ws: (ws == here, ws)):
             and live[w["address"]]["floating"] and live[w["address"]]["workspace"]["id"] == ws
             and w["address"] not in keep]
     if not wins:
+        continue
+    if layouts.get(ws) not in (None, "dwindle"):  # (no split to rebuild there)
+        for w in wins:
+            tile(w["address"])
         continue
     root = first(wins)
     focus(root)
@@ -1987,6 +2011,42 @@ theme_previews() {
   done
 }
 
+# Stripped copies of the icons in your own folder, made by a child under limits, and
+# the list a shell plugin draws them from (UserIcons.qml): a name's file is read
+# through a redirect into a numbered temp, so no icon's name is in a command line.
+icon_copies() {
+  local dir src name id tmp out seen=" " count=0
+  dir="${XDG_CACHE_HOME:-$HOME/.cache}/overtake/user-icons"
+  mkdir -p -m 700 "$dir"
+  chmod 700 "$dir"
+  (
+    flock -w 60 9 || exit 0   # (one at a time: the next finds its work done)
+    index=$(mktemp "$dir/.index.XXXXXX") || exit 0
+    while IFS= read -r -d '' src; do
+      name=${src##*/}; name=${name%.*}
+      [[ $name =~ ^[A-Za-z0-9_][A-Za-z0-9_.+-]{0,127}$ && $seen != *" $name "* ]] || continue
+      (( ++count <= 500 )) || break
+      seen+="$name "
+      id=$(sha256sum <<<"$name"); id=${id%% *}; id=${id:0:32}.png
+      out=$dir/$id
+      if [[ ! $out -nt $src ]]; then
+        tmp=$(mktemp "$dir/.icon.XXXXXX") || continue
+        : >"$out.new"
+        # (the type comes from what's in the file; over 32 MB isn't an icon)
+        if head -c 33554433 <"$src" >"$tmp" && (( $(stat -c %s "$tmp") <= 33554432 )) &&
+           ( ulimit -v 1048576; ulimit -c 0; exec 9>&-; exec env VIPS_CONCURRENCY=1 timeout 10 vipsthumbnail "$tmp" --size 256x256 -o "$out.new.png[strip]" ) >/dev/null 2>&1; then
+          chmod 600 "$out.new.png"; mv -f "$out.new.png" "$out"
+        else
+          rm -f "$out.new.png"; : >"$out"; chmod 600 "$out"
+        fi
+        rm -f "$tmp" "$out.new"
+      fi
+      [[ -s $out ]] && printf '%s\t%s\n' "$name" "$id" >>"$index" || printf '%s\t\n' "$name" >>"$index"
+    done < <(find "${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor" -type f \( -name '*.png' -o -name '*.svg' -o -name '*.jpg' -o -name '*.jpeg' -o -name '*.xpm' \) -print0 2>/dev/null | sort -zrV)
+    chmod 600 "$index"; mv -f "$index" "$dir/index"
+  ) 9>"$dir/.lock"
+}
+
 bg_picker() {
   shopt -s nullglob
   local theme theme_base cache dir file name base n link live suffix
@@ -2053,6 +2113,19 @@ bg_picker() {
     done
   done
 
+  # (Omarchy's picker looks the selected one up with `find -samefile <its real path>`:
+  # one of yours isn't named to it, so it isn't marked in the list)
+  local real
+  real=$(readlink -f "$CURRENT_BG" 2>/dev/null) || real=""
+  case $real in
+    "$HOME"/Pictures/overtake/*)
+      case ${real##*/} in
+        1-hills-day.*|2-hills-night.*|3-shine.*|4-chips.*|5-beach.*|6-cave.*|7-snow-leopard.*) ;;
+        *) BG_SELECTED="" ;;
+      esac ;;
+    */omarchy/themes/*|*/omarchy/current/theme/*) ;;
+    *) BG_SELECTED="" ;;
+  esac
   local groups=("$cache/1-theme" "$cache/2-live" "$cache/3-overtake" "$cache/4-themes")
   bg_link_all "${groups[@]}"
   if [[ ${1:-} == cache ]]; then
@@ -2116,6 +2189,7 @@ case "${1:-help}" in
   show-desktop) show_desktop ;;
   bg-picker) bg_picker "${2:-}" ;;
   theme-previews) theme_previews ;;
+  icon-copies) icon_copies ;;
   next-wallpaper)
     if [[ ! -f $FLAG ]]; then :
     elif [[ $(wallpaper_mode) == day-night ]] && picked_wallpaper; then apply_day_night   # back from a picked wallpaper

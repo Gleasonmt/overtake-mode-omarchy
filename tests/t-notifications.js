@@ -142,7 +142,7 @@ function Service(disk) {
               storeReady: true, overtakePrepareNext: [], overtakePrepareNow: [], overtakePrepareFailed: false }
   S.service = S
   const fn = src => src ? new Function("S", "with (S) { return (" + src + ") }")(S) : undefined
-  for (const name of ["saveSoon", "flushStore", "overtakeWriteStore", "overtakeWhenPrepared", "overtakeStartPrepare", "overtakePrepareExited", "overtakeNotLoadedReply", "overtakeReadHistoryBack", "loadHistory", "currentHistory", "forget", "forgetAll", "storeDrop", "overtakeCheckFile", "overtakeComparable", "overtakeRemoveInPlace", "overtakeSaveFailed"])
+  for (const name of ["overtakeLiveRows", "saveSoon", "flushStore", "overtakeWriteStore", "overtakeWhenPrepared", "overtakeStartPrepare", "overtakePrepareExited", "overtakeNotLoadedReply", "overtakeReadHistoryBack", "loadHistory", "currentHistory", "forget", "forgetAll", "storeDrop", "overtakeCheckFile", "overtakeComparable", "overtakeRemoveInPlace", "overtakeSaveFailed"])
     S[name] = fn(extract(svc, name))
   // The folder preparation: a process, so its exit comes later (on the clock's
   // next tick), and `prepareCode` is what it exits with.
@@ -171,8 +171,7 @@ function Service(disk) {
   S.overtakeHistoryWrite = { send(t) { if (S.historyFile.fail !== "open") disk.text = onDisk(t) } }
   S.overtakeLiveInPlace = { reload() {} }   // (live.json: covered in real Quickshell)
   S.overtakeLiveInPlaceFile = S.overtakeLiveInPlace
-  S.overtakeFiled = Object.create(null)
-  S.overtakeLiveUnfiled = false
+  S.overtakeUnfiled = Object.create(null)
   S.liveFile = { setText() {} }
   S.clock = clock
   S.start = () => { S.liveLoaded = true; S.historyFile.reload() }        // the first loads

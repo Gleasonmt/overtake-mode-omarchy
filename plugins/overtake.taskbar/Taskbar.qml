@@ -5,7 +5,6 @@ import Quickshell.Io
 import qs.Commons
 import qs.Commons as Commons
 import qs.Ui
-import "IconName.js" as IconName
 
 // Taskbar: a Start button, pinned apps, and every open (or minimized) app,
 // grouped by app. Apps with a window on the workspace this bar's monitor is
@@ -16,6 +15,7 @@ import "IconName.js" as IconName
 // Middle-click opens a new window; right-click opens a window menu.
 Panel {
   id: root
+  readonly property UserIcons userIcons: UserIcons {}
   OvertakeFolders { id: folders }   // Overtake's folders private before they're used
   moduleName: "overtake.taskbar"
 
@@ -143,9 +143,9 @@ Panel {
 
   function iconFor(entry, appId) {
     if (appId === "org.quickshell") return Quickshell.iconPath("preferences-system", true)  // Overtake Settings
-    var source = entry && IconName.safe(entry.icon) ? Quickshell.iconPath(entry.icon, true) : ""
+    var source = entry && entry.icon ? userIcons.source(entry.icon) : ""
     // (an app picks its own window class: a theme icon name only, never a path)
-    if (!source && /^[A-Za-z0-9._-]{1,128}$/.test(appId)) source = Quickshell.iconPath(appId.toLowerCase(), true)
+    if (!source && /^[A-Za-z0-9._-]{1,128}$/.test(appId)) source = userIcons.source(appId.toLowerCase())
     return source || Quickshell.iconPath("application-x-executable", true)
   }
 

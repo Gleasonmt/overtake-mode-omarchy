@@ -2,7 +2,6 @@ import QtQuick
 import Quickshell
 import Quickshell.Hyprland
 import Quickshell.Io
-import "IconName.js" as IconName
 
 // Apps and their windows, for Studio's Dock, App Switcher and Force Quit:
 // the same matching the taskbar does (desktop entries, Omarchy web apps by
@@ -11,6 +10,7 @@ import "IconName.js" as IconName
 // "browser" and "terminal" stand for your default ones.
 Item {
   id: root
+  readonly property UserIcons userIcons: UserIcons {}
   OvertakeFolders { id: folders }   // Overtake's folders private before they're used
 
   // ---------- Pins ----------
@@ -126,9 +126,9 @@ Item {
 
   function iconFor(entry, appId) {
     if (appId === "org.quickshell") return Quickshell.iconPath("preferences-system", true)  // Overtake Settings
-    var source = entry && IconName.safe(entry.icon) ? Quickshell.iconPath(entry.icon, true) : ""
+    var source = entry && entry.icon ? userIcons.source(entry.icon) : ""
     // (an app picks its own window class: a theme icon name only, never a path)
-    if (!source && /^[A-Za-z0-9._-]{1,128}$/.test(appId)) source = Quickshell.iconPath(appId.toLowerCase(), true)
+    if (!source && /^[A-Za-z0-9._-]{1,128}$/.test(appId)) source = userIcons.source(appId.toLowerCase())
     return source || Quickshell.iconPath("application-x-executable", true)
   }
   function nameOf(group) { return group ? (group.entry ? group.entry.name : group.appId) : "" }

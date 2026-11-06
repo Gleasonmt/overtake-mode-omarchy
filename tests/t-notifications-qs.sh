@@ -278,7 +278,7 @@ N=$HOME/.local/state/omarchy/notifications; H=$N/history.json
 mkdir -p "$N" "$HOME/.local/state/overtake" "$HOME/.config/overtake"; echo on > "$HOME/.local/state/overtake/mode"; : > "$HOME/ctl"; : > "$HOME/ctl-ipc"; : > "$HOME/ctl-reply"
 ROOT=root; WAITS=4
 case $SCEN in
-  full*|stop|stale|aged|removed|closedfull|dndsave|rohome) mount -t tmpfs -o size=256k tmpfs "$N";;
+  full*|stop|stale|aged|removed|closedfull|nearfull|dndsave|rohome) mount -t tmpfs -o size=256k tmpfs "$N";;
 esac
 case $SCEN in
   link*|focus|pathimage|rawclaim|flood*|stall|huge*|entry*|textargv|linkrace|codefail|dndrules|dndsave|rohome|onlyhidden|appmodes|critical)
@@ -292,6 +292,7 @@ reply() { sed 's/^.*CTL/CTL/' "$E/qs-$SCEN.log" | grep -a "^CTL $1 " | tail -1 |
 # Until that many cards are up and their pictures have settled (cards go on arriving after the sender returns).
 allcards() { local last=""; for _ in {1..12}; do ctl pictures 0.5; [[ $(reply pictures) == *"cards=$1 "* && $(reply pictures) == "$last" ]] && return; last=$(reply pictures); done; }
 rss() { awk '/VmRSS/ { print int($2 / 1024) }' "/proc/$QS/status"; }
+peak() { awk '/VmHWM/ { print int($2 / 1024) }' "/proc/$QS/status"; }
 send() { python3 -I "$REPO/tests/t-notifications-send.py" "$@" >/dev/null; }
 modes() { stat -c '%a %n' "$N" "$N"/* 2>/dev/null | sed "s#$N#N#" | tr '\n' ' '; }
 # Every 10 ms: any mode in the folder that isn't private.
@@ -299,7 +300,8 @@ watch_modes() { while :; do stat -c '%a %n' "$N" "$N"/* 2>/dev/null | grep -vE '
 unwatch() { kill "$WATCH" 2>/dev/null; wait "$WATCH" 2>/dev/null; }
 # Every 20 ms: any running program with the marker in its arguments. (The
 # pattern doesn't match itself. Senders here read the marker from a file.)
-watch_argv() { while :; do grep -lsa 'URLMARKE[R]77' /proc/[0-9]*/cmdline >> "$E/argv-hits-$SCEN"; sleep 0.02; done & WATCH=$!; }
+# (only this run's programs: another run on the machine has the same marker)
+watch_argv() { while :; do for f in $(grep -lsa 'URLMARKE[R]77' /proc/[0-9]*/cmdline); do grep -qsa "HOME=$HOME" "${f%cmdline}environ" && echo "$f" >> "$E/argv-hits-$SCEN"; done; sleep 0.02; done & WATCH=$!; }
 secrets() { grep -o 'SECRET-[0-9]' "$H" 2>/dev/null | sort -u | tr '\n' ' '; }
 live() { grep -o 'SECRET-[0-9]' "$N/live.json" 2>/dev/null | sort -u | tr '\n' ' '; }
 pad() { head -c 2000 /dev/zero | tr '\0' x; }
@@ -307,6 +309,7 @@ fill() { dd if=/dev/zero of="$N/filler" bs=4k 2>/dev/null; sync; }
 [[ $SCEN == oldlive ]] && printf '[{"key":"nold","app":"Signal","summary":"Old","body":"SECRET-1","urgency":1,"ts":%s}]\n' "$(( $(date +%s) - 432000 ))" > "$N/live.json"
 [[ $SCEN == onlyhidden ]] && printf '[{"key":"nhid","app":"omarchy-action","summary":"Done","body":"SECRET-1","urgency":1,"ts":%s,"closed_ts":%s,"closed_reason":"expired"}]\n' "$(date +%s)" "$(date +%s)" > "$H"
 [[ $SCEN == rohome ]] && { : > "$H"; : > "$N/live.json"; : > "$N/quiet.json"; mount --bind "$N" "$N"; mount -o remount,ro,bind "$N" || echo "reply=[(setup) not read-only]"; }
+mkdir -p "$HOME/.cache/overtake/user-icons"; : > "$HOME/.cache/overtake/user-icons/index"
 [[ $SCEN == refused ]] || start
 case $SCEN in
   appmodes)   # the center's per-app settings, as the service reads them
@@ -407,15 +410,19 @@ case $SCEN in
     echo "pictures=[$(reply pictures)]"
     echo "grew=[$(( $(rss) - base ))]"
     ;;
-  hugeapp|hugeicon|hugeactext|hugelist)   # every field a sender's object keeps counts
+  hugeapp|hugeicon|hugeactext|hugelist|hugevar|hugestruct)   # every field a sender's object keeps counts
     base=$(rss)
     case $SCEN in
       hugeapp) send --summary Big --app-size 20000000 --count 8 ;;
       hugeicon) send --app Evil --summary Big --icon-size 20000000 --count 8 ;;
       hugeactext) send --app Evil --summary Big --actions 2 --action-text-size 10000000 --count 8 ;;
       hugelist) send --app Evil --summary Big --list-hint 4x5000000 --count 8 ;;
+      hugevar) send --app Evil --summary Big --var-hint 20000000 --count 8 ;;
+      # (three: at about five, reading hints this big stalls Quickshell itself, with or
+      # without this copy; see Known limits)
+      hugestruct) send --app Evil --summary Big --struct-hint 20000000 --count 3 ;;
     esac
-    allcards 8
+    [[ $SCEN == hugestruct ]] && allcards 3 || allcards 8
     echo "pictures=[$(reply pictures)]"
     echo "grew=[$(( $(rss) - base ))]"
     ;;
@@ -433,14 +440,43 @@ PNG
     file=$HOME/bomb.png; [[ $SCEN == entryfifo ]] && file=$HOME/fifo
     printf '[Desktop Entry]\nType=Application\nName=evilapp\nExec=true\nIcon=%s\n' "$file" > "$HOME/.local/share/applications/evilapp.desktop"
     sleep 2   # (the shell reads the new entry)
-    base=$(rss)
+    base=$(peak)
     notify-send -a evilapp "Hello" "hi"
     sleep 4
     ctl count 1
     echo "count=[$(reply count)]"
     echo "picture=[$(grep -a 'PICTURE' "$E/qs-$SCEN.log" | tail -1)]"
     kill -0 "$QS" 2>/dev/null && echo "alive=[yes]" || echo "alive=[no]"
-    echo "grew=[$(( $(rss) - base ))]"
+    echo "grew=[$(( $(peak) - base ))]"
+    ;;
+  nearfull)   # room for live.json's small write, none for history's big one
+    for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do notify-send -a Signal "Old $i" "$(pad)$(pad)$(pad)"; sleep 0.2; ctl closecard 0.2; done
+    sleep 3
+    notify-send -a Signal "Alice" "SECRET-1 on screen"; sleep 1.5
+    fill; truncate -s -16K "$N/filler"; sleep 0.5
+    ctl closecard 3
+    echo "kept=[$(live)]"
+    echo "history=[$(secrets)]"
+    stop; start
+    ctl count 0.5
+    echo "after=[$(sed 's/^.*CTL/CTL/' "$E/qs-$SCEN.log" | grep -a '^CTL count' | tail -1)]"
+    rm -f "$N/filler"
+    ctl closecard 7
+    echo "rows=[$(grep -o 'SECRET-1' "$H" | wc -l)]"
+    echo "liveafter=[$(live)]"
+    ;;
+  textclose)   # the same words, closed and removed
+    printf 'Hi URLMARKER77' > "$HOME/sum"
+    printf 'Your code URLMARKER77 is here' > "$HOME/body"
+    watch_argv
+    send --app Mail --summary-file "$HOME/sum" --body-file "$HOME/body"; sleep 1.5
+    ctl closecard 2
+    echo "filed=[$(grep -c URLMARKER77 "$H")]"
+    ctl forgetfirst 2
+    send --app Mail --summary-file "$HOME/sum" --body-file "$HOME/body"; sleep 1.5
+    ctl forgetall 2
+    unwatch
+    echo "hits=[$(sort -u "$E/argv-hits-$SCEN" 2>/dev/null | wc -l)]"
     ;;
   textargv)   # a message's words, watched through everything that can happen to it
     printf 'Hi URLMARKER77' > "$HOME/sum"
@@ -449,11 +485,6 @@ PNG
     send --app Mail --summary-file "$HOME/sum" --body-file "$HOME/body"; sleep 1.5
     ctl count 0.5; echo "seen=[$(reply count)]"
     ctl clickcard 1.5
-    send --app Mail --summary-file "$HOME/sum" --body-file "$HOME/body"; sleep 1.5
-    ctl closecard 2
-    ctl forgetfirst 2
-    send --app Mail --summary-file "$HOME/sum" --body-file "$HOME/body"; sleep 1.5
-    ctl clearall 2
     unwatch
     echo "hits=[$(sort -u "$E/argv-hits-$SCEN" 2>/dev/null | wc -l)]"
     ;;
@@ -844,12 +875,13 @@ has "$out" pictures '"cards=2 pictures=0 senders=0"' || fail "a message of many 
 grew=$(value "$out" grew); (( grew < 600 )) || fail "2 messages of many buttons grew the shell by $grew MB: $out"
 pass "2 messages of 400,000 buttons: the same, $grew MB"
 
-for scen in hugeapp hugeicon hugeactext hugelist; do
+for scen in hugeapp hugeicon hugeactext hugelist hugevar hugestruct; do
   out=$(run_scen $scen)
-  has "$out" pictures '"cards=8 pictures=0 senders=0"' || fail "$scen: its sender's object was kept: $out"
+  cards=8; [[ $scen == hugestruct ]] && cards=3
+  has "$out" pictures "\"cards=$cards pictures=0 senders=0\"" || fail "$scen: its sender's object was kept: $out"
   grew=$(value "$out" grew); (( grew < 250 )) || fail "$scen: 8 messages grew the shell by $grew MB: $out"
 done
-pass "app names, icons, button text and list hints count too: let go, the shell's growth is bounded"
+pass "app names, icons, button text, list hints, variants and structs count too: let go, the shell's growth is bounded"
 
 # ---- An app whose icon is a file ----
 out=$(run_scen entrybomb)
@@ -859,13 +891,24 @@ grew=$(value "$out" grew); (( grew < 150 )) || fail "a crafted icon file grew th
 out=$(run_scen entryfifo)
 has "$out" alive yes || fail "an icon that's a named pipe killed the shell: $out"
 has "$out" count '"toasts=1"' || fail "an icon that's a named pipe hung the shell: $out"
-pass "an app's Icon= naming a file isn't opened: a sender naming it costs the shell $grew MB at most"
+pass "an app's Icon= naming a file isn't opened"
 
 # ---- A message's words stay out of every command line ----
 out=$(run_scen textargv)
 has "$out" seen '"toasts=1"' || fail "(setup) the message didn't arrive: $out"
 has "$out" hits 0 || fail "a message's words reached a command line: $out ($(sort -u "$E/argv-hits-textargv" 2>/dev/null | head -3))"
+out=$(run_scen textclose)
+has "$out" filed 1 || fail "(setup) the row wasn't filed: $out"
+has "$out" hits 0 || fail "a message's words reached a command line on close or remove: $out"
 pass "a message's summary and body are in no command line seen by a 20 ms watcher, on arrival, click, close, remove or Clear all"
+
+# ---- Closed on a nearly full disk ----
+out=$(run_scen nearfull)
+has "$out" kept "SECRET-1 " || fail "a closed card left live.json while history couldn't take it, with room for live.json alone: $out"
+has "$out" after 'CTL count -> "toasts=1"' || fail "a card closed on a nearly full disk was lost at the restart: $out"
+has "$out" rows 1 || fail "once there was room the row should be filed once: $out"
+has "$out" liveafter "" || fail "the row stayed in live.json once history had it: $out"
+pass "a card closed with room only for live.json survives a restart, and is filed once when there's room"
 
 # ---- Closed on a full disk ----
 out=$(run_scen closedfull)

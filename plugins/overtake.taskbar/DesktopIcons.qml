@@ -6,7 +6,6 @@ import Quickshell.Wayland
 import qs.Commons
 import qs.Commons as Commons
 import "DesktopList.js" as DesktopList
-import "IconName.js" as IconName
 
 // The desktop in Overtake Mode: a full-screen surface on the layer just above
 // the wallpaper, so windows cover it and it shows on empty workspaces and with
@@ -26,6 +25,7 @@ import "IconName.js" as IconName
 // are skipped. View options live in ~/.config/overtake/desktop.json.
 Item {
   id: root
+  readonly property UserIcons userIcons: UserIcons {}
   OvertakeFolders { id: folders }   // Overtake's folders private before they're used
 
   property bool modeOn: false
@@ -101,7 +101,7 @@ Item {
 
   function iconSource(icon) {
     var name = root.builtInOf(icon.id) ? root.builtInOf(icon.id).icon : (entryFor(icon) ? entryFor(icon).icon : "")
-    var source = IconName.safe(name) ? Quickshell.iconPath(name, true) : ""
+    var source = name ? userIcons.source(name) : ""
     return source || Quickshell.iconPath("application-x-executable", true)
   }
 
