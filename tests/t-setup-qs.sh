@@ -51,6 +51,12 @@ grep -q 'Run ./install.sh in' "$E/cards" || fail "the wrong reminder for a missi
 start_shell
 [[ $(cards) == 2 ]] || fail "the next shell start didn't remind again ($(cards) in all)"
 [[ $(find "$E/run" -maxdepth 1 -name 'overtake-reminded.*' | wc -l) == 1 ]] || fail "marks of earlier shells pile up in the runtime folder"
+# A second shell running at the same time keeps its own mark.
+sleep 300 & other=$!
+mkdir "$E/run/overtake-reminded.$other"
+start_shell
+[[ -d $E/run/overtake-reminded.$other ]] || fail "a mark of a shell still running was removed"
+kill "$other"; wait "$other" 2>/dev/null || true
 pass "not installed: one reminder per shell start, however many reloads"
 
 reset; installed 0.1.15 "$SAME"
