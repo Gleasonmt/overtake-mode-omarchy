@@ -185,7 +185,7 @@ Item {
           height: size[1] * fit + 24
           x: col * stage.grid.cw + (stage.grid.cw - width) / 2
           y: rowN * stage.grid.ch + (stage.grid.ch - height) / 2
-          z: drag.active ? 10 : 0
+          z: thumbMouse.drag.active ? 10 : 0
 
           property bool dragged: false
 

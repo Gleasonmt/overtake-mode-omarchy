@@ -167,6 +167,13 @@ Item {
   property var fileIndex: []
   property var fileNames: []   // each entry's name, lowercased once, for matching
   onOpenChanged: if (!open) { fileTimer.stop(); fileList.running = false; fileIndex = []; fileNames = [] }
+  // fd's names, each ended by NUL. What follows the last NUL was cut off at the
+  // size limit, so it isn't a real name.
+  function splitFileList(text) {
+    var list = text.split("\0")
+    list.pop()
+    return list.filter(function(l) { return l })
+  }
   Timer {
     id: fileTimer
     interval: 220
@@ -177,15 +184,14 @@ Item {
   }
   Process {
     id: fileList
-    // (at most 20,000 names and 4 MB, whatever the folder holds)
-    command: ["sh", "-c", "fd --max-depth 6 --max-results 20000 . \"$1\" | head -c 4194304", "sh", root.home]
+    // (at most 20,000 names and 4 MB, whatever the folder holds; ended by NUL,
+    // since a file name can hold a newline)
+    command: ["sh", "-c", "fd -0 --max-depth 6 --max-results 20000 . \"$1\" | head -c 4194304", "sh", root.home]
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: {
         if (!root.open) return   // (closed while fd ran: nothing to keep)
-        var list = text.split("\n")
-        if (text.length >= 4194304) list.pop()   // (a name cut off at the limit)
-        list = list.filter(function(l) { return l })
+        var list = root.splitFileList(text)
         root.fileNames = list.map(function(l) { var c = l.replace(/\/$/, ""); return c.slice(c.lastIndexOf("/") + 1).toLowerCase() })
         root.fileIndex = list
         root.filterFiles()

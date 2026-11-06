@@ -60,4 +60,21 @@ function check(what, ok) {
   check(`a numeric "host" is refused`, webHost({ groupKey: "web:0x7f.0x0.0x0.0x1" }) === "")
 }
 
+// Spotlight's file list: NUL ends a name, so a newline can't split one.
+{
+  const split = new Function(extract("plugins/overtake.taskbar/Spotlight.qml", "splitFileList") + "; return splitFileList")()
+  const list = split("/home/a\n/etc/shadow\0/home/b\0/home/cut-of")
+  check(`a newline stays inside its name`, list.length === 2 && list[0] === "/home/a\n/etc/shadow" && list[1] === "/home/b")
+  check(`a name cut off at the size limit is dropped`, !list.includes("/home/cut-of"))
+  const src = fs.readFileSync(path.join(repo, "plugins/overtake.taskbar/Spotlight.qml"), "utf8")
+  check(`fd ends names with NUL`, /"fd -0 /.test(src))
+}
+
+// Mission Control: `drag` belongs to the thumbnail's MouseArea. Outside its
+// handlers a bare `drag` is a ReferenceError, and a dragged thumbnail isn't raised.
+{
+  const src = fs.readFileSync(path.join(repo, "plugins/overtake.taskbar/MissionControl.qml"), "utf8")
+  check(`the thumbnail's z reads its MouseArea's drag`, /\n\s*z: thumbMouse\.drag\.active \? 10 : 0\n/.test(src) && /id: thumbMouse\n/.test(src))
+}
+
 process.exit(failed ? 1 : 0)

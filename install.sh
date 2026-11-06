@@ -83,6 +83,9 @@ Overtake Mode will add (./uninstall.sh removes all of it):
                                           after `omarchy update`, rebuilds the patched
                                           copies from the new Omarchy (or drops one
                                           whose patch no longer fits)
+  (and it removes six pictures an earlier version put in ~/Pictures/overtake/studio:
+  1-mesa-day.png, 2-mesa-night.png, 3-ribbons.png, 4-aurora.png, 5-orbs.png and
+  6-sunrise.png, only if each is exactly the file that version shipped)
   ~/.local/state/overtake/, ~/.cache/overtake/
                                           its state (yours only) and the Background lists
 EOF
@@ -127,24 +130,92 @@ fi
 
 echo "Installing Overtake Mode (Omarchy) on Omarchy $(omarchy-version)"
 
-# Replace the block between the markers in a file, or append it.
+# While this runs: the root plugin (Setup.qml) reloads with every plugin change,
+# and this says it isn't time for a reminder yet. A folder of its own, so an
+# uninstall that follows takes it, and it goes when this ends however it ends.
+mkdir -p "$HOME/.local/share/overtake"
+echo $$ >"$HOME/.local/share/overtake/installing"
+trap 'rm -f "$HOME/.local/share/overtake/installing"' EXIT
+
+# Python shared by the edits of your files below (uninstall.sh has the same).
+# replace_file: a temp file next to the real one (the link's target, if it's a
+# symlink), flushed, the mode kept, renamed over it; so a full disk can't cut
+# the file, and a failure stops the install with a clear message.
+# without_block: takes one marked block out exactly: its start line says what
+# went in around it ("joined N": newlines added before it; "same-line": it split
+# the line holding the {; "braces N": it brought the { and } and N newlines).
+FILE_PY=$(cat <<'PY'
+import os, re, sys, tempfile
+
+def read_file(path):
+    return open(path, encoding="utf-8", errors="surrogateescape", newline="").read()
+
+def replace_file(path, text):
+    target = os.path.realpath(path)
+    try:
+        mode = os.stat(target).st_mode & 0o7777
+        fd, temp = tempfile.mkstemp(prefix=os.path.basename(target) + ".", dir=os.path.dirname(target))
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8", errors="surrogateescape", newline="") as f:
+                f.write(text)
+                f.flush()
+                os.fsync(f.fileno())
+                os.fchmod(f.fileno(), mode)
+            os.replace(temp, target)
+        except BaseException:
+            os.unlink(temp)
+            raise
+    except OSError as e:
+        sys.exit(f"overtake: couldn't write {path}: {e.strerror}; it was left as it was")
+
+def without_block(text, prefix):
+    start, end = re.escape(f"{prefix} >>> overtake"), re.escape(f"{prefix} <<< overtake")
+    while True:
+        m = re.search(start + r"([^\n]*)\n.*?" + end + r"\n?", text, re.S)
+        if not m:
+            return text
+        how, before, after = m.group(1), text[:m.start()], text[m.end():]
+        joined, braces = re.search(r"joined (\d+)", how), re.search(r"braces (\d+)", how)
+        if "same-line" in how:
+            before = before.removesuffix("\n")
+        elif braces:
+            if before.endswith("{\n") and after.lstrip(" ").startswith("}"):
+                before = before[:-2]
+                after = after.lstrip(" ")[1:].removeprefix("\n")
+                before = before.removesuffix("\n" * int(braces.group(1)))
+        elif joined:
+            before = before.removesuffix("\n" * int(joined.group(1)))
+            if after and before and not before.endswith("\n"):
+                before += "\n"   # (what you added below it stays on its own line)
+        else:   # from an earlier version, which didn't say
+            before, after = before.rstrip("\n") + "\n", after
+        text = before + after
+PY
+)
+run_py() { { printf '%s\n' "$FILE_PY"; cat; } | python3 -I - "$@"; }
+
+# Replace the block between the markers in a file, or append it. What was
+# there stays as it was, final newline or blank lines included, and the block's
+# start line says what was added to join it on, so uninstall.sh can take that
+# away too.
 #   set_block <file> <comment prefix> <block text>
 set_block() {
   local file=$1 prefix=$2 block=$3
   mkdir -p "$(dirname "$file")"
   [[ -f $file ]] || touch "$file"
-  python3 -I - "$file" "$prefix" "$block" <<'PY'
-import sys, re
+  run_py "$file" "$prefix" "$block" <<'PY'
 path, prefix, block = sys.argv[1:4]
 start, end = f"{prefix} >>> overtake", f"{prefix} <<< overtake"
-text = open(path, encoding="utf-8", errors="surrogateescape", newline="").read()
-new = f"{start} (managed by overtake-mode-omarchy/install.sh)\n{block.rstrip()}\n{end}\n"
-pattern = re.compile(re.escape(start) + r".*?" + re.escape(end) + r"\n?", re.S)
-if pattern.search(text):
-    text = pattern.sub(lambda _: new, text, count=1)
+text = read_file(path)
+pattern = re.compile(re.escape(start) + r"([^\n]*)\n.*?" + re.escape(end) + r"\n?", re.S)
+found = pattern.search(text)
+if found:
+    new = f"{start}{found.group(1)}\n{block.rstrip()}\n{end}\n"
+    text = text[:found.start()] + new + text[found.end():]
 else:
-    text = text.rstrip("\n") + ("\n\n" if text.strip() else "") + new
-open(path, "w", encoding="utf-8", errors="surrogateescape", newline="").write(text)
+    joined = 0 if not text or text.endswith("\n\n") else 1 if text.endswith("\n") else 2
+    text += "\n" * joined + f"{start} (managed by overtake-mode-omarchy/install.sh; joined {joined})\n{block.rstrip()}\n{end}\n"
+replace_file(path, text)
 PY
 }
 
@@ -230,37 +301,38 @@ say "plugins: ${OWN_PLUGINS// /, }"
 
 # 4. The Omarchy menu entry (Overtake Mode, under the main menu).
 mkdir -p "$(dirname "$MENU")"
-if [[ ! -s $MENU ]]; then
+if [[ ! -e $MENU ]]; then
   printf '{\n}\n' >"$MENU"
   touch "$HOME/.local/state/overtake/created-menu"   # so uninstall.sh removes it again
 fi
 MENU_BLOCK=$(cat "$REPO/menu/omarchy-menu.jsonc")
-python3 -I - "$MENU" "$MENU_BLOCK" <<'PY'
-import sys, re
+run_py "$MENU" "$MENU_BLOCK" <<'PY'
 path, block = sys.argv[1:3]
 start, end = "  // >>> overtake", "  // <<< overtake"
-text = open(path, encoding="utf-8", errors="surrogateescape", newline="").read()
-text = re.sub(re.escape(start) + r".*?" + re.escape(end) + r"\n?", "", text, flags=re.S)
+label = start + " (managed by overtake-mode-omarchy/install.sh; "
+text = without_block(read_file(path), "  //")
+block = block.rstrip()
+if not block.endswith(","):
+    block += ","
 # Right after the opening { (yours stay below it, so an entry of yours with the
 # same id still wins), each line ending in a comma, which Omarchy's JSONC
 # reader allows before the }. Nothing of yours is touched.
 lines = text.split("\n")
 first = next((i for i, l in enumerate(lines) if l.strip() and not l.strip().startswith("//")), None)
 if first is None:   # only comments (or nothing): an empty menu, as Omarchy reads it
-    while lines and lines[-1] == "":
-        lines.pop()
-    lines += ["{", "}", ""]
-    first = len(lines) - 3
-if not lines[first].strip().startswith("{"):
-    sys.exit("overtake install: " + path + " doesn't start with {")
-block = block.rstrip()
-if not block.endswith(","):
-    block += ","
-opening = lines[first].strip()
-lines[first:first + 1] = ["{", start + " (managed by overtake-mode-omarchy/install.sh)", block, end] + \
-    (["  " + opening[1:].strip()] if opening[1:].strip() else [])
-text = "\n".join(lines)
-open(path, "w", encoding="utf-8", errors="surrogateescape", newline="").write(text)
+    joined = 1 if text and not text.endswith("\n") else 0
+    text += "\n" * joined + "{\n" + "\n".join([label + f"braces {joined})", block, end]) + "\n}\n"
+else:
+    opening = lines[first]
+    if not opening.strip().startswith("{"):
+        sys.exit("overtake install: " + path + " doesn't start with {")
+    brace = opening.index("{") + 1
+    if not opening[brace:].strip() and first < len(lines) - 1:
+        lines[first + 1:first + 1] = [label + "joined 0)", block, end]
+    else:   # more on that line: it goes below the block, as it is
+        lines[first:first + 1] = [opening[:brace], label + "same-line)", block, end, opening[brace:]]
+    text = "\n".join(lines)
+replace_file(path, text)
 PY
 say "menu: Overtake Mode in the Omarchy menu"
 
@@ -275,10 +347,21 @@ mkdir -p "$PICTURES/studio"
 for file in "$REPO"/wallpapers/studio/*; do
   [[ -f $file ]] && cp "$file" "$PICTURES/studio/"
 done
-# Studio's first drawn set, since dropped
-for file in 1-mesa-day.png 2-mesa-night.png 3-ribbons.png 4-aurora.png 5-orbs.png 6-sunrise.png; do
-  rm -f "${PICTURES:?}/studio/$file"
-done
+# Studio's first drawn set, since dropped: only a file exactly as that version
+# shipped it. One you made under the same name stays.
+while read -r digest file; do
+  if [[ -f $PICTURES/studio/$file && ! -L $PICTURES/studio/$file ]] &&
+     [[ $(sha256sum <"$PICTURES/studio/$file") == "$digest  -" ]]; then
+    rm -f "${PICTURES:?}/studio/$file"
+  fi
+done <<'DIGESTS'
+65b839bda9a8559adb9d148d90fbf47faffe6a4235eeb95f14118325588da9d2 1-mesa-day.png
+84f4f4a6c480c18a23c9777344bd88d42b2336520b9e3d452a85f9d9eba8db2c 2-mesa-night.png
+6d5885bd07fbe2be63891dbded282cc4af10e991c765a47c2dc9d1c2587190ef 3-ribbons.png
+ceb87066830adfcd800d5bec3db4fe347f2270875a4b2c6ef684edef4a5166b5 4-aurora.png
+26667f6f20ae1d4d9c8f8186773cea497a3e64f49e2ec8cba3b6eb491f8deeb5 5-orbs.png
+5e9b3937e42cd7f4ac2e80dd65fca39794cdfdabc85b477097056a97c480181e 6-sunrise.png
+DIGESTS
 say "settings: ~/.config/overtake (existing files kept); wallpapers: ~/Pictures/overtake/{slideshow,studio}"
 
 # Trash as an app, so it can be found in Start, pinned to Start or the

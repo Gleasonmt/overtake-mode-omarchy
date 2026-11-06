@@ -46,8 +46,8 @@ node -e '
   for (; i < src.length; i++) { if (src[i] === "{") depth++; else if (src[i] === "}" && --depth === 0) break }
   const f = new Function(src.slice(start, i + 1) + "; return versionToInstall")()
   const m = JSON.stringify({ version: "0.2.0" })
-  const cases = [[m, "0.2.0\n", ""], [m, "0.3.0\n", ""], [m, "0.1.15\n", "0.2.0"], [m, "", "0.2.0"], ["not json", "0.1.15", ""], ["{}", "0.1.15", ""]]
-  for (const [a, b, want] of cases) if (f(a, b) !== want) { console.error("FAIL: versionToInstall", a, JSON.stringify(b), "gave", f(a, b)); process.exit(1) }
+  const cases = [[m, "0.2.0\n", ""], [m, "0.3.0\n", ""], [m, "0.1.15\n", "0.2.0"], [m, "", "0.2.0"], ["not json", "0.1.15", ""], ["{}", "0.1.15", ""], [m, "0.2.0", "0.2.0", true], [m, "0.3.0", "", true]]
+  for (const [a, b, want, differs] of cases) if (f(a, b, differs) !== want) { console.error("FAIL: versionToInstall", a, JSON.stringify(b), "gave", f(a, b)); process.exit(1) }
 ' || fail "Setup.qml's version check"
 grep -q 'Run ./install.sh again in' Setup.qml || fail "Setup.qml doesn't ask for the installer again"
 grep -q 'root.folder +.*install\|install.*root.folder' Setup.qml && fail "Setup.qml puts this machine's path in notify-send's arguments"
@@ -246,6 +246,214 @@ fresh
 grep -q 'check and rebuild its patched copies' "$H/.config/hypr/autostart.lua" || fail "the login line's comment doesn't say it rebuilds the copies"
 grep -q 'check and$' <<<"$(sbx "$H" ./install.sh --dry-run)" || fail "the install list doesn't say the login line rebuilds the copies"
 pass "comments and the install list describe what the code does"
+
+# ---------- No Omarchy to build from ----------
+fresh
+cp "$(config)" "$T/sj.before"
+sbx "$H" env OVERTAKE_OMARCHY_PLUGINS="$T/no-such-omarchy" "$O" build-copies update >"$T/out" 2>&1 || { cat "$T/out"; fail "build-copies with no source"; }
+for c in workspaces bluetooth audio notifications battery; do
+  [[ -d $H/.config/omarchy/plugins/overtake.$c ]] || { cat "$T/out"; fail "a missing Omarchy dropped overtake.$c"; }
+done
+grep -q "nothing changed" "$T/out" || { cat "$T/out"; fail "a missing Omarchy wasn't reported"; }
+grep -q "left out" "$T/out" && { cat "$T/out"; fail "a missing Omarchy was taken for Omarchy changing"; }
+[[ ! -e $H/.local/state/overtake/copies-left-out ]] || fail "a missing Omarchy recorded copies as left out"
+cmp -s "$(config)" "$T/sj.before" || fail "a missing Omarchy changed shell.json"
+pass "with no Omarchy to build from, nothing changes"
+
+# ---------- "unchanged" only when it's true ----------
+fresh
+rm -rf "$H/.config/omarchy/plugins/overtake.audio"
+sbx "$H" "$O" build-copies update >"$T/out" 2>&1 || { cat "$T/out"; fail "build-copies"; }
+grep -q unchanged "$T/out" && { cat "$T/out"; fail "\"unchanged\" with a copy absent"; }
+grep -q "no copy here.*audio" "$T/out" || { cat "$T/out"; fail "an absent copy wasn't reported"; }
+pass "an absent copy isn't called unchanged"
+
+# ---------- A shell.json that can't be used ----------
+fresh
+odd_config() {  # odd_config <what the message says> <command...>
+  local said=$1 before; shift
+  before=$(cat "$(config)" 2>/dev/null; echo x)
+  if "$@" >"$T/out" 2>&1; then cat "$T/out"; fail "$* went ahead with a shell.json that $said"; fi
+  grep -q "shell.json $said, so nothing was changed" "$T/out" || { cat "$T/out"; fail "$* with a shell.json that $said: no clear message"; }
+  grep -q '^jq: ' "$T/out" && { cat "$T/out"; fail "$* showed a raw jq error"; }
+  [[ $(cat "$(config)" 2>/dev/null; echo x) == "$before" ]] || fail "$* changed a shell.json that $said"
+  [[ ! -e $H/.local/state/overtake/enabled ]] || fail "$* turned the mode on with a shell.json that $said"
+  [[ $(sbx "$H" "$O" status) == off ]] || fail "$* says the mode is on"
+}
+for setup in "is missing|rm -f" "is empty|truncate -s 0" "isn't valid JSON|sed -i s/^/x/"; do
+  said=${setup%%|*} make=${setup#*|}
+  $make "$(config)"
+  for c in on toggle cycle; do odd_config "$said" sbx "$H" "$O" "$c"; done
+  printf '{"bar":{}}\n' >"$(config)"
+done
+sbx "$H" "$O" on >>"$T/log" 2>&1 || { cat "$T/log"; fail "on"; }
+cp "$(config)" "$T/good.json"
+: >"$(config)"
+if sbx "$H" "$O" off >"$T/out" 2>&1; then cat "$T/out"; fail "off went ahead with an empty shell.json"; fi
+grep -q "shell.json is empty, so nothing was changed" "$T/out" || { cat "$T/out"; fail "off with an empty shell.json: no clear message"; }
+[[ -e $H/.local/state/overtake/enabled ]] || fail "off half-happened with an empty shell.json"
+if sbx "$H" "$O" style studio >"$T/out" 2>&1; then cat "$T/out"; fail "style went ahead with an empty shell.json"; fi
+[[ $(sbx "$H" "$O" style) == classic ]] || fail "style changed with an empty shell.json"
+if sbx "$H" "$O" screensaver start >"$T/out" 2>&1; then cat "$T/out"; fail "screensaver start went ahead with an empty shell.json"; fi
+cp "$T/good.json" "$(config)"
+sbx "$H" "$O" off >>"$T/log" 2>&1 || { cat "$T/log"; fail "off after the file came back"; }
+pass "a missing, empty or invalid shell.json is said plainly and nothing changes"
+
+# ---------- Your screensaver art ----------
+art_home() {  # art_home <what's there: text, or - for no file>
+  fresh
+  ART="$H/.config/omarchy/branding/screensaver.txt"
+  if [[ $1 == - ]]; then rm -f "$ART"; else printf '%s' "$1" >"$ART"; fi
+}
+LOGO="$T/om"; mkdir -p "$LOGO"; printf 'THE LOGO\n' >"$LOGO/logo.txt"
+stub omarchy-transcode-ascii 'printf "wallpaper art\n" >"$2"'
+stub omarchy-branding-screensaver 'printf "image art\n" >"$HOME/.config/omarchy/branding/screensaver.txt"'
+stub omarchy-launch-editor 'printf "typed art\n" >"$1"'
+art() { sbx "$H" env OMARCHY_PATH="$LOGO" "$O" screensaver show "$@" >>"$T/log" 2>&1; }
+art_back() {  # art_back <what should be there>
+  sbx "$H" env OMARCHY_PATH="$LOGO" ./uninstall.sh --yes >>"$T/log" 2>&1 || { cat "$T/log"; fail "uninstall"; }
+  if [[ $1 == - ]]; then [[ ! -e $ART ]] || fail "art made by Overtake stayed after uninstall: $(cat "$ART")"
+  else [[ $(cat "$ART"; echo x) == "$1"x ]] || fail "art not restored ($2): '$(cat "$ART" 2>/dev/null)', not '$1'"; fi
+  [[ ! -e $ART.before-overtake ]] || fail "the kept copy stayed after uninstall ($2)"
+}
+for branch in omarchy wallpaper image text; do
+  art_home "my own art"; art "$branch"
+  art_back "my own art" "$branch from your own art"
+done
+printf 'THE LOGO\n' >"$T/logo-copy"
+art_home "THE LOGO"$'\n'; art wallpaper; [[ $(<"$ART") == "wallpaper art" ]] || fail "wallpaper art wasn't made (test setup)"
+art_back "THE LOGO"$'\n' "wallpaper from art equal to Omarchy's logo"
+art_home "my own art"; art image; art wallpaper; art omarchy
+art_back "my own art" "the first replacement is what's kept"
+art_home ""; art image; art_back "" "from empty art"
+art_home -; art wallpaper; [[ -s $ART ]] || fail "wallpaper art wasn't made (test setup)"; art_back - "with no art before"
+stub omarchy-transcode-ascii; stub omarchy-branding-screensaver; stub omarchy-launch-editor
+pass "the art you had before Overtake first replaced it comes back, in every branch"
+
+# ---------- File names in terminal output ----------
+fresh
+echo mine >"$H/.local/state/omarchy/current/theme.name"
+stub omarchy-menu-images 'find "$HOME/.cache/overtake/bg-picker/1-theme" -mindepth 1 | head -1'
+pick_named() {  # pick_named <file name>: sets OUT and RC from `overtake bg-picker`
+  rm -rf "$H/.config/omarchy/backgrounds/mine"; mkdir -p "$H/.config/omarchy/backgrounds/mine"
+  printf 'picture' >"$H/.config/omarchy/backgrounds/mine/$1"
+  RC=0; sbx "$H" "$O" bg-picker >"$T/out" 2>"$T/err" || RC=$?
+}
+pick_named $'evil\033]0;PWNED\a.png'
+[[ $RC != 0 ]] || fail "bg-picker printed a file name with escape codes"
+LC_ALL=C grep -q $'\033' "$T/out" "$T/err" && fail "bg-picker let an escape code through"
+grep -q 'control characters' "$T/err" || fail "bg-picker didn't say why it refused"
+pick_named $'evil\xc2\x9b0m.png'     # (a C1 control, as UTF-8)
+[[ $RC != 0 ]] || fail "bg-picker printed a file name with a C1 control"
+pick_named $'two\nlines.png'
+[[ $RC != 0 ]] || fail "bg-picker printed a file name with a newline"
+pick_named 'plain café.png'
+[[ $RC == 0 && $(<"$T/out") == "$H/.config/omarchy/backgrounds/mine/plain café.png" ]] || { cat "$T/out" "$T/err"; fail "bg-picker refused an ordinary name"; }
+pick_named $'evil\033[2J.png'
+sbx "$H" "$O" bg-picker apply >"$T/out" 2>&1 || { cat "$T/out"; fail "bg-picker apply"; }
+[[ -s $T/out ]] && fail "bg-picker apply printed something"
+[[ $(readlink "$H/.local/state/omarchy/current/background") == "$H/.config/omarchy/backgrounds/mine/"* ]] || fail "bg-picker apply didn't put the picture up"
+stub omarchy-menu-images
+pass "bg-picker refuses to print a file name with control characters; apply puts one up without printing"
+
+# ---------- Studio's old pictures ----------
+grep -q '1-mesa-day.png' <<<"$(sbx "$H" ./install.sh --dry-run)" || fail "the install list doesn't mention the old pictures it removes"
+fresh
+S="$H/Pictures/overtake/studio"
+printf 'my own picture' >"$S/1-mesa-day.png"
+sbx "$H" ./install.sh --yes >>"$T/log" 2>&1 || { cat "$T/log"; fail "reinstall"; }
+[[ $(<"$S/1-mesa-day.png") == "my own picture" ]] || fail "install removed a picture you made with an old picture's name"
+# (the real digests are checked against the shipped files in the review notes:
+# a copy of the installer that knows this test's bytes stands in for them)
+mkdir -p "$T/repo2"; cp -r bin config hypr menu patches plugins wallpapers install.sh uninstall.sh manifest.json NOTICE.md "$T/repo2/"
+sum=$(printf 'old shipped picture' | sha256sum | cut -c1-64)
+sed -i -E "s/^[0-9a-f]{64} 1-mesa-day\.png$/$sum 1-mesa-day.png/" "$T/repo2/install.sh"
+grep -q "^$sum 1-mesa-day.png$" "$T/repo2/install.sh" || fail "no digest line for 1-mesa-day.png"
+printf 'old shipped picture' >"$S/1-mesa-day.png"
+sbx "$H" "$T/repo2/install.sh" --yes >>"$T/log" 2>&1 || { cat "$T/log"; fail "install from the copy"; }
+[[ ! -e $S/1-mesa-day.png ]] || fail "install kept an old picture exactly as shipped"
+[[ $(grep -cE '^[0-9a-f]{64} [1-6]-[a-z-]+\.png$' install.sh) == 6 ]] || fail "install.sh should know six old pictures"
+pass "of the six old pictures, only one exactly as shipped is removed, and the list says so"
+
+# ---------- The post-update hook ----------
+fresh
+HOOK="$H/.config/omarchy/hooks/post-update.d/overtake.hook"
+[[ -f $HOOK ]] || fail "install didn't add the hook"
+: >"$ARGV_LOG"
+# (run the way omarchy-hook runs it)
+sbx "$H" env OVERTAKE_OMARCHY_PLUGINS="$UNFIT" bash "$HOOK" >"$T/out" 2>&1 || { cat "$T/out"; fail "the hook failed"; }
+[[ ! -e $H/.config/omarchy/plugins/overtake.workspaces ]] || fail "the hook didn't rebuild from the new Omarchy"
+log_text | grep -q "own version is used for workspaces" || fail "the hook's drop wasn't notified"
+sbx "$H" ./uninstall.sh --yes >>"$T/log" 2>&1 || { cat "$T/log"; fail "uninstall"; }
+[[ ! -e $HOOK ]] || fail "uninstall left the hook"
+sbx "$H" bash -c "mkdir -p \"$(dirname "$HOOK")\"" ; sed -n '/^cat >.*overtake.hook/,/^EOF$/p' install.sh | sed '1d;$d' >"$HOOK"
+sbx "$H" bash "$HOOK" >"$T/out" 2>&1 || { cat "$T/out"; fail "the hook with Overtake gone should do nothing"; }
+rm -f "$HOOK"
+pass "the post-update hook rebuilds the copies, is notified about, goes on uninstall, and is harmless if left"
+
+# ---------- While the installer runs ----------
+fresh
+stub omarchy-restart-shell "cat \"\$HOME/.local/share/overtake/installing\" >\"$T/seen\" 2>/dev/null"
+sbx "$H" env -u OVERTAKE_NO_RELOAD ./install.sh --yes >>"$T/log" 2>&1 || { cat "$T/log"; fail "reinstall"; }
+[[ -s $T/seen ]] || fail "no installing marker while the installer ran"
+[[ $(<"$T/seen") =~ ^[0-9]+$ ]] || fail "the installing marker doesn't name the installer's process"
+[[ ! -e $H/.local/share/overtake/installing ]] || fail "the installing marker stayed after the install"
+rm -f "$T/seen"
+stub omarchy-restart-shell
+sed -i 's/^jq -r .\.version. .*/false/' "$T/repo2/install.sh"
+sbx "$H" "$T/repo2/install.sh" --yes >>"$T/log" 2>&1 && fail "the broken copy of the installer should fail"
+[[ ! -e $H/.local/share/overtake/installing ]] || fail "the installing marker stayed after an install that stopped"
+pass "the installer marks itself while it runs, and the mark goes however it ends"
+
+# ---------- What uninstall leaves you to do ----------
+fresh
+mkdir -p "$H/.config/omarchy/plugins/gleasonmt.overtake-mode"
+sbx "$H" "$O" uninstall --yes >"$T/out" 2>&1 || { cat "$T/out"; fail "overtake uninstall"; }
+grep -q 'omarchy plugin remove gleasonmt.overtake-mode' "$T/out" || { cat "$T/out"; fail "uninstall didn't say to remove the root plugin"; }
+[[ -d $H/.config/omarchy/plugins/gleasonmt.overtake-mode ]] || fail "uninstall removed what omarchy plugin add installed"
+rm -rf "$H/.config/omarchy/plugins/gleasonmt.overtake-mode"
+sbx "$H" ./install.sh --yes >>"$T/log" 2>&1 || { cat "$T/log"; fail "reinstall"; }
+sbx "$H" "$O" uninstall --yes >"$T/out" 2>&1 || { cat "$T/out"; fail "overtake uninstall"; }
+grep -q 'omarchy plugin remove' "$T/out" && { cat "$T/out"; fail "uninstall mentioned a root plugin that isn't there"; }
+pass "uninstall names the omarchy plugin remove step when the root plugin is there, and only then"
+
+# ---------- What reaches Hyprland's Lua ----------
+fresh
+for c in minimize restore show make-room maximize close unsnap copy-url fill-gap rename hide-app hide-others quit-app; do
+  : >"$ARGV_LOG"
+  if sbx "$H" "$O" "$c" 'x" }) ; hl.exec_cmd("touch /tmp/owned") --' >/dev/null 2>&1; then fail "overtake $c took a hostile address"; fi
+  log_text | grep -q 'hl\.' && fail "overtake $c passed a hostile address to Hyprland"
+done
+for c in "snap left" "send 1"; do
+  : >"$ARGV_LOG"
+  # shellcheck disable=SC2086
+  if sbx "$H" "$O" $c 'x" })' >/dev/null 2>&1; then fail "overtake $c took a hostile address"; fi
+  log_text | grep -q 'hl\.' && fail "overtake $c passed a hostile address to Hyprland"
+done
+pass "a window address that isn't one is refused before it reaches Lua"
+
+# A monitor name (from the hardware or a config) that would break out of its
+# Lua string isn't sent; the same name as a workspace gets there intact.
+fresh
+sbx "$H" "$O" on >>"$T/log" 2>&1 || { cat "$T/log"; fail "on"; }
+cp "$HYPR/monitors.json" "$T/monitors.json"
+jq '(.[].name) = "e\"vil" | (.[].specialWorkspace.name) = "special:minimized"' "$T/monitors.json" >"$HYPR/monitors.json"
+: >"$ARGV_LOG"
+sbx "$H" "$O" hide-minimized >>"$T/log" 2>&1
+log_text | grep -q 'toggle_special' && fail "a monitor name with a quote was sent to Hyprland"
+jq '(.[].specialWorkspace.name) = "special:minimized"' "$T/monitors.json" >"$HYPR/monitors.json"
+: >"$ARGV_LOG"
+sbx "$H" "$O" hide-minimized >>"$T/log" 2>&1
+log_text | grep -q 'toggle_special' || fail "an ordinary monitor wasn't sent (test setup)"
+cp "$T/monitors.json" "$HYPR/monitors.json"
+hostile='Mail "; hl.exec_cmd("touch /tmp/owned") --'
+use_workspace "$hostile"
+: >"$HYPR/named-dispatches"
+sbx "$H" "$O" minimize 0xa1 >>"$T/log" 2>&1
+sbx "$H" "$O" restore 0xa1 >>"$T/log" 2>&1
+grep -qxF "$hostile" "$HYPR/named-dispatches" || fail "a hostile workspace name didn't arrive as data"
+use_workspace 1
+pass "a monitor name that would break its Lua string isn't sent; a workspace name is only ever data"
 
 # ---------- CI ----------
 grep -q '^    timeout-minutes: ' .github/workflows/tests.yml || fail "CI has no time limit"

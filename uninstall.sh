@@ -79,14 +79,65 @@ if [[ -f $HOME/.local/state/overtake/enabled ]] || overtake_bar; then
   fi
 fi
 
+# The same Python as install.sh's: see there.
+FILE_PY=$(cat <<'PY'
+import os, re, sys, tempfile
+
+def read_file(path):
+    return open(path, encoding="utf-8", errors="surrogateescape", newline="").read()
+
+def replace_file(path, text):
+    target = os.path.realpath(path)
+    try:
+        mode = os.stat(target).st_mode & 0o7777
+        fd, temp = tempfile.mkstemp(prefix=os.path.basename(target) + ".", dir=os.path.dirname(target))
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8", errors="surrogateescape", newline="") as f:
+                f.write(text)
+                f.flush()
+                os.fsync(f.fileno())
+                os.fchmod(f.fileno(), mode)
+            os.replace(temp, target)
+        except BaseException:
+            os.unlink(temp)
+            raise
+    except OSError as e:
+        sys.exit(f"overtake: couldn't write {path}: {e.strerror}; it was left as it was")
+
+def without_block(text, prefix):
+    start, end = re.escape(f"{prefix} >>> overtake"), re.escape(f"{prefix} <<< overtake")
+    while True:
+        m = re.search(start + r"([^\n]*)\n.*?" + end + r"\n?", text, re.S)
+        if not m:
+            return text
+        how, before, after = m.group(1), text[:m.start()], text[m.end():]
+        joined, braces = re.search(r"joined (\d+)", how), re.search(r"braces (\d+)", how)
+        if "same-line" in how:
+            before = before.removesuffix("\n")
+        elif braces:
+            if before.endswith("{\n") and after.lstrip(" ").startswith("}"):
+                before = before[:-2]
+                after = after.lstrip(" ")[1:].removeprefix("\n")
+                before = before.removesuffix("\n" * int(braces.group(1)))
+        elif joined:
+            before = before.removesuffix("\n" * int(joined.group(1)))
+            if after and before and not before.endswith("\n"):
+                before += "\n"   # (what you added below it stays on its own line)
+        else:   # from an earlier version, which didn't say
+            before, after = before.rstrip("\n") + "\n", after
+        text = before + after
+PY
+)
+run_py() { { printf '%s\n' "$FILE_PY"; cat; } | python3 -I - "$@"; }
+
 remove_block() {  # remove_block <file> <comment prefix>
   [[ -f $1 ]] || return 0
-  python3 -I - "$1" "$2" <<'PY'
-import sys, re
+  run_py "$1" "$2" <<'PY'
 path, prefix = sys.argv[1:3]
-text = open(path, encoding="utf-8", errors="surrogateescape", newline="").read()
-text = re.sub(r"\n*" + re.escape(f"{prefix} >>> overtake") + r".*?" + re.escape(f"{prefix} <<< overtake") + r"\n?", "\n", text, flags=re.S)
-open(path, "w", encoding="utf-8", errors="surrogateescape", newline="").write(text)
+text = read_file(path)
+new = without_block(text, prefix)
+if new != text:
+    replace_file(path, new)
 PY
 }
 remove_block "$HYPR/bindings.lua" "--"
@@ -113,7 +164,11 @@ remove_if_created "$HYPR/autostart.lua" created-autostart
 SHELL_JSON="$HOME/.config/omarchy/shell.json"
 if [[ -z ${OVERTAKE_NO_RELOAD:-} ]]; then
   for id in overtake.notifications overtake.battery; do
-    omarchy plugin disable "$id" >/dev/null 2>&1 || true
+    # (only one recorded there: any change makes the shell write out its whole
+    # config, a full bar included, and the lines below hand the rest back)
+    if jq -e --arg id "$id" '[(.plugins | arrays | .[] | if type == "object" then .id else . end), (.cloneSourceRestores | arrays | .[])] | index($id) != null' "$SHELL_JSON" >/dev/null 2>&1; then
+      omarchy plugin disable "$id" >/dev/null 2>&1 || true
+    fi
   done
 fi
 # Omarchy's own is turned back on only where Overtake's copy switched it off
@@ -142,11 +197,12 @@ fi
 # The bar-size block Overtake adds to shell.toml
 SHELL_TOML="$HOME/.config/omarchy/shell.toml"
 if [[ -f $SHELL_TOML ]]; then
-  python3 -I - "$SHELL_TOML" <<'PY'
-import sys, re
-p = sys.argv[1]
-t = open(p, encoding="utf-8", errors="surrogateescape", newline="").read()
-open(p, "w", encoding="utf-8", errors="surrogateescape", newline="").write(re.sub(r"\n?# >>> overtake.*?# <<< overtake\n?", "\n", t, flags=re.S))
+  run_py "$SHELL_TOML" "$([[ -f $HOME/.local/state/overtake/shell-toml-no-newline ]] && echo 1)" <<'PY'
+path, no_newline = sys.argv[1:3]
+text = read_file(path)
+new = re.sub(r"# >>> overtake[^\n]*\n.*?# <<< overtake\n?", "", text, flags=re.S)
+if new != text:
+    replace_file(path, new.removesuffix("\n") if no_newline else new)
 PY
   # (the file goes if Overtake created it and nothing else was added)
   if [[ -f $HOME/.local/state/overtake/created-shell-toml && ! -L $SHELL_TOML && -z $(tr -d '[:space:]' <"$SHELL_TOML") ]]; then
@@ -164,6 +220,8 @@ rm -f "$HOME/.config/omarchy/hooks/post-update.d/overtake.hook"
 # Screensaver art you had before Overtake replaced it
 art="$HOME/.config/omarchy/branding/screensaver.txt"
 [[ -f $art.before-overtake ]] && mv -f "$art.before-overtake" "$art"
+# (or none at all, as it was)
+[[ -f $HOME/.local/state/overtake/screensaver-art-absent ]] && rm -f "$art"
 rm -f "$HOME/.local/bin/overtake" "$HYPR/overtake.lua" "$HYPR/overtake-classic.lua" "$HYPR/overtake-studio.lua"
 rm -rf "${PLUGINS:?}/overtake.taskbar" "${PLUGINS:?}/overtake.workspaces" \
        "${PLUGINS:?}/overtake.bluetooth" "${PLUGINS:?}/overtake.audio" \
@@ -184,3 +242,8 @@ fi
 
 if [[ $PURGE ]]; then echo "Overtake Mode removed. Settings and wallpapers removed too."
 else echo "Overtake Mode removed. Your settings stay in ~/.config/overtake (./uninstall.sh --purge removes them)."; fi
+# The root plugin, if it came through `omarchy plugin add`, is Omarchy's to
+# remove. Until then it reminds you to install again, as it would on a first add.
+if [[ -e $PLUGINS/gleasonmt.overtake-mode ]]; then
+  echo "One step left: omarchy plugin remove gleasonmt.overtake-mode  (until then its reminder to install keeps appearing)."
+fi

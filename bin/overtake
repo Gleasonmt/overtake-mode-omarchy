@@ -9,7 +9,7 @@
 #   overtake style [classic|studio]  # pick or print the mode: Classic (taskbar, Start) or Studio (menu bar, Dock)
 #   overtake studio-get|studio-set <dockSize|dockMagnify|dockAutohide> [value]  # Studio's Dock options (Settings)
 #   overtake show-desktop     # SUPER+D: jump to an empty workspace and back
-#   overtake bg-picker [cache]  # the desktop's Change background: the theme's backgrounds plus Overtake's; prints the pick
+#   overtake bg-picker [cache|apply]  # the desktop's Change background: the theme's backgrounds plus Overtake's; prints the pick (apply: puts it up)
 #   overtake next-wallpaper   # SUPER+CTRL+ALT+SPACE: next slideshow wallpaper
 #   overtake wallpaper-mode [rotate|day-night]   # pick or print the slideshow mode
 #   overtake minimize|maximize|close [address]  # active window when no address
@@ -222,11 +222,54 @@ copy_plugin_files() {  # copy_plugin_files <source-dir> <manifest-file> <target-
   done < <(jq -r '[(.entryPoints[] | {source: ., target: .}), (.omarchy.clonePaths[]? | {source: .source, target: .target})]
                   | unique_by(.target)[] | [.source, .target] | @tsv' "$dir/$manifest")
 }
+# Omarchy's record of a copy: on its plugin list, or switched in for its own.
+copy_recorded() {  # copy_recorded <name>
+  jq -e --arg id "overtake.$1" '[(.plugins | arrays | .[] | if type == "object" then .id else . end),
+                                 (.cloneSourceRestores | arrays | .[]),
+                                 (.bar | .. | objects | .id? // empty)] | index($id) != null' "$SHELL_JSON" >/dev/null 2>&1
+}
+# Hand one copy back to Omarchy's own. Through the shell only when the shell
+# lists the copy: asked to disable one it doesn't know (one it hasn't scanned,
+# or one whose folder is gone), it answers "ok" and hands nothing back, which
+# leaves no notification service. Otherwise in shell.json itself. With nothing
+# recorded there is nothing to undo, and the shell isn't asked at all: any
+# change it makes writes out its whole config, a full bar included.
+hand_back_copy() {  # hand_back_copy <name>
+  copy_recorded "$1" || return 0
+  local i out
+  if [[ -z ${OVERTAKE_NO_RELOAD:-} ]]; then
+    for i in $(seq 20); do
+      out=$(omarchy-shell shell listPlugins 2>&1) || true
+      if jq -e --arg id "overtake.$1" 'any(.[]; .id == $id)' <<<"$out" >/dev/null 2>&1; then
+        omarchy plugin disable "overtake.$1" >/dev/null 2>&1 && return 0
+        break
+      fi
+      # (the shell is starting, or hasn't looked yet; a TTY or an SSH session has no shell to wait for)
+      jq -e 'type == "array"' <<<"$out" >/dev/null 2>&1 || [[ $out == *"not responding"* || $out == *"not ready"* ]] || break
+      omarchy-shell shell rescanPlugins >/dev/null 2>&1 || true   # (files just written: ask it to look again)
+      sleep 0.3
+    done
+  fi
+  hand_back_in_shell_json "$1"
+  [[ -n ${OVERTAKE_NO_RELOAD:-} ]] || omarchy-shell -q shell reloadConfig >/dev/null 2>&1 || true
+}
+# A hand-back an earlier run couldn't finish: a copy recorded in shell.json
+# while the mode is off, or whose folder is gone, has Omarchy's own switched
+# off with nothing in its place. At login, put that right.
+repair_stale_copies() {
+  local name
+  for name in notifications battery; do
+    [[ ! -f $FLAG || ! -d $HOME/.config/omarchy/plugins/overtake.$name ]] || continue
+    copy_recorded "$name" || continue
+    hand_back_in_shell_json "$name"
+    [[ -n ${OVERTAKE_NO_RELOAD:-} ]] || omarchy-shell -q shell reloadConfig >/dev/null 2>&1 || true
+  done
+}
 # Hand one plugin back to Omarchy's own in shell.json directly (when the shell
 # can't be asked, as at login before it answers): the copy out of the plugin
 # list, and Omarchy's own back on if the copy had switched it off.
 hand_back_in_shell_json() {  # hand_back_in_shell_json <name>
-  [[ -s $SHELL_JSON ]] || return 0
+  copy_recorded "$1" || return 0   # (nothing to undo: the file stays as it is)
   replace_with "$SHELL_JSON" jq --arg copy "overtake.$1" --arg own "omarchy.$1" '
     ((.cloneSourceRestores // []) | if type == "array" then index($copy) != null else false end) as $restore
     | (if (.plugins | type) == "array" then .plugins |= map(select((if type == "object" then .id else . end) != $copy)) else . end)
@@ -244,9 +287,12 @@ build_copies() {  # build_copies all|update
   flock 7
   local mode=$1 share="$HOME/.local/share/overtake" plugins="$HOME/.config/omarchy/plugins"
   local source_root="${OVERTAKE_OMARCHY_PLUGINS:-${OMARCHY_PATH:-/usr/share/omarchy}/shell/plugins}"
-  local spec name src manifest files target tmp f built="" same="" failed="" kept="" unbuilt="" ok fits n dropped=""
+  local spec name src manifest files target tmp f built="" same="" failed="" kept="" unbuilt="" absent="" ok fits n dropped="" aside applied
   local left_out="$STATE_DIR/copies-left-out"
   [[ -f $share/apply.py ]] || { echo "overtake: the patcher isn't installed; run ./install.sh again" >&2; return 1; }
+  # No Omarchy to build from (mid-upgrade, a wrong path): that says nothing about
+  # whether the patches fit, so nothing changes.
+  [[ -d $source_root ]] || { echo "Overtake Mode: Omarchy's plugins weren't found in $source_root; nothing changed" >&2; exec 7>&-; return 0; }
   mkdir -p "$plugins"
   rm -rf "${plugins:?}"/.overtake-build.*
   # (an install starts these notices over: what it can't build is said afresh)
@@ -254,14 +300,16 @@ build_copies() {  # build_copies all|update
   for spec in "${COPY_SPECS[@]}"; do
     IFS='|' read -r name src manifest files <<<"$spec"
     target="$plugins/overtake.$name"
-    [[ $mode == all || -d $target ]] || continue
+    [[ $mode == all || -d $target ]] || { absent+=" $name"; continue; }
     # (a dot folder: the shell doesn't load it)
     tmp=$(mktemp -d "$plugins/.overtake-build.XXXXXX") || { if [[ -d $target ]]; then kept+=" $name"; else unbuilt+=" $name"; fi; continue; }
     chmod 755 "$tmp"                                     # (mktemp makes it 0700; match the other plugin folders)
     ok=1 fits=1
-    [[ -e $source_root/$src/$manifest ]] || fits=""      # (Omarchy no longer has it)
-    copy_plugin_files "$source_root/$src" "$manifest" "$tmp" 2>/dev/null || ok=""
-    for f in $files; do [[ -e $tmp/$f ]] || { ok="" fits=""; }; done  # the files the patches need (gone: Omarchy changed)
+    # Omarchy changed only if Omarchy itself no longer has the files the patches
+    # need. (Looked for in its folder, not in the copy being made: on a full disk
+    # a file can be missing from there too.)
+    for f in "$manifest" $files; do [[ -e $source_root/$src/$f ]] || { ok="" fits=""; }; done
+    [[ -z $ok ]] || copy_plugin_files "$source_root/$src" "$manifest" "$tmp" 2>/dev/null || ok=""
     if [[ $ok ]] && jq --arg id "overtake.$name" --arg name "Overtake ${name^}" --arg from "omarchy.$name" '
         .id = $id | .name = $name
         | .author = ((.author // "Omarchy") + ", patched by Overtake Mode")
@@ -270,13 +318,26 @@ build_copies() {  # build_copies all|update
         | del(.omarchy.clonePaths)' "$tmp/manifest.json" >"$tmp/manifest.json.new" 2>/dev/null &&
        mv "$tmp/manifest.json.new" "$tmp/manifest.json" &&
        cp "$share/NOTICE.md" "$tmp/NOTICE.md" 2>/dev/null &&
-       { python3 -I "$share/apply.py" "$name" "$tmp" >/dev/null 2>&1 || { [[ $? == 3 ]] && fits=""; false; }; }; then
+       { # (Python only warns when a file it closes on its own can't be written:
+         # that is a failed build too, not a copy cut short)
+         applied=$(python3 -I "$share/apply.py" "$name" "$tmp" 2>&1 >/dev/null); n=$?
+         [[ $n != 3 ]] || fits=""
+         [[ $n == 0 && $applied != *"Exception ignored"* ]]; }; then
       if [[ -d $target ]] && diff -rq "$tmp" "$target" >/dev/null 2>&1; then
         rm -rf "${tmp:?}"            # unchanged: leave the running copy alone
         chmod 755 "$target"          # (copies built by 0.1.8 are 0700)
         same+=" $name"
       else
-        rm -rf "${target:?}"; mv -T "$tmp" "$target"; built+=" $name"
+        # (the old copy goes only once the new one is in its place)
+        aside=$plugins/.overtake-build.old-$name
+        rm -rf "${aside:?}"
+        if { [[ ! -d $target ]] || mv -T "$target" "$aside"; } && mv -T "$tmp" "$target"; then
+          rm -rf "${aside:?}"; built+=" $name"
+        else
+          [[ -d $target || ! -d $aside ]] || mv -T "$aside" "$target" || true
+          rm -rf "${tmp:?}" "${aside:?}"
+          if [[ -d $target ]]; then kept+=" $name"; else unbuilt+=" $name"; fi
+        fi
       fi
     else
       rm -rf "${tmp:?}"
@@ -284,11 +345,9 @@ build_copies() {  # build_copies all|update
       # files it needs are gone); a passing error (disk full, a missing tool)
       # leaves the working copy as it is.
       if [[ -z $fits && -d $target ]]; then     # Omarchy's own back in its place
-        # through the shell if it answers; otherwise (at login it may not yet)
-        # in shell.json itself, so Omarchy's own isn't left switched off
-        if [[ -n ${OVERTAKE_NO_RELOAD:-} ]] || ! omarchy plugin disable "overtake.$name" >/dev/null 2>&1; then
-          hand_back_in_shell_json "$name"
-        fi
+        # through the shell if it knows the copy; otherwise (at login it may not
+        # yet) in shell.json itself, so Omarchy's own isn't left switched off
+        hand_back_copy "$name"
         rm -rf "${target:?}"
       fi
       if [[ -z $fits ]]; then failed+=" $name"
@@ -301,9 +360,10 @@ build_copies() {  # build_copies all|update
   for n in $(cat "$left_out" 2>/dev/null || true) $failed; do
     [[ " $same$built " == *" $n "* || " $dropped " == *" $n "* ]] || dropped+=" $n"
   done
-  if [[ -n $dropped ]]; then echo "${dropped# }" >"$left_out"; else rm -f "$left_out"; fi
+  if [[ -n $dropped ]]; then echo "${dropped# }" >"$left_out" 2>/dev/null || true; else rm -f "$left_out"; fi
   if [[ -n $built ]]; then echo "Overtake Mode: patched copies of Omarchy's plugins built:$built"
-  elif [[ -z $failed$kept$unbuilt ]]; then echo "Overtake Mode: patched copies of Omarchy's plugins unchanged"; fi
+  elif [[ -z $failed$kept$unbuilt$absent ]]; then echo "Overtake Mode: patched copies of Omarchy's plugins unchanged"; fi
+  [[ -z $absent ]] || echo "Overtake Mode: no copy here, so Omarchy's own is used (./install.sh builds one if this Omarchy fits):$absent"
   [[ -z $failed ]] || echo "Overtake Mode: left out, Omarchy's own is used:$failed"
   [[ -z $kept ]] || echo "Overtake Mode: couldn't rebuild, so the copy from before stays in use:$kept" >&2
   [[ -z $unbuilt ]] || echo "Overtake Mode: couldn't build, so Omarchy's own is used (run ./install.sh again to retry):$unbuilt" >&2
@@ -329,12 +389,26 @@ add_bar_size() {
 }
 
 bar_size_toml() {  # bar_size_toml <bar size> <icon font>: shell.toml with Overtake's block (once) at the end
+  # (awk ends a last line that has no newline: noted, so that goes again with the block)
+  if [[ -s $SHELL_TOML && -n $(tail -c 1 "$SHELL_TOML") ]]; then touch "$STATE_DIR/shell-toml-no-newline"; fi
   awk -v b="$TOML_BEGIN" -v e="$TOML_END" '$0 == b { skip = 1 } !skip { print } $0 == e { skip = 0 }' "$SHELL_TOML"
   printf '%s\n[bar]\nsize-horizontal = %s\nicon-font = %s\n%s\n' "$TOML_BEGIN" "$1" "$2" "$TOML_END"
 }
 
 overtake_bar_showing() {  # Overtake's bar is in shell.json (whether or not the mode flag says on)
   jq -e '[.bar | .. | .id? // empty] | (index("overtake.taskbar") or index("overtake.menubar"))' "$SHELL_JSON" >/dev/null 2>&1
+}
+
+# A shell.json Overtake can't work with is said plainly, before anything changes.
+require_shell_json() {
+  local problem=""
+  if [[ ! -e $SHELL_JSON ]]; then problem="is missing"
+  elif [[ ! -s $SHELL_JSON ]]; then problem="is empty"
+  elif ! jq -e 'type == "object"' "$SHELL_JSON" >/dev/null 2>&1; then problem="isn't valid JSON"
+  fi
+  [[ -z $problem ]] && return 0
+  echo "overtake: ~/.config/omarchy/shell.json $problem, so nothing was changed. Fix or restore that file (restarting Omarchy's shell with omarchy-restart-shell may write a new one), then try again." >&2
+  exit 1
 }
 
 # Omarchy's settings files are replaced whole: a temp file next to the real one
@@ -358,6 +432,10 @@ remove_bar_size() {
   [[ -f $SHELL_TOML ]] || return 0
   replace_with "$SHELL_TOML" awk -v b="$TOML_BEGIN" -v e="$TOML_END" \
     '$0 == b { skip = 1 } !skip { print } $0 == e { skip = 0 }' "$SHELL_TOML"
+  if [[ -f $STATE_DIR/shell-toml-no-newline ]]; then
+    [[ -n $(tail -c 1 "$SHELL_TOML") ]] || replace_with "$SHELL_TOML" head -c -1 "$SHELL_TOML"
+    rm -f "$STATE_DIR/shell-toml-no-newline"
+  fi
   # Overtake created it and nothing else was added: the file goes too.
   if [[ -f $STATE_DIR/created-shell-toml && ! -L $SHELL_TOML && -z $(tr -d '[:space:]' <"$SHELL_TOML") ]]; then
     rm -f "$SHELL_TOML"
@@ -388,8 +466,28 @@ next_wallpaper() {
 }
 
 show_slide() {
-  omarchy-theme-bg-set "$1" >/dev/null 2>&1 || true
-  readlink -f "$1" >"$SLIDE_SHOWN"
+  set_background "$1" || true
+  readlink -f "$CURRENT_BG" >"$SLIDE_SHOWN"
+}
+
+# Put a wallpaper up the way omarchy-theme-bg-set does (repoint Omarchy's link,
+# tell the shell), without its path in any command line: that helper takes the
+# path as an argument and passes it on, and a picture's name can be private.
+# The path goes through the environment, and the shell's `background refresh`
+# reads the link itself.
+set_background() {  # set_background <file>
+  OVERTAKE_BG=$1 OVERTAKE_BG_LINK=$CURRENT_BG python3 -I -c '
+import os
+path = os.path.realpath(os.environ["OVERTAKE_BG"])
+link = os.environ["OVERTAKE_BG_LINK"]
+if not os.path.isfile(path):
+    raise SystemExit(1)
+os.makedirs(os.path.dirname(link), exist_ok=True)
+temp = link + ".overtake-" + str(os.getpid())
+os.symlink(path, temp)
+os.replace(temp, link)
+' >/dev/null 2>&1 || return 1
+  omarchy-shell -q background refresh >/dev/null 2>&1 || true
 }
 
 # A wallpaper you put up yourself (Omarchy's picker, a theme's own, an
@@ -442,7 +540,7 @@ apply_look() {  # apply_look <mode>
       src=$bg
     fi
     # set first, so the wallpaper never points into a theme folder that's gone
-    [[ -z $src || $(readlink -f "$CURRENT_BG") == "$(readlink -f "$src")" ]] || omarchy-theme-bg-set "$src" >/dev/null 2>&1 || true
+    [[ -z $src || $CURRENT_BG -ef $src ]] || set_background "$src" || true
   fi
   if [[ -n $theme && $theme != "$(cat "$CURRENT_THEME_NAME" 2>/dev/null)" ]]; then
     OMARCHY_THEME_SKIP_BACKGROUND=${keep:+1} omarchy-theme-set "$theme" >/dev/null 2>&1 || true
@@ -455,10 +553,10 @@ apply_look() {  # apply_look <mode>
       # instead (not a whole theme re-apply)
       local first
       first=$(find -L "$HOME/.local/state/omarchy/current/theme/backgrounds" -maxdepth 1 -type f 2>/dev/null | sort | head -1)
-      [[ -n $first ]] && omarchy-theme-bg-set "$first" >/dev/null 2>&1 || true
+      [[ -n $first ]] && set_background "$first" || true
       return 1
     fi
-    [[ $(readlink -f "$CURRENT_BG") == "$(readlink -f "$bg")" ]] || omarchy-theme-bg-set "$bg" >/dev/null 2>&1 || true
+    [[ $CURRENT_BG -ef $bg ]] || set_background "$bg" || true
   fi
   mark_picked
 }
@@ -505,7 +603,7 @@ apply_day_night() {
   now=$(date +%H%M)
   if (( 10#$now >= 10#$sunrise && 10#$now < 10#$sunset )); then image=$DAY_IMAGE; else image=$NIGHT_IMAGE; fi
   # (recorded even when it's already up, so it isn't taken for one you picked)
-  if [[ $(readlink -f "$CURRENT_BG") == "$(readlink -f "$image")" ]]; then readlink -f "$image" >"$SLIDE_SHOWN"; else show_slide "$image"; fi
+  if [[ $CURRENT_BG -ef $image ]]; then readlink -f "$CURRENT_BG" >"$SLIDE_SHOWN"; else show_slide "$image"; fi
 }
 
 refresh_wallpaper() {
@@ -713,6 +811,7 @@ set_style() {
     *) echo "Usage: overtake style [classic|studio]" >&2; exit 1 ;;
   esac
   local before
+  [[ ! -f $FLAG ]] || require_shell_json
   before=$(style)
   mkdir -p "$(dirname "$STYLE_FILE")"
   if [[ -f $FLAG && $before == classic ]]; then save_taskbar_settings; fi
@@ -776,23 +875,24 @@ switch_copies() {  # switch_copies on|off
   [[ -z ${OVERTAKE_NO_RELOAD:-} ]] || return 0
   local id out i ok
   for id in notifications battery; do
-    [[ $1 == off || -d $HOME/.config/omarchy/plugins/overtake.$id ]] || continue
+    # (no shell to ask, a TTY or an SSH session: switching off is done in
+    # shell.json itself, so Omarchy's own run when the shell next starts)
+    if [[ $1 == off ]]; then hand_back_copy "$id"; continue; fi
+    [[ -d $HOME/.config/omarchy/plugins/overtake.$id ]] || continue
     ok=""
     for i in $(seq 20); do
-      out=$(omarchy plugin "$([[ $1 == on ]] && echo enable || echo disable)" "overtake.$id" 2>&1) && { ok=1; break; }
+      out=$(omarchy plugin enable "overtake.$id" 2>&1) && { ok=1; break; }
       [[ $out == *"not known"* || $out == *"not responding"* || $out == *"not ready"* ]] || break   # (or the shell is restarting)
       omarchy-shell shell rescanPlugins >/dev/null 2>&1 || true   # (files just written: ask it to look again)
       sleep 0.3
     done
-    # No shell to ask (a TTY, an SSH session): switching off is done in
-    # shell.json itself, so Omarchy's own run when the shell next starts.
-    [[ -n $ok || $1 == on ]] || hand_back_in_shell_json "$id"
-    [[ -n $ok || $1 == off ]] || echo "overtake: couldn't switch overtake.$id on (${out:-no reply from the shell}); afterwards run: omarchy plugin enable overtake.$id" >&2
+    [[ -n $ok ]] || echo "overtake: couldn't switch overtake.$id on (${out:-no reply from the shell}); afterwards run: omarchy plugin enable overtake.$id" >&2
   done
 }
 
 turn_on() {
   [[ -f $FLAG ]] && { echo "Overtake Mode is already on"; fix_bar_widgets; return; }
+  require_shell_json
   mkdir -p -m 700 "$STATE_DIR"
   if jq -e '[.bar | .. | .id? // empty] | (index("overtake.taskbar") or index("overtake.menubar"))' "$SHELL_JSON" >/dev/null 2>&1; then
     echo "the bar is already Overtake's; keeping the saved Omarchy bar" >&2
@@ -835,6 +935,7 @@ turn_on() {
 turn_off() {
   # (also when only the bar says so: a switch that failed halfway)
   [[ -f $FLAG ]] || overtake_bar_showing || { echo "Overtake Mode is already off"; return; }
+  require_shell_json
   local view
   view=$(current_view)
   [[ $(style) == classic ]] && save_taskbar_settings
@@ -875,25 +976,26 @@ turn_off() {
   # Omarchy's theme and wallpaper back (from before this version: the saved
   # wallpaper, if the slideshow replaced it)
   if ! apply_look omarchy && [[ -s $SAVED_BG && -f $(<"$SAVED_BG") && $(readlink -f "$CURRENT_BG") == "$HOME/Pictures/overtake/"* ]]; then
-    omarchy-theme-bg-set "$(<"$SAVED_BG")" >/dev/null 2>&1 || true
+    set_background "$(<"$SAVED_BG")" || true
   fi
   hyprctl reload >/dev/null 2>&1 || true   # (outside Hyprland, from a TTY: the rest is still done)
   # Tiling the windows again moves focus from workspace to workspace: end
   # where you were.
   [[ -z $view ]] || hyprctl --batch "$view" >/dev/null 2>&1 || true
+  rm -f "$STATE_DIR/.ws-name.$$."*   # (the view's, and any other left)
   notify $'\uf0ec' "Omarchy (Super+Ctrl+Shift+W: next mode)"
 }
 
 # The workspace each screen shows and the focused window, as hyprctl --batch
 # commands that bring them back (the focused screen's workspace last).
 current_view() {
-  local mon ws focused last="" cmds="" active
+  local mon ws focused last="" cmds="" active lua
   while IFS=$'\t' read -r mon ws focused; do
-    [[ $ws == special:* ]] || ! lua_safe "$ws" && continue
+    [[ $ws != special:* ]] && lua=$(ws_lua "$ws") || continue
     if [[ $focused == true ]]; then
-      last="dispatch hl.dsp.focus({ workspace = \"$ws\" })"
+      last="dispatch hl.dsp.focus({ workspace = $lua })"
     else
-      cmds+="dispatch hl.dsp.focus({ workspace = \"$ws\" }) ; "
+      cmds+="dispatch hl.dsp.focus({ workspace = $lua }) ; "
     fi
   done < <(hyprctl monitors -j | jq -r '.[] | [.name, .activeWorkspace.name, (.focused | tostring)] | @tsv')
   active=$(hyprctl activewindow -j 2>/dev/null | jq -r '.address // empty')
@@ -909,6 +1011,7 @@ current_view() {
 MODES=(omarchy classic studio)
 cycle_mode() {
   local current i next=omarchy
+  require_shell_json
   current=$(current_mode)
   for i in "${!MODES[@]}"; do
     [[ ${MODES[$i]} == "$current" ]] && next=${MODES[$(( (i + 1) % ${#MODES[@]} ))]}
@@ -935,6 +1038,23 @@ lua_safe() {  # a name that can sit inside a "..." Lua string as it is, and in
   [[ $1 != *[\"\\\;]* && $1 != *[[:cntrl:]]* ]]
 }
 
+# A workspace, as the Lua that `hyprctl dispatch` runs. A number as it is. A
+# named one can only be reached by name (a negative id counts as relative, a bare
+# name is "Bad workspace"), and a name you gave it is private: the Lua reads it
+# from a file in the state folder, so it's neither in a command line nor read
+# as code.
+ws_lua() {  # ws_lua <workspace name>
+  if [[ $1 =~ ^[0-9]+$ ]]; then printf '"%s"' "$1"; return 0; fi
+  lua_safe "$STATE_DIR" || return 1
+  local file
+  file=$(mktemp "$STATE_DIR/.ws-name.$$.XXXXXX") || return 1
+  printf '%s' "$1" >"$file" || return 1
+  printf '"name:" .. io.open("%s"):read("a")' "$file"
+}
+ws_lua_done() {  # ws_lua_done <that Lua>: its file, once the dispatch has run
+  if [[ $1 =~ io\.open\(\"([^\"]+)\"\) ]]; then rm -f "${BASH_REMATCH[1]}"; fi
+}
+
 window_address() {
   if [[ -n ${1:-} ]]; then echo "$1"; else hyprctl activewindow -j | jq -r '.address // empty'; fi
 }
@@ -949,26 +1069,26 @@ minimize_window() {
   [[ -n $addr ]] || return 0
   ws=$(window_workspace "$addr")
   [[ -n $ws && $ws != special:* ]] || return 0
-  json_set "$MINIMIZED" '.[$a] = $w' --arg a "$addr" --arg w "$ws"
+  json_set "$MINIMIZED" '.[$a] = $w' --arg a "$addr" --rawfile w <(printf '%s' "$ws")
   hyprctl dispatch "hl.dsp.window.move({ workspace = \"special:minimized\", follow = false, window = \"address:$addr\" })" >/dev/null
 }
 
 # $2 = "follow" to switch to the window's workspace and focus it.
 restore_window() {
-  local addr=$1 follow=${2:-follow} ws=""
+  local addr=$1 follow=${2:-follow} ws="" lua
   # Back to the workspace it was minimized from (or, failing that, the last
   # one the layout record saw it on), not the one being looked at.
   [[ -s $MINIMIZED ]] && ws=$(jq -r --arg a "$addr" '.[$a] // empty' "$MINIMIZED")
   [[ -n $ws || ! -s $LAYOUT ]] || ws=$(jq -r --arg a "$addr" '.[$a].ws // empty' "$LAYOUT")
   [[ -n $ws ]] || ws=$(hyprctl activeworkspace -j | jq -r '.name')
+  lua=$(ws_lua "$ws") || return 0
   if [[ $follow == follow ]]; then
-    lua_safe "$ws" || return 0
-    hyprctl dispatch "hl.dsp.window.move({ workspace = \"$ws\", follow = true, window = \"address:$addr\" })" >/dev/null
+    hyprctl dispatch "hl.dsp.window.move({ workspace = $lua, follow = true, window = \"address:$addr\" })" >/dev/null
     focus_raise "$addr"
   else
-    lua_safe "$ws" || return 0
-    hyprctl dispatch "hl.dsp.window.move({ workspace = \"$ws\", follow = false, window = \"address:$addr\" })" >/dev/null
+    hyprctl dispatch "hl.dsp.window.move({ workspace = $lua, follow = false, window = \"address:$addr\" })" >/dev/null
   fi
+  ws_lua_done "$lua"
   [[ -s $MINIMIZED ]] && json_set "$MINIMIZED" 'del(.[$a])' --arg a "$addr"
   bring_into_view "$addr"
 }
@@ -1101,10 +1221,11 @@ relayout() {
 # coming back redraws it in place.
 unstick_workspaces() {
   local ws
+  # (by number only: a named workspace's negative id would count as relative)
   for ws in $(hyprctl monitors | awk '
       /^Monitor /                      { ws = "" }
       /^\tactive workspace: /          { ws = $3 }
-      /^\tsolitaryBlockedBy: .*workspace offset/ && ws != "" { print ws }'); do
+      /^\tsolitaryBlockedBy: .*workspace offset/ && ws ~ /^[0-9]+$/ { print ws }'); do
     hyprctl --batch "eval hl.config({ cursor = { no_warps = true } }) ; dispatch hl.dsp.focus({ workspace = \"empty\" }) ; dispatch hl.dsp.focus({ workspace = \"$ws\" }) ; eval hl.config({ cursor = { no_warps = $(warps_setting) } })" >/dev/null
   done
 }
@@ -1149,7 +1270,7 @@ hide_minimized() {
 # window first. A minimized one is restored to the workspace it came from and
 # followed there; any other is reached by switching to its workspace.
 focus_app() {  # focus_app <app> [exact]: its most recent window (class contains the name, or is it)
-  local info addr ws
+  local info addr ws lua
   info=$(hyprctl clients -j | jq -c --arg p "$1" --arg exact "${2:-}" '
     ($p | ascii_downcase) as $q
     | sort_by(.focusHistoryID)
@@ -1159,7 +1280,10 @@ focus_app() {  # focus_app <app> [exact]: its most recent window (class contains
   if [[ $ws == special:minimized ]]; then
     restore_window "$addr" follow
   else
-    [[ $ws == special:* ]] || ! lua_safe "$ws" || hyprctl dispatch "hl.dsp.focus({ workspace = \"$ws\" })" >/dev/null
+    if [[ $ws != special:* ]] && lua=$(ws_lua "$ws"); then
+      hyprctl dispatch "hl.dsp.focus({ workspace = $lua })" >/dev/null
+      ws_lua_done "$lua"
+    fi
     focus_raise "$addr"
   fi
 }
@@ -1184,7 +1308,7 @@ minimize_all() {
     ws=$(hyprctl activeworkspace -j | jq -r '.name')
   fi
   [[ -n $ws && $ws != special:* ]] || return 0
-  for addr in $(hyprctl clients -j | jq -r --arg w "$ws" '.[] | select(.workspace.name == $w) | .address'); do
+  for addr in $(hyprctl clients -j | jq -r --rawfile w <(printf '%s' "$ws") '.[] | select(.workspace.name == $w) | .address'); do
     minimize_window "$addr"
   done
 }
@@ -1193,6 +1317,19 @@ minimize_all() {
 # the idle timeouts in shell.json (seconds; 0 = never), and the art in
 # ~/.config/omarchy/branding/screensaver.txt.
 SCREENSAVER_ART="$HOME/.config/omarchy/branding/screensaver.txt"
+# What you had is kept once, before Overtake first replaces it, whatever it
+# was (uninstall.sh puts it back): the copy made whole first, so a full disk
+# can't leave half of it, and stops the replacement. No art at all is noted too.
+keep_screensaver_art() {
+  local tmp
+  [[ ! -e $SCREENSAVER_ART.before-overtake && ! -e $STATE_DIR/screensaver-art-absent ]] || return 0
+  mkdir -p "$(dirname "$SCREENSAVER_ART")"
+  if [[ ! -e $SCREENSAVER_ART ]]; then touch "$STATE_DIR/screensaver-art-absent"; return; fi
+  tmp=$(mktemp "$SCREENSAVER_ART.XXXXXX") || return 1
+  if cp -p "$SCREENSAVER_ART" "$tmp" && mv -f "$tmp" "$SCREENSAVER_ART.before-overtake"; then return 0; fi
+  rm -f "$tmp"
+  return 1
+}
 screensaver_cmd() {
   case "${1:-}" in
     on) omarchy-toggle-enabled screensaver-off && omarchy-toggle screensaver-off >/dev/null; true ;;
@@ -1201,18 +1338,16 @@ screensaver_cmd() {
     start|lock)
       local key=screensaver tmp
       [[ $1 == lock ]] && key=lock
+      require_shell_json
       if [[ -z ${2:-} ]]; then jq -r --arg k "$key" '.idle[$k] // (if $k == "lock" then 300 else 150 end)' "$SHELL_JSON"; return; fi
       [[ $2 =~ ^[0-9]+$ ]] || { echo "seconds, please" >&2; return 1; }
       replace_with "$SHELL_JSON" jq --arg k "$key" --argjson v "$2" '.idle[$k] = $v' "$SHELL_JSON"
       omarchy-shell shell reloadConfig >/dev/null 2>&1 || true ;;
     show)
       local omarchy="${OMARCHY_PATH:-/usr/share/omarchy}"
-      # Your own art is kept once before Overtake first replaces it
-      # (uninstall.sh puts it back).
-      if [[ ${2:-} == omarchy || ${2:-} == wallpaper ]] && [[ -s $SCREENSAVER_ART && ! -e $SCREENSAVER_ART.before-overtake ]] &&
-         ! cmp -s "$SCREENSAVER_ART" "$omarchy/logo.txt"; then
-        cp -p "$SCREENSAVER_ART" "$SCREENSAVER_ART.before-overtake"
-      fi
+      case "${2:-}" in
+        omarchy|text|image|wallpaper) keep_screensaver_art || return 1 ;;
+      esac
       case "${2:-}" in
         omarchy) cp "$omarchy/logo.txt" "$SCREENSAVER_ART" ;;
         text) omarchy-launch-editor "$SCREENSAVER_ART" >/dev/null 2>&1; return ;;
@@ -1225,8 +1360,9 @@ screensaver_cmd() {
           bg=$(readlink -f "$CURRENT_BG")
           mkdir -p -m 700 "$STATE_DIR"
           tmp=$(mktemp "$STATE_DIR/screensaver.XXXXXX.png")
-          mean=$(magick "$bg" -colorspace gray -format '%[fx:mean < 0.4 ? 1 : 0]' info: 2>/dev/null || echo 0)
-          if [[ $mean == 1 ]]; then magick "$bg" -negate "$tmp"; else cp "$bg" "$tmp"; fi
+          # (the picture on stdin: its name stays out of the command lines)
+          mean=$(magick - -colorspace gray -format '%[fx:mean < 0.4 ? 1 : 0]' info: <"$bg" 2>/dev/null || echo 0)
+          if [[ $mean == 1 ]]; then magick - -negate "$tmp" <"$bg"; else cat <"$bg" >"$tmp"; fi
           omarchy-transcode-ascii "$tmp" "$SCREENSAVER_ART" >/dev/null || { rm -f "$tmp"; return 1; }
           rm -f "$tmp" ;;
         *) echo "show omarchy|text|image|wallpaper" >&2; return 1 ;;
@@ -1495,7 +1631,7 @@ snap_window() {
   # Forget windows that have closed, then respect the per-zone stack limit.
   json_set "$ZONES" 'with_entries(select(.key as $k | $live | index($k)))' \
     --argjson live "$(hyprctl clients -j | jq '[.[].address]')"
-  count=$(jq --arg ws "$ws" --arg z "$zone" --arg a "$addr" \
+  count=$(jq --rawfile ws <(printf '%s' "$ws") --arg z "$zone" --arg a "$addr" \
     '[to_entries[] | select(.value.ws == $ws and .value.zone == $z and .key != $a)] | length' "$ZONES")
   if (( count >= SNAP_STACK_MAX )); then
     notify $'' "That spot already has $SNAP_STACK_MAX windows"
@@ -1540,7 +1676,7 @@ snap_window() {
 
   # Remember the pre-snap size (only the first time) so dragging it out restores it.
   json_set "$ZONES" '.[$a] = {ws: $ws, zone: $z, restore: (.[$a].restore // $size)}' \
-    --arg a "$addr" --arg ws "$ws" --arg z "$zone" --argjson size "$(jq -c .size <<<"$info")"
+    --arg a "$addr" --rawfile ws <(printf '%s' "$ws") --arg z "$zone" --argjson size "$(jq -c .size <<<"$info")"
 }
 
 # A window just opened on a workspace with snapped windows: snap it into a
@@ -1567,10 +1703,10 @@ fill_gap() {
   [[ -n $info ]] || return 0
   ws=$(jq -r .workspace.name <<<"$info")
   [[ $ws != special:* && $(jq -r '.fullscreen == 0 and (.tags | index("floating-window") | not)' <<<"$info") == true ]] || return 0
-  jq -e --arg a "$addr" --argjson pid "$(jq .pid <<<"$info")" --arg ws "$ws" \
+  jq -e --arg a "$addr" --argjson pid "$(jq .pid <<<"$info")" --rawfile ws <(printf '%s' "$ws") \
     'any(.[]; .address != $a and .pid == $pid and .workspace.name == $ws)' <<<"$clients" >/dev/null && return 0
   # the zones taken on this workspace, by windows still there
-  zones=$(jq -c --arg ws "$ws" --argjson live "$(jq --arg ws "$ws" '[.[] | select(.workspace.name == $ws) | .address]' <<<"$clients")" \
+  zones=$(jq -c --rawfile ws <(printf '%s' "$ws") --argjson live "$(jq --rawfile ws <(printf '%s' "$ws") '[.[] | select(.workspace.name == $ws) | .address]' <<<"$clients")" \
     '[to_entries[] | select(.value.ws == $ws and (.key as $k | $live | index($k))) | .value.zone] | unique' "$ZONES")
   zone=$(jq -r '
     . as $z | def taken($s): any($z[]; . == $s);
@@ -1661,7 +1797,7 @@ quit_app() {
 
 show_desktop() {
   local current windows
-  current=$(hyprctl activeworkspace -j | jq -r '.id')
+  current=$(hyprctl activeworkspace -j | jq -r '.name')
   windows=$(hyprctl activeworkspace -j | jq -r '.windows')
   if (( windows > 0 )); then
     mkdir -p -m 700 "$STATE_DIR"
@@ -1669,7 +1805,11 @@ show_desktop() {
     hyprctl dispatch 'hl.dsp.focus({ workspace = "empty" })' >/dev/null
   elif [[ -f $DESKTOP_RETURN ]]; then
     current=$(<"$DESKTOP_RETURN")
-    lua_safe "$current" && hyprctl dispatch "hl.dsp.focus({ workspace = \"$current\" })" >/dev/null
+    local lua
+    if lua=$(ws_lua "$current"); then
+      hyprctl dispatch "hl.dsp.focus({ workspace = $lua })" >/dev/null
+      ws_lua_done "$lua"
+    fi
     rm -f "$DESKTOP_RETURN"
   fi
 }
@@ -1684,7 +1824,7 @@ show_desktop() {
 #   4. every other theme's still backgrounds, Omarchy's own included,
 #      so picking one doesn't mean switching theme   "Tokyo Night 2"
 # Prints the picked file itself. `bg-picker cache` only makes the previews, so
-# an opening after it doesn't wait for them.
+# an opening after it doesn't wait for them; `bg-picker apply` puts the pick up.
 pretty_name() {  # topside-mountain-view -> Topside Mountain View
   local word words out=()
   read -ra words <<<"${1//[-_]/ }"   # (not a bare expansion: a * in a name would match files)
@@ -1692,12 +1832,46 @@ pretty_name() {  # topside-mountain-view -> Topside Mountain View
   echo "${out[*]}"
 }
 
-bg_link() {  # bg_link <group dir> <name> <file>: (re)point one entry
+bg_link() {  # bg_link <group dir> <name> <file>: one entry for the list
   local link="$1/${2//\//-}.${3##*.}"   # (a / in a theme's name stays in the folder)
-  BG_WANT[$link]=1
-  [[ $(readlink "$link" 2>/dev/null) == "$3" ]] || ln -sfn "$3" "$link"
-  [[ $(readlink -f "$3") == "$BG_CURRENT" ]] && BG_SELECTED=$link
+  BG_WANT[$link]=$3
+  [[ $3 -ef $CURRENT_BG ]] && BG_SELECTED=$link
   return 0
+}
+
+# Make the links: each one pointing where it should, nothing else in the group
+# folders. On stdin (link, target, NUL after each), so no picture's name is in
+# a command line. Links change only when the pictures do.
+bg_link_all() {  # bg_link_all <group dir>... (entries from BG_WANT)
+  local link
+  for link in "${!BG_WANT[@]}"; do printf '%s\0%s\0' "$link" "${BG_WANT[$link]}"; done |
+    python3 -I -c '
+import os, sys
+items = sys.stdin.buffer.read().split(b"\0")[:-1]
+want = dict(zip(items[0::2], items[1::2]))
+for link, target in want.items():
+    try:
+        if os.readlink(link) == target:
+            continue
+    except OSError:
+        pass
+    temp = link + b".tmp"
+    if os.path.lexists(temp):
+        os.unlink(temp)
+    os.symlink(target, temp)
+    os.replace(temp, link)
+for group in map(os.fsencode, sys.argv[1:]):
+    for name in os.listdir(group):
+        path = os.path.join(group, name)
+        if path not in want:
+            os.unlink(path)
+' "$@"
+}
+
+# Terminal output is a sink: a file name can hold escape sequences.
+has_control_chars() {  # (ASCII controls, and the ones UTF-8 can spell: U+0080 to U+009F)
+  local LC_ALL=C
+  [[ $1 == *[[:cntrl:]]* || $1 == *$'\xc2'[$'\x80'-$'\x9f']* ]]
 }
 
 bg_picker() {
@@ -1705,7 +1879,6 @@ bg_picker() {
   local theme theme_base cache dir file name base n link live suffix
   declare -gA BG_WANT=()
   BG_SELECTED=""
-  BG_CURRENT=$(readlink -f "$CURRENT_BG" 2>/dev/null || true)
   theme=$(cat "$CURRENT_THEME_NAME" 2>/dev/null || true)
   theme_base=${theme%-lite}
   cache="${XDG_CACHE_HOME:-$HOME/.cache}/overtake/bg-picker"
@@ -1760,10 +1933,8 @@ bg_picker() {
     done
   done
 
-  for link in "$cache"/*/*; do
-    [[ -n ${BG_WANT[$link]:-} ]] || rm -f "$link"
-  done
   local groups=("$cache/1-theme" "$cache/2-live" "$cache/3-overtake" "$cache/4-themes")
+  bg_link_all "${groups[@]}"
   if [[ ${1:-} == cache ]]; then
     omarchy-menu-images --cache-only "${groups[@]}" >/dev/null 2>&1 || true
     return 0
@@ -1771,8 +1942,19 @@ bg_picker() {
   local picked
   picked=$(omarchy-menu-images --show-labels --lazy-thumbnails --selected "$BG_SELECTED" "${groups[@]}") || return 0
   [[ -n $picked ]] || return 0
+  picked=${BG_WANT[$picked]:-$picked}
+  # `bg-picker apply` (the desktop's Change background) puts it up itself
+  if [[ ${1:-} == apply ]]; then
+    mark_picked
+    set_background "$picked"
+    return
+  fi
+  if has_control_chars "$picked"; then
+    echo "overtake: that picture's file name has control characters; rename it first" >&2
+    return 1
+  fi
   mark_picked
-  readlink "$picked" 2>/dev/null || echo "$picked"
+  printf '%s\n' "$picked"
 }
 
 usage() {
@@ -1823,6 +2005,7 @@ case "${1:-help}" in
     # The copies follow Omarchy even when it was updated without `omarchy
     # update` (a plain system upgrade): rebuilt at login if Omarchy's code changed.
     build_copies update >/dev/null 2>&1 || true
+    repair_stale_copies
     if [[ -f $FLAG ]]; then fix_bar_widgets; [[ $(wallpaper_mode) == day-night ]] && ! picked_wallpaper && apply_day_night; start_slideshow; float_all; rescue_all; fi
     # A notice the shell wasn't up for yet: try again while it starts (in
     # Omarchy mode no other `overtake` command may run for a long time).
