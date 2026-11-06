@@ -385,8 +385,8 @@ S="$H/Pictures/overtake/studio"
 printf 'my own picture' >"$S/1-mesa-day.png"
 sbx "$H" ./install.sh --yes >>"$T/log" 2>&1 || { cat "$T/log"; fail "reinstall"; }
 [[ $(<"$S/1-mesa-day.png") == "my own picture" ]] || fail "install removed a picture you made with an old picture's name"
-# (the real digests are checked against the shipped files in the review notes:
-# a copy of the installer that knows this test's bytes stands in for them)
+# (the real pictures aren't in the repository any more: a copy of the installer
+# that knows this test's bytes stands in for them)
 mkdir -p "$T/repo2"; cp -r bin config hypr menu patches plugins wallpapers install.sh uninstall.sh manifest.json NOTICE.md "$T/repo2/"
 sum=$(printf 'old shipped picture' | sha256sum | cut -c1-64)
 sed -i -E "s/^[0-9a-f]{64} 1-mesa-day\.png$/$sum 1-mesa-day.png/" "$T/repo2/install.sh"
@@ -411,7 +411,7 @@ sbx "$H" ./uninstall.sh --yes >>"$T/log" 2>&1 || { cat "$T/log"; fail "uninstall
 sbx "$H" bash -c "mkdir -p \"$(dirname "$HOOK")\"" ; sed -n '/^cat >.*overtake.hook/,/^EOF$/p' install.sh | sed '1d;$d' >"$HOOK"
 sbx "$H" bash "$HOOK" >"$T/out" 2>&1 || { cat "$T/out"; fail "the hook with Overtake gone should do nothing"; }
 rm -f "$HOOK"
-pass "the post-update hook rebuilds the copies, is notified about, goes on uninstall, and is harmless if left"
+pass "the post-update hook rebuilds the copies and notifies, goes on uninstall, and is harmless if left"
 
 # ---------- While the installer runs ----------
 fresh

@@ -64,8 +64,10 @@ fi'
 
 # What Hyprland reports, from files a test can replace (use_workspace below);
 # and what it accepts: dispatches are checked against the forms Overtake sends
-# (each form was run in real Hyprland 2026-11-05), so a typo, a broken quote or
-# an unchecked name is refused, and noted for the test's end. As in the real
+# (written from the code; on, off, minimize, restore, snap, maximize, show, send,
+# focus-app, relayout and show-desktop ran without error in real Hyprland on
+# 2026-11-05), so a typo, a broken quote or an unchecked name is refused, and
+# noted for the test's end. As in the real
 # program, a refused `dispatch` exits 7 and a refused line of `--batch` doesn't.
 HYPR="$T/hypr"
 mkdir -p "$HYPR"
