@@ -45,7 +45,7 @@ Scope {
   function rescan() {
     if (scan.running) { pending = true; return }
     pending = false
-    if (!Object.keys(asked).length && Date.now() - lastList < 90000) return   // (nothing to ask, and a fresh list)
+    if (!Object.keys(asked).length && Date.now() - lastList < 90000) return   // (nothing to ask, and a fresh list; the timer below checks this too)
     asking = asked
     asked = Object.create(null)
     lastScan = Date.now()
