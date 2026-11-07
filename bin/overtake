@@ -1982,7 +1982,8 @@ has_control_chars() {  # (ASCII controls, and the ones UTF-8 can spell: U+0080 t
 # the one value that stops a piped core handler, so there's no dump, and no "process
 # crashed" notice for doing its job.)
 theme_previews() {
-  local dir theme name src out tmp f
+  local dir theme name src out tmp f limits=()
+  mapfile -t limits < <(child_limits)
   dir="${XDG_CACHE_HOME:-$HOME/.cache}/overtake/theme-previews"
   mkdir -p -m 700 "$dir"
   chmod 700 "$dir"
@@ -2005,7 +2006,7 @@ theme_previews() {
     [[ $out -nt $src ]] && continue
     tmp=$(mktemp "$dir/.preview.XXXXXX.jpg") || continue
     if (( $(stat -c %s "$src") <= 33554432 )) &&
-       ( exec env VIPS_CONCURRENCY=1 prlimit --core=1 --as=1073741824 timeout 20 vipsthumbnail "$src" --size 640x360 -o "$tmp[Q=82,strip]" ) >/dev/null 2>&1; then
+       ( exec env VIPS_CONCURRENCY=1 prlimit "${limits[@]}" timeout 20 vipsthumbnail "$src" --size 640x360 -o "$tmp[Q=82,strip]" ) >/dev/null 2>&1; then
       chmod 600 "$tmp"; mv -f "$tmp" "$out"
     else
       # (remembered as no picture, until the theme's file changes)
@@ -2017,27 +2018,44 @@ theme_previews() {
 # Stripped copies of the icons in your own folder, made by a child under limits, and
 # the list a shell plugin draws them from (UserIcons.qml): a name's file is read
 # through a redirect into a numbered temp, so no icon's name is in a command line.
+# Limits for a child that reads a crafted file. A core limit of 1 stops a piped
+# crash handler where 0 doesn't, but needs a hard limit above 0 to be allowed.
+child_limits() {
+  local core=1 memory=1073741824 hard
+  [[ $(ulimit -Hc) != 0 ]] || core=0
+  hard=$(ulimit -Hv)
+  [[ $hard == unlimited ]] || (( hard * 1024 >= memory )) || memory=$((hard * 1024))
+  printf '%s\n' "--core=$core:" "--as=$memory"
+}
+
 icon_copies() {
-  local dir src name id tmp out seen=" " count=0
+  local dir src name id tmp out seen=" " count=0 icons limits=() again
   dir="${XDG_CACHE_HOME:-$HOME/.cache}/overtake/user-icons"
+  icons="${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor"
   mkdir -p -m 700 "$dir"
   chmod 700 "$dir"
+  mkdir -p "$icons/256x256/apps" 2>/dev/null   # (the folder the plugins watch: one made later they'd never notice)
+  mapfile -t limits < <(child_limits)
   (
     flock -w 60 9 || exit 0   # (one at a time: the next finds its work done)
+    rm -f "$dir"/.index.* "$dir"/.icon.*     # (what a stopped scan or a full disk left)
     index=$(mktemp "$dir/.index.XXXXXX") || exit 0
     while IFS= read -r -d '' src; do
       name=${src##*/}; name=${name%.*}
       [[ $name =~ ^[A-Za-z0-9_][A-Za-z0-9_.+-]{0,127}$ && $seen != *" $name "* ]] || continue
-      (( ++count <= 500 )) || break
       seen+="$name "
+      # (past the limit, or not a file: known, so never looked up, with no copy)
+      if (( ++count > 500 )) || [[ ! -f $src ]]; then printf '%s\t\n' "$name" >>"$index"; continue; fi
       id=$(sha256sum <<<"$name"); id=${id%% *}; id=${id:0:32}.png
       out=$dir/$id
-      if [[ ! $out -nt $src ]]; then
+      # (a file that made no copy is tried again after a day: it may have been a full disk)
+      again=""; [[ -s $out || -z $(find "$out" -mmin +1440 2>/dev/null) ]] || again=1
+      if [[ -n $again || ! $out -nt $src ]]; then
         tmp=$(mktemp "$dir/.icon.XXXXXX") || continue
         : >"$out.new"
         # (the type comes from what's in the file; over 32 MB isn't an icon)
         if head -c 33554433 <"$src" >"$tmp" && (( $(stat -c %s "$tmp") <= 33554432 )) &&
-           ( exec 9>&-; exec env VIPS_CONCURRENCY=1 prlimit --core=1 --as=1073741824 timeout 10 vipsthumbnail "$tmp" --size 256x256 -o "$out.new.png[strip]" ) >/dev/null 2>&1; then
+           ( exec 9>&-; exec env VIPS_CONCURRENCY=1 prlimit "${limits[@]}" timeout 10 vipsthumbnail "$tmp" --size 256x256 -o "$out.new.png[strip]" ) >/dev/null 2>&1; then
           chmod 600 "$out.new.png"; mv -f "$out.new.png" "$out"
         else
           rm -f "$out.new.png"; : >"$out"; chmod 600 "$out"
@@ -2045,7 +2063,7 @@ icon_copies() {
         rm -f "$tmp" "$out.new"
       fi
       [[ -s $out ]] && printf '%s\t%s\n' "$name" "$id" >>"$index" || printf '%s\t\n' "$name" >>"$index"
-    done < <(find "${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor" -type f \( -name '*.png' -o -name '*.svg' -o -name '*.jpg' -o -name '*.jpeg' -o -name '*.xpm' \) -print0 2>/dev/null | sort -zrV)
+    done < <(find -L "$icons" ! -type d \( -name '*.png' -o -name '*.svg' -o -name '*.svgz' -o -name '*.jpg' -o -name '*.jpeg' -o -name '*.xpm' \) -print0 2>/dev/null | sort -zrV)
     chmod 600 "$index"; mv -f "$index" "$dir/index"
   ) 9>"$dir/.lock"
 }

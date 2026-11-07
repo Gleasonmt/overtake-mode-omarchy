@@ -40,7 +40,7 @@ workspaces and its shortcuts for them, and puts them back when you switch to Oma
 ## Install
 
 ```bash
-git clone --branch v0.1.15 https://github.com/Gleasonmt/overtake-mode-omarchy.git && cd overtake-mode-omarchy && ./install.sh
+git clone --branch v0.1.16 https://github.com/Gleasonmt/overtake-mode-omarchy.git && cd overtake-mode-omarchy && ./install.sh
 ```
 
 The installer lists every file it will add and every file of yours it will
@@ -307,6 +307,7 @@ All in `~/.config/overtake/`:
 | `~/.config/omarchy/shell.json` | installing in Omarchy mode doesn't touch it; only while Classic or Studio is on: Overtake's bar, and `overtake.notifications` and `overtake.battery` enabled (through `omarchy plugin enable`) in place of Omarchy's own; switching to Omarchy puts your bar and Omarchy's own back. If you turned Omarchy's own notifications or battery off yourself, before installing or since, uninstalling leaves them off |
 | `~/.config/overtake/`, `~/Pictures/overtake/` | your settings and the wallpapers |
 | `~/.local/state/overtake/` | its state: the mode, saved Omarchy bar and looks, window places and names (readable only by you) |
+| `~/.local/share/icons/hicolor/256x256/apps` | where Omarchy's web-app installer saves a site's icon: made, empty, if it's missing while Classic or Studio is on, so Overtake can watch it. Uninstalling removes it if nothing has been saved there |
 | `~/.cache/overtake/` | stripped copies of theme previews and of your own icons, and the lists behind the desktop's Change background (links to the pictures). When you open it, Omarchy's own picker (`omarchy-menu-images`) shows them, with its previews in its own cache, as for Omarchy's own Background menu |
 | `~/.local/share/overtake/` | a copy of the uninstaller, so `overtake uninstall` works without the repository, and of the patcher (`patches/apply.py`, `NOTICE.md`) for rebuilding the copies, and a `version` file with the installed version |
 | `~/.config/omarchy/hooks/post-update.d/overtake.hook` | runs `overtake build-copies update` near the end of `omarchy update`: the copies of Omarchy's plugins are rebuilt from the updated Omarchy, and the shell reloads a changed plugin folder by itself. The same check runs at login (`overtake resume`), so an Omarchy update made outside `omarchy update` is caught too |

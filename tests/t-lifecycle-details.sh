@@ -565,13 +565,54 @@ while i < len(d):
 sys.exit(1 if bad else 0)
 PY
   grep -q '^sitebomb' "$CD/index" && [[ -z $(idx sitebomb) ]] || fail "a crafted icon got a copy: $(cat "$CD/index")"
-  grep -q '^sitefifo' "$CD/index" && fail "a pipe was listed as an icon"
+  grep -qP '^sitefifo\t$' "$CD/index" || fail "a pipe wasn't recorded as having no copy, so it would be looked up: $(cat "$CD/index")"
   log_text | grep -aq PRIVATEICONNAME && fail "an icon's name was in a command line"
   log_text >"$T/l"; grep -aq 'vipsthumbnail' "$T/l" || fail "(setup) the child didn't run"
   [[ $(stat -c %a "$CD") == 700 && $(stat -c %a "$CD/index") == 600 ]] || fail "icon copies aren't private"
   rm -f "$STUB/vipsthumbnail"
-    grep -c 'prlimit --core=1 --as=' "$REPO/bin/overtake" | grep -qx 2 || fail "a child that aborts on a crafted file can leave a core dump, and a crash notice"
+    grep -q -- '--core=1:' "$T/l" && grep -q -- '--as=1073741824' "$T/l" || fail "a child that aborts on a crafted file can leave a core dump, and a crash notice: $(grep -a vipsthumbnail "$T/l" | head -2)"
+    grep -c 'prlimit "${limits\[@\]}" timeout' "$REPO/bin/overtake" | grep -qx 2 || fail "a vips child isn't limited"
 pass "icons in your folder get stripped copies from a limited child; a crafted one and a pipe get none; no name in a command line"
+
+  # What each scan owes the shell, whatever state it finds
+  H="$T/icons2"; make_home "$H"; CD="$H/.cache/overtake/user-icons"; IC="$H/.local/share/icons/hicolor/256x256/apps"
+  [[ ! -e $IC ]] || fail "(setup) the folder is there"
+  sbx "$H" "$O" icon-copies >"$T/out" 2>&1 || { cat "$T/out"; fail "icon-copies with no folder"; }
+  [[ -d $IC ]] || fail "the scan didn't make the folder the plugins watch"
+  "$real_vips_icons" "$REPO/preview.png" --size 32x32 -o "$T/small.png"
+  cp "$T/small.png" "$IC/hardzero.png"
+  sbx "$H" bash -c 'ulimit -c 0; exec "$@"' _ "$O" icon-copies >"$T/out" 2>&1 || { cat "$T/out"; fail "icon-copies with core dumps off"; }
+  [[ -n $(grep -P '^hardzero\t' "$CD/index" | cut -f2) ]] || fail "with core dumps off for good, a plain icon got no copy: $(cat "$CD/index")"
+  ln -s "$T/small.png" "$IC/linked.png"
+  sbx "$H" "$O" icon-copies >"$T/out" 2>&1 || { cat "$T/out"; fail "icon-copies"; }
+  [[ -n $(grep -P '^linked\t' "$CD/index" | cut -f2) ]] || fail "a linked icon wasn't copied, so it would be looked up: $(cat "$CD/index")"
+  # (a failed copy from a full disk, a day ago; what a stopped scan leaves)
+  id=$(sha256sum <<<"retried"); id=${id%% *}; id=${id:0:32}.png
+  cp "$T/small.png" "$IC/retried.png"; touch -d '2 days ago' "$IC/retried.png"; : >"$CD/$id"; touch -d '2 hours ago' "$CD/$id"
+  : >"$CD/.index.left"; : >"$CD/.icon.left"
+  sbx "$H" "$O" icon-copies >"$T/out" 2>&1 || { cat "$T/out"; fail "icon-copies"; }
+  [[ -z $(grep -P '^retried\t' "$CD/index" | cut -f2) ]] || fail "a failed copy was tried again within the day"
+  [[ ! -e $CD/.index.left && ! -e $CD/.icon.left ]] || fail "a scan left what a stopped scan left"
+  touch -d '2 days ago' "$CD/$id"
+  sbx "$H" "$O" icon-copies >"$T/out" 2>&1 || { cat "$T/out"; fail "icon-copies"; }
+  [[ -n $(grep -P '^retried\t' "$CD/index" | cut -f2) ]] || fail "a copy that failed a day ago wasn't tried again"
+  # (past the limit: known, so not looked up)
+  H="$T/icons3"; make_home "$H"; CD="$H/.cache/overtake/user-icons"; SC="$H/.local/share/icons/hicolor/scalable/apps"; mkdir -p "$SC"
+  for i in $(seq 501); do : >"$SC/n$i.svg"; done
+  stub vipsthumbnail 'exit 1'
+  sbx "$H" "$O" icon-copies >"$T/out" 2>&1 || { cat "$T/out"; fail "icon-copies"; }
+  rm -f "$STUB/vipsthumbnail"
+  [[ $(wc -l <"$CD/index") == 501 ]] || fail "names past the limit aren't all known: $(wc -l <"$CD/index")"
+  # (uninstall takes the folder only if nothing has been saved there)
+  H="$T/icons4"; make_home "$H"; sbx "$H" ./install.sh --yes >"$T/log" 2>&1 || { cat "$T/log"; fail "install"; }
+  sbx "$H" "$O" icon-copies >"$T/out" 2>&1
+  sbx "$H" ./uninstall.sh --yes >"$T/log" 2>&1 || { cat "$T/log"; fail "uninstall"; }
+  [[ ! -e $H/.local/share/icons/hicolor ]] || fail "uninstall left the empty folder the scan made"
+  H="$T/icons5"; make_home "$H"; sbx "$H" ./install.sh --yes >"$T/log" 2>&1 || { cat "$T/log"; fail "install"; }
+  mkdir -p "$H/.local/share/icons/hicolor/256x256/apps"; : >"$H/.local/share/icons/hicolor/256x256/apps/yours.png"
+  sbx "$H" ./uninstall.sh --yes >"$T/log" 2>&1 || { cat "$T/log"; fail "uninstall"; }
+  [[ -e $H/.local/share/icons/hicolor/256x256/apps/yours.png ]] || fail "uninstall took a saved icon"
+pass "a scan makes the folder; works with core dumps off for good; knows linked names and names past the limit; a failed copy is tried again after a day"
 else
   echo "skipped: no vipsthumbnail (icon copies)"
 fi
@@ -619,7 +660,26 @@ if sbx "$H" ./install.sh --yes >"$T/out" 2>&1; then cat "$T/out"; fail "install 
 grep -q 'has a return at its top level' "$T/out" || { cat "$T/out"; fail "install didn't say why it stopped"; }
 [[ ! -e $H/.local/bin/overtake ]] || fail "install wrote files before stopping at a final return"
 cmp -s "$H/.config/hypr/bindings.lua" "$T/bind" || fail "bindings.lua changed"
-pass "a Lua file ending in return is left alone, and install says why"
+while IFS= read -r body; do
+  H="$T/ret2"; rm -rf "$H"; make_home "$H"; printf -- "$body" >"$H/.config/hypr/bindings.lua"
+  if sbx "$H" ./install.sh --dry-run >"$T/out" 2>&1; then cat "$T/out"; fail "--dry-run missed a top-level return in: $body"; fi
+done <<'LUA'
+local M = {}\n  return M\n
+return\n
+x = 1 return x\n
+if x then y = 1 end\n\treturn {\n  a = 1,\n}\n
+LUA
+while IFS= read -r body; do
+  H="$T/ret2"; rm -rf "$H"; make_home "$H"; printf -- "$body" >"$H/.config/hypr/bindings.lua"
+  sbx "$H" ./install.sh --dry-run >"$T/out" 2>&1 || { cat "$T/out"; fail "--dry-run stopped at a return that isn't at the top level in: $body"; }
+done <<'LUA'
+local function f()\nreturn 1\nend\nf()\n
+local s = [[\nreturn x\n]]\n
+-- return nothing\nx = 1\n
+--[==[\nreturn\n]==]\nx = 1\n
+local s = "return"\nlocal t = { f = function() if x then return 1 end return 2 end }\n
+LUA
+pass "a Lua file ending in return is left alone, and install says why; a return in a function, a string or a comment isn't one"
 fresh
 rm -rf "$H/.config/omarchy/plugins/overtake.taskbar"
 cp "$H/.config/omarchy/shell.json" "$T/j"

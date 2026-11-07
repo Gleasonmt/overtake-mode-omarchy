@@ -64,8 +64,23 @@ if [[ -n $MENU_FIRST && ! $MENU_FIRST =~ ^[[:space:]]*\{ ]]; then
 fi
 
 # Lua stops at a top-level return: Overtake's lines after one would break the file.
+# (read past comments and strings, and counting blocks: one inside a function is fine)
+lua_top_return() {
+  python3 -I - "$1" <<'LUA'
+import re, sys
+text = open(sys.argv[1], encoding="utf-8", errors="replace").read()
+tokens = re.compile(r"""--\[(=*)\[.*?\]\1\]|--[^\n]*|\[(=*)\[.*?\]\2\]|"(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*'|[A-Za-z_][A-Za-z0-9_]*""", re.S)
+depth = 0
+for token in tokens.finditer(text):
+    word = token.group()
+    if word in ("function", "do", "if", "repeat"): depth += 1
+    elif word in ("end", "until"): depth -= 1
+    elif word == "return" and depth <= 0: sys.exit(0)
+sys.exit(1)
+LUA
+}
 for file in "$HOME/.config/hypr/bindings.lua" "$HOME/.config/hypr/autostart.lua"; do
-  if [[ -f $file ]] && ! grep -q '>>> overtake' "$file" && grep -qE '^return\b' "$file"; then
+  if [[ -f $file ]] && ! grep -q '>>> overtake' "$file" && lua_top_return "$file"; then
     die "$file has a return at its top level, and Overtake's lines would have to follow it. Move them above it or remove it, then run this again."
   fi
 done
@@ -75,6 +90,7 @@ plan() {
   cat <<'EOF'
 Overtake Mode will add (./uninstall.sh removes it, keeping ~/.config/overtake and ~/Pictures/overtake unless you add --purge):
   ~/.local/bin/overtake
+  ~/.local/share/icons/hicolor/256x256/apps (empty, if missing, while Classic or Studio is on)
   ~/.config/hypr/overtake.lua, overtake-classic.lua, overtake-studio.lua
   ~/.config/omarchy/plugins/overtake.*   its own plugins, plus patched copies of
                                           Omarchy's workspaces, bluetooth, audio,

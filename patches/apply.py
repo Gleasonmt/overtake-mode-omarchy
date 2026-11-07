@@ -133,24 +133,33 @@ PATCHES = {
   }
   // Which icons a card may draw by name: see Icons.js.
   readonly property string overtakeIconDir: (Quickshell.env("XDG_CACHE_HOME") || Quickshell.env("HOME") + "/.cache") + "/overtake/user-icons"
+  property bool overtakeIconScanned: false
+  property var overtakeIconCopies: null   // name -> its copy's file, null until the first scan has been read
+  property var overtakeIconSaved: Object.create(null)
   FileView {
     id: overtakeIconList
     path: service.overtakeIconDir + "/index"
     watchChanges: true
     printErrors: false
     onFileChanged: reload()
-    onLoaded: { Icons.overtakeSetCopies(text(), service.overtakeIconDir); overtakeIconRetry.running = false }
+    onLoaded: if (service.overtakeIconScanned) service.overtakeIconCopies = Icons.overtakeParseCopies(text())
   }
   // (a file that isn't there yet can't be watched)
-  Timer { id: overtakeIconRetry; interval: 2000; repeat: true; running: true; onTriggered: overtakeIconList.reload() }
+  Timer { interval: 2000; repeat: true; running: service.overtakeIconScanned && !service.overtakeIconCopies; onTriggered: overtakeIconList.reload() }
+  // (the scan makes the folder: this model never notices one made after it looked)
+  Process {
+    command: ["overtake", "icon-copies"]
+    running: true
+    onExited: { service.overtakeIconScanned = true; overtakeIconList.reload() }
+  }
   FolderListModel {
-    folder: "file://" + (Quickshell.env("XDG_DATA_HOME") || Quickshell.env("HOME") + "/.local/share") + "/icons/hicolor/256x256/apps"
+    folder: service.overtakeIconCopies ? "file://" + (Quickshell.env("XDG_DATA_HOME") || Quickshell.env("HOME") + "/.local/share") + "/icons/hicolor/256x256/apps" : ""
     showDirs: false
-    nameFilters: ["*.png", "*.svg", "*.jpg", "*.jpeg", "*.xpm"]
+    nameFilters: service.overtakeIconCopies ? ["*.png", "*.svg", "*.svgz", "*.jpg", "*.jpeg", "*.xpm"] : ["no-such-file"]
     onCountChanged: {
-      var names = []
-      for (var i = 0; i < count; i++) names.push(String(get(i, "fileName")).replace(/\\.[^.]*$/, ""))
-      Icons.overtakeSetSaved(names)
+      var names = Object.create(null)
+      for (var i = 0; i < count; i++) names[String(get(i, "fileName")).replace(/\\.[^.]*$/, "")] = true
+      service.overtakeIconSaved = names
     }
   }
 
@@ -228,8 +237,10 @@ PATCHES = {
     if (v.byteLength !== undefined) return v.byteLength
     if (depth > 8) return 1048576
     var keys = Object.keys(v), total = keys.length
-    // A map or a struct reaches QML as an object with nothing to read: its size
-    // can't be known, so it's taken as too big. (No Omarchy or common app's hint is.)
+    // A map, a struct, an object path or a signature reaches QML as an object with
+    // nothing to read: its size can't be known, so it's taken as too big. (No Omarchy
+    // or common app's hint is one.)
+    if (v.length === 0) return 0   // (an empty list)
     if (!keys.length && !Array.isArray(v)) return 1048576
     for (var i = 0; i < keys.length && total <= 65536; i++) total += keys[i].length + overtakeSizeOf(v[keys[i]], depth + 1)
     return total
@@ -269,33 +280,40 @@ PATCHES = {
 '''        readonly property string sent: ""   // Overtake Mode: no picture a sender supplies'''),
       ("Toast.qml",
 '''          return value.charAt(0) === "/" ? Util.fileUrl(value) : value ? Quickshell.iconPath(value, true) : ""''',
-'''          return Icons.overtakeSource(value, function(n) { return Quickshell.iconPath(n, true) })   // Overtake Mode'''),
+'''          return card.overtakeIcon(value)   // Overtake Mode'''),
       ("Toast.qml",
 '''firstOf(want.themed, function(name) { return Quickshell.iconPath(name, true) })''',
-'''firstOf(want.themed, function(name) { return Icons.overtakeSource(name, function(n) { return Quickshell.iconPath(n, true) }) })'''),
+'''firstOf(want.themed, function(name) { return card.overtakeIcon(name) })'''),
+      ("Toast.qml",
+'''  property var row: ({})
+''',
+'''  property var row: ({})
+  // Overtake Mode: icons by name, see plugins/overtake.taskbar/UserIcons.qml
+  // (read from the scene, so a card up before the list arrives gets its icon)
+  function overtakeIcon(name) {
+    return Icons.overtakeSource(name, function(n) { return Quickshell.iconPath(n, true) },
+                                scene ? scene.overtakeIconCopies : null, scene ? scene.overtakeIconDir : "",
+                                scene ? scene.overtakeIconSaved : ({}))
+  }
+'''),
       # Overtake Mode: icons by name, see plugins/overtake.taskbar/UserIcons.qml.
       ("Icons.js",
 '''function isSymbolic(source) {''',
-'''var overtakeCopies = null, overtakeDir = "", overtakeSaved = Object.create(null)
-function overtakeSetCopies(text, dir) {
+'''// (Toast.qml and Service.qml each get their own copy of this file's variables,
+// measured, so what's known about the folder lives on the service)
+function overtakeParseCopies(text) {
   var next = Object.create(null)
   String(text).split("\\n").forEach(function(line) {
     var at = line.indexOf("\\t")
     if (at > 0) next[line.slice(0, at)] = line.slice(at + 1)
   })
-  overtakeCopies = next
-  overtakeDir = dir
+  return next
 }
-function overtakeSetSaved(names) {
-  var next = Object.create(null)
-  names.forEach(function(name) { next[name] = true })
-  overtakeSaved = next
-}
-function overtakeSource(name, lookup) {
+function overtakeSource(name, lookup, copies, dir, saved) {
   name = String(name || "")
-  if (!/^[A-Za-z0-9_][A-Za-z0-9_.+-]{0,127}$/.test(name) || !overtakeCopies) return ""
-  if (name in overtakeCopies) return overtakeCopies[name] ? "file://" + overtakeDir + "/" + overtakeCopies[name] : ""
-  return name in overtakeSaved ? "" : lookup(name)
+  if (!/^[A-Za-z0-9_][A-Za-z0-9_.+-]{0,127}$/.test(name) || !copies) return ""
+  if (name in copies) return copies[name] ? "file://" + dir + "/" + copies[name] : ""
+  return name in saved ? "" : lookup(name)
 }
 
 function isSymbolic(source) {'''),

@@ -72,7 +72,10 @@ must("  id: card\n", """  id: card
     return !!url
   }
   function testPicture() { return thumb.best + " status=" + picture.status }
+  function testSources() { return thumb.sources.join(",") }
 """)
+# (with no theme here every lookup answers nothing: a recorder shows which names reach it)
+must("Quickshell.iconPath(n, true)", '"looked-up:" + n')
 open(q, "w").write(t)
 PY
 mkdir -p "$E/rootw/np"
@@ -149,6 +152,7 @@ ShellRoot {
         r = "cards=" + svc.testToasts.count + " pictures=" + n + " senders=" + w
       }
       else if (c === "picture") { var d = firstReal(); r = d && svc.testCards[d.key] ? svc.testCards[d.key].testPicture() : "none" }
+      else if (c === "sources") { var e = firstReal(); r = e && svc.testCards[e.key] ? svc.testCards[e.key].testSources() : "none" }
       else if (c === "closeall") svc.clearAll("dismissed", true)
       else if (c === "forgetall") r = IpcRegistry.call("notifications", "forgetAll", []).output
       else if (c === "paneldnd") panel.toggleDnd()
@@ -281,7 +285,7 @@ case $SCEN in
   full*|stop|stale|aged|removed|closedfull|nearfull|dndsave|rohome) mount -t tmpfs -o size=256k tmpfs "$N";;
 esac
 case $SCEN in
-  link*|focus|pathimage|rawclaim|flood*|stall|huge*|entry*|textargv|linkrace|codefail|dndrules|dndsave|rohome|onlyhidden|appmodes|critical)
+  link*|focus|pathimage|rawclaim|flood*|stall|huge*|entry*|textargv|linkrace|codefail|dndrules|dndsave|rohome|onlyhidden|appmodes|critical|cardicon|emptylist)
     ROOT=rootw; WAITS=5
     export QT_QPA_PLATFORM=vnc QT_QUICK_BACKEND=software;;
 esac
@@ -309,7 +313,7 @@ fill() { dd if=/dev/zero of="$N/filler" bs=4k 2>/dev/null; sync; }
 [[ $SCEN == oldlive ]] && printf '[{"key":"nold","app":"Signal","summary":"Old","body":"SECRET-1","urgency":1,"ts":%s}]\n' "$(( $(date +%s) - 432000 ))" > "$N/live.json"
 [[ $SCEN == onlyhidden ]] && printf '[{"key":"nhid","app":"omarchy-action","summary":"Done","body":"SECRET-1","urgency":1,"ts":%s,"closed_ts":%s,"closed_reason":"expired"}]\n' "$(date +%s)" "$(date +%s)" > "$H"
 [[ $SCEN == rohome ]] && { : > "$H"; : > "$N/live.json"; : > "$N/quiet.json"; mount --bind "$N" "$N"; mount -o remount,ro,bind "$N" || echo "reply=[(setup) not read-only]"; }
-mkdir -p "$HOME/.cache/overtake/user-icons"; : > "$HOME/.cache/overtake/user-icons/index"
+mkdir -p "$HOME/.cache/overtake/user-icons"; [[ $SCEN == cardicon ]] || : > "$HOME/.cache/overtake/user-icons/index"
 [[ $SCEN == refused ]] || start
 case $SCEN in
   appmodes)   # the center's per-app settings, as the service reads them
@@ -425,6 +429,27 @@ case $SCEN in
     [[ $SCEN == hugestruct ]] && allcards 3 || allcards 8
     echo "pictures=[$(reply pictures)]"
     echo "grew=[$(( $(rss) - base ))]"
+    ;;
+  emptylist)   # an empty list isn't a hint of unknown size
+    send --app Evil --summary Fine --actions 1 --empty-list-hint
+    allcards 1
+    echo "pictures=[$(reply pictures)]"
+    ;;
+  cardicon)   # the icon a card draws, by name
+    notify-send -a benign -i siteok Early Early
+    sleep 1; ctl sources; echo "before=[$(reply sources)]"
+    ctl closeall 1
+    D=$HOME/.cache/overtake/user-icons; mkdir -p "$HOME/.local/share/icons/hicolor/256x256/apps"
+    : > "$HOME/.local/share/icons/hicolor/256x256/apps/justsaved.png"
+    notify-send -a benign -i siteok Waiting Waiting
+    sleep 1; ctl sources; echo "waiting=[$(reply sources)]"
+    printf 'siteok\tabc.png\nsitebad\t\n' > "$D/.i"; mv -f "$D/.i" "$D/index"
+    sleep 2; ctl sources; echo "arrived=[$(reply sources)]"
+    for name in siteok sitebad justsaved sysicon /etc/passwd; do
+      ctl closeall 1
+      notify-send -a benign -i "$name" Card Card
+      sleep 1; ctl sources; echo "${name##*/}=[$(reply sources)]"
+    done
     ;;
   entrybomb|entryfifo)   # an app whose Icon= names a file, and a sender naming that app
     mkdir -p "$HOME/.local/share/applications"
@@ -882,6 +907,22 @@ for scen in hugeapp hugeicon hugeactext hugelist hugevar hugestruct; do
   grew=$(value "$out" grew); (( grew < 250 )) || fail "$scen: 8 messages grew the shell by $grew MB: $out"
 done
 pass "app names, icons, button text, list hints, variants and structs count too: let go, the shell's growth is bounded"
+
+out=$(run_scen emptylist)
+has "$out" pictures '"cards=1 pictures=0 senders=1"' || fail "an empty list hint was counted as too big: $out"
+pass "an empty list hint isn't counted as too big"
+
+# ---- A card's icon by name ----
+out=$(run_scen cardicon)
+[[ $(value "$out" before) != *siteok* ]] || fail "a card looked an icon up before the list arrived: $out"
+[[ $(value "$out" waiting) != *siteok* ]] || fail "a card looked an icon up before the list arrived: $out"
+[[ $(value "$out" arrived) == *overtake/user-icons/abc.png* ]] || fail "a card up when the list arrived didn't get its icon: $out"
+[[ $(value "$out" siteok) == *overtake/user-icons/abc.png* ]] || fail "a card didn't draw the copy of an icon in your folder: $out"
+for name in siteok sitebad justsaved; do [[ $(value "$out" $name) != *"looked-up:$name"* ]] || fail "$name reached the lookup: $out"; done
+[[ $(value "$out" sitebad) != *sitebad* ]] || fail "an icon with no copy was drawn: $out"
+[[ $(value "$out" sysicon) == *"looked-up:sysicon"* ]] || fail "a system icon wasn't looked up: $out"
+[[ $(value "$out" passwd) != *passwd* ]] || fail "a path reached a card's icon: $out"
+pass "a card draws a copy of an icon in your folder and a system icon by name, also when the list arrives late; no copy or a path draws nothing"
 
 # ---- An app whose icon is a file ----
 out=$(run_scen entrybomb)

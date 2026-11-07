@@ -33,16 +33,17 @@ python3 -I "$REPO/patches/apply.py" notifications "$fresh_icons" >/dev/null || f
 node -e '
 const fs = require("fs")
 const src = fs.readFileSync(process.argv[1], "utf8").replace(/^\.pragma.*$/m, "").replace(/^\.import.*$/mg, "")
-const I = new Function("Security", src + "; return { overtakeSetCopies, overtakeSetSaved, overtakeSource }")({})
+const I = new Function("Security", src + "; return { overtakeParseCopies, overtakeSource }")({})
 const seen = [], look = n => { seen.push(n); return "image://icon/" + n }
 const check = (what, ok) => { if (!ok) { console.log("FAIL: " + what); process.exit(1) } }
-check("no list yet: nothing is looked up", I.overtakeSource("firefox", look) === "" && !seen.length)
-I.overtakeSetCopies("site\tabc.png\nbomb\t\n", "/c"); I.overtakeSetSaved(["justsaved", "site"])
-check("a copied icon is drawn from its copy", I.overtakeSource("site", look) === "file:///c/abc.png")
-check("one with no copy shows none", I.overtakeSource("bomb", look) === "")
-check("one just saved shows none", I.overtakeSource("justsaved", look) === "")
-check("a path is no name", I.overtakeSource("/tmp/x.png", look) === "" && I.overtakeSource("file:///x", look) === "")
+const copies = I.overtakeParseCopies("site\tabc.png\nbomb\t\n"), saved = { justsaved: true, site: true }
+const icon = (n, c = copies) => I.overtakeSource(n, look, c, "/c", saved)
+check("no list yet: nothing is looked up", icon("firefox", null) === "" && !seen.length)
+check("a copied icon is drawn from its copy", icon("site") === "file:///c/abc.png")
+check("one with no copy shows none", icon("bomb") === "")
+check("one just saved shows none", icon("justsaved") === "")
+check("a path is no name", icon("/tmp/x.png") === "" && icon("file:///x") === "")
 check("none of those reached the lookup", !seen.length)
-check("a system icon is looked up", I.overtakeSource("firefox", look) === "image://icon/firefox" && seen.length === 1)
+check("a system icon is looked up", icon("firefox") === "image://icon/firefox" && seen.length === 1)
 ' "$fresh_icons/Icons.js" || fail "a card's icon by name"
 pass "a card's icon by name: copies for your folder, the lookup only for the rest"
