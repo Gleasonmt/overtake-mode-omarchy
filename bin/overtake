@@ -2074,7 +2074,7 @@ icon_copies() {
         fi
         [[ -s $out ]] || id=""
         printf '%s\t%s\n' "$name" "$id" >>"$index"   # (a write that fails ends the scan: set -e)
-      done < <(find -L "${folders[@]}" -maxdepth 5 ! -type d \( -name '*.png' -o -name '*.svg' -o -name '*.svgz' -o -name '*.jpg' -o -name '*.jpeg' -o -name '*.xpm' \) -print0 2>/dev/null | head -z -n 5000 | sort -zrV)
+      done < <(find -L "${folders[@]}" -maxdepth 5 ! -type d \( -name '*.png' -o -name '*.svg' -o -name '*.svgz' -o -name '*.jpg' -o -name '*.jpeg' -o -name '*.xpm' \) -print0 2>/dev/null | sort -zrV)
     fi
     chmod 600 "$index"; mv -f "$index" "$dir/index"
     for out in "$dir"/*.png; do [[ -n ${keep[${out##*/}]:-} ]] || rm -f "$out"; done   # (an icon that's gone takes its copy with it)

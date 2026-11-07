@@ -9,8 +9,9 @@ command -v qs >/dev/null || { echo "skipped: no qs (the real-Quickshell test nee
 
 recorder() {  # recorder <folder>: UserIcons.qml, its lookup a recorder
   mkdir -p "$1"; cp "$REPO/plugins/overtake.taskbar/UserIcons.qml" "$1/"
-  sed -i 's|return Quickshell.iconPath(name, true)|return "image://icon/" + name|' "$1/UserIcons.qml"
+  sed -i 's|return Quickshell.iconPath(name, true)|return "image://icon/" + name|; s|interval: 120000 + Math.random() \* 30000|interval: 4000|; s|> 90000|> 2500|; s|< 90000|< 2500|' "$1/UserIcons.qml"
   grep -q 'image://icon/' "$1/UserIcons.qml" || fail "(setup) the lookup wasn't replaced"
+  [[ $(grep -o 'interval: 4000\|[<>] 2500' "$1/UserIcons.qml" | wc -l) == 3 ]] || fail "(setup) the two-minute scan wasn't made a four-second one"
 }
 cmp -s "$REPO/plugins/overtake.taskbar/UserIcons.qml" "$REPO/plugins/overtake.notification-center/UserIcons.qml" || fail "the two copies of UserIcons.qml differ"
 runqs() {  # runqs <home> <run dir> <seconds> <log>
@@ -41,12 +42,11 @@ import Quickshell
 ShellRoot {
   UserIcons { id: icons }
   readonly property string bound: icons.source("boundname")   // (as a binding draws it: it has to look again by itself)
-  function say(tag) { console.log("UI", tag, "clean=" + icons.source("siteclean"), "bomb=" + icons.source("sitebomb"), "sys=" + icons.source("firefox"), "bound=" + bound, "prefix=" + icons.source("siteclean-x"), "late=" + icons.source("latecomer"), "another=" + (tag === "changed" ? icons.source("another") : ""), "path=" + icons.source("/tmp/x.png"), "url=" + icons.source("file:///x")) }
+  function say(tag) { console.log("UI", tag, "clean=" + icons.source("siteclean"), "bomb=" + icons.source("sitebomb"), "sys=" + icons.source("firefox"), "bound=" + bound, "prefix=" + icons.source("siteclean-x"), "late=" + icons.source("latecomer"), "path=" + icons.source("/tmp/x.png"), "url=" + icons.source("file:///x")) }
   Timer { interval: 500; running: true; onTriggered: say("early") }
   Timer { interval: 2700; running: true; onTriggered: say("listed") }   // (the list is in; the scan for the asked names isn't, 3 s after the first)
   Timer { interval: 7000; running: true; onTriggered: say("later") }
-  Timer { interval: 9000; running: true; onTriggered: icons.source("another") }   // (a new name: the scan it asks for sees latecomer's file, saved after a scan had answered for it)
-  Timer { interval: 12500; running: true; onTriggered: say("changed") }
+  Timer { interval: 12500; running: true; onTriggered: say("changed") }   // (latecomer's file landed after a scan had answered for it, and no new name asks: the periodic scan lists it)
 }
 QML
 ( sleep 2; touch "$H/go"; sleep 5.5; touch "$H/second" ) &
@@ -54,7 +54,7 @@ runqs "$H" "$R" 14 "$E/log1" || true
 out=$(grep -a 'UI ' "$E/log1" || true)
 early=$(grep -a 'UI early' <<<"$out"); listed=$(grep -a 'UI listed' <<<"$out"); later=$(grep -a 'UI later' <<<"$out")
 [[ -n $early && -n $listed && -n $later ]] || fail "(setup) no answers: $out"
-[[ $early == *'clean= bomb= sys= bound= prefix= late= another= path= url='* ]] || fail "something was drawn or looked up before any list: $early"
+[[ $early == *'clean= bomb= sys= bound= prefix= late= path= url='* ]] || fail "something was drawn or looked up before any list: $early"
 [[ $listed == *"clean=file://"*"/overtake/user-icons/abc.png"* ]] || fail "a copied icon isn't drawn from its copy: $listed"
 [[ $listed == *'bomb= '* ]] || fail "an icon with no copy was drawn: $listed"
 [[ $listed == *'sys= '* ]] || fail "a system name was looked up before a scan had looked for it: $listed"
@@ -64,10 +64,9 @@ early=$(grep -a 'UI early' <<<"$out"); listed=$(grep -a 'UI listed' <<<"$out"); 
 [[ $early == *'prefix= '* && $listed == *'prefix= '* && $later == *'prefix= '* ]] || fail "a name whose prefix is in your folder drew something: $later"
 [[ $later == *'late=image://icon/latecomer '* ]] || fail "(setup) a name not in your folder wasn't looked up after a scan: $later"
 changed=$(grep -a 'UI changed' <<<"$out")
-[[ $changed == *"late=file://"*"/abc.png "* ]] || fail "an icon saved under a name already answered wasn't drawn from its copy once a scan saw the change: $changed"
-[[ $changed == *'another=image://icon/another '* ]] || fail "a name asked after the change wasn't looked up: $changed"
+[[ $changed == *"late=file://"*"/abc.png "* ]] || fail "an icon saved under a name already answered wasn't drawn from its copy after the periodic scan: $changed"
 (( $(wc -l <"$H/scans") >= 3 )) || fail "unknown names ran too few scans: $(wc -l <"$H/scans")"
-pass "nothing before the list; copies drawn, none for a crafted file or a listed prefix; a system name only after a scan, and again after a change; a path never"
+pass "nothing before the list; copies drawn, none for a crafted file or a listed prefix; a system name only after a scan; an icon saved under an answered name copied by the periodic scan; a path never"
 
 # 2. A list from an earlier start is read at once, and a scan that fails answers nothing.
 H=$E/home2; R=$E/run2; mkdir -p "$H/.cache/overtake/user-icons" "$R"; chmod 700 "$R"
