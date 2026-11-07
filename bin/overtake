@@ -2083,7 +2083,7 @@ icon_copies() {
 
 bg_picker() {
   shopt -s nullglob
-  local theme theme_base cache dir file name base n link live suffix
+  local theme theme_base cache dir file name base n link live suffix real pack
   declare -gA BG_WANT=()
   BG_SELECTED=""
   theme=$(cat "$CURRENT_THEME_NAME" 2>/dev/null || true)
@@ -2096,8 +2096,17 @@ bg_picker() {
   n=0
   for file in "$HOME/.local/state/omarchy/current/theme/backgrounds"/* "$HOME/.config/omarchy/backgrounds/$theme"/*; do
     [[ -f $file && ${file,,} =~ \.(png|jpe?g|webp|gif|bmp|mp4|m4v|mov|webm|mkv|avi)$ ]] || continue   # (what Omarchy 4.5 lists, videos too)
-    n=$((n + 1))
     base=${file##*/}; base=${base%.*}
+    # a live background pack (linked here from ~/.config/omarchy/live-backgrounds)
+    # goes in the Live group under its own name, through the same link
+    real=$(readlink -f "$file" 2>/dev/null) || real=""
+    if [[ $real == "$HOME/.config/omarchy/live-backgrounds/"*/backgrounds/* &&
+          -f ${real%/backgrounds/*}/live/$base.frag.qsb ]]; then
+      pack=${real%/backgrounds/*}; pack=${pack##*/}
+      bg_link "$cache/2-live" "$(pretty_name "$pack") (Live)" "$file"
+      continue
+    fi
+    n=$((n + 1))
     live=""
     [[ -f ${file%/backgrounds/*}/live/$base.frag.qsb ]] && live=", Live"
     suffix=""; (( n > 1 )) && suffix=" $n"
@@ -2157,7 +2166,7 @@ bg_picker() {
         1-hills-day.*|2-hills-night.*|3-shine.*|4-chips.*|5-beach.*|6-cave.*|7-snow-leopard.*) ;;
         *) BG_SELECTED="" ;;
       esac ;;
-    */omarchy/themes/*|*/omarchy/current/theme/*) ;;
+    */omarchy/themes/*|*/omarchy/current/theme/*|*/omarchy/live-backgrounds/*) ;;
     *) BG_SELECTED="" ;;
   esac
   local groups=("$cache/1-theme" "$cache/2-live" "$cache/3-overtake" "$cache/4-themes")
