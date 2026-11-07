@@ -518,119 +518,13 @@ sbx "$H" "$O" off >>"$T/log" 2>&1 || { cat "$T/log"; fail "off"; }
 [[ $(tail -c 2 "$TOML" | od -An -c | tr -d ' ') == '1\n' ]] || fail "a stale flag stripped your final newline: $(od -c "$TOML" | tail -2)"
 pass "a stale no-newline flag doesn't strip your final newline"
 
-# ---------- Agent terminals, and icon copies ----------
+# ---------- Agent terminals ----------
 fresh
 echo '[{"address":"0xc1","pid":1,"class":"org.omarchy.agent","initialClass":"org.omarchy.agent","title":"t","initialTitle":"kitty","workspace":{"id":1,"name":"1"},"monitor":0,"at":[0,0],"size":[800,600],"floating":false,"mapped":true,"focusHistoryID":0,"tags":[]}]' >"$HYPR/clients.json"
 : >"$ARGV_LOG"
 printf 'kitty\n' | sbx "$H" "$O" notification-open >>"$T/log" 2>&1 || fail "an agent terminal's window wasn't found"
 log_text | grep -aqF 'address:0xc1' || fail "an agent terminal's window wasn't focused"
 pass "a click finds an agent terminal by its first title"
-if command -v vipsthumbnail >/dev/null; then
-  real_vips_icons=$(command -v vipsthumbnail)
-  IC="$H/.local/share/icons/hicolor/256x256/apps"; mkdir -p "$IC"
-  python3 -I - "$IC" <<'PY'
-import struct, sys, zlib
-def chunk(kind, data):
-    return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
-def png(extra=b""):
-    rows = (b"\0" + b"\x20\x60\xa0" * 64) * 64
-    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 64, 64, 8, 2, 0, 0, 0)) + extra + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b"")
-open(sys.argv[1] + "/siteclean.png", "wb").write(png())
-open(sys.argv[1] + "/sitebomb.png", "wb").write(png(chunk(b"zTXt", b"k\0\0" + zlib.compress(b"A" * 7000000, 9)) * 120))
-PY
-  cp "$IC/siteclean.png" "$IC/PRIVATEICONNAME.png"
-  # (XMP in a JPEG: what vips carries over unless told to strip)
-  "$real_vips_icons" "$IC/siteclean.png" --size 64x64 -o "$T/ibase.jpg"
-  python3 -I - "$T/ibase.jpg" "$IC/sitenoted.jpg" <<'PY'
-import struct, sys
-j = open(sys.argv[1], "rb").read()
-xmp = b"http://ns.adobe.com/xap/1.0/\0<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">ICONMARKER</x:xmpmeta>"
-open(sys.argv[2], "wb").write(j[:2] + b"\xff\xe1" + struct.pack(">H", len(xmp) + 2) + xmp + j[2:])
-PY
-  mkfifo "$IC/sitefifo.png"
-  real_vips=$(command -v vipsthumbnail); stub vipsthumbnail "exec $real_vips \"\$@\""
-  : >"$ARGV_LOG"
-  sbx "$H" "$O" icon-copies >"$T/out" 2>&1 || { cat "$T/out"; fail "icon-copies"; }
-  CD="$H/.cache/overtake/user-icons"
-  idx() { sed -n "s/^$1\t//p" "$CD/index"; }
-  [[ -n $(idx siteclean) && -s $CD/$(idx siteclean) ]] || fail "no copy of a clean icon: $(cat "$CD/index")"
-  [[ -n $(idx sitenoted) && -s $CD/$(idx sitenoted) ]] || fail "no copy of an icon with metadata: $(cat "$CD/index")"
-  grep -qa ICONMARKER "$CD/$(idx sitenoted)" && fail "an icon's own metadata survived in the copy"
-  python3 -I - "$CD/$(idx sitenoted)" <<'PY' || fail "a copy holds text or metadata chunks"
-import struct, sys
-d = open(sys.argv[1], "rb").read(); i = 8; bad = []
-while i < len(d):
-    n, kind = struct.unpack(">I4s", d[i:i + 8]); i += n + 12
-    if kind in (b"tEXt", b"zTXt", b"iTXt", b"eXIf", b"iCCP"): bad.append(kind)
-sys.exit(1 if bad else 0)
-PY
-  grep -q '^sitebomb' "$CD/index" && [[ -z $(idx sitebomb) ]] || fail "a crafted icon got a copy: $(cat "$CD/index")"
-  grep -qP '^sitefifo\t$' "$CD/index" || fail "a pipe wasn't recorded as having no copy, so it would be looked up: $(cat "$CD/index")"
-  log_text | grep -aq PRIVATEICONNAME && fail "an icon's name was in a command line"
-  log_text >"$T/l"; grep -aq 'vipsthumbnail' "$T/l" || fail "(setup) the child didn't run"
-  [[ $(stat -c %a "$CD") == 700 && $(stat -c %a "$CD/index") == 600 ]] || fail "icon copies aren't private"
-  rm -f "$STUB/vipsthumbnail"
-    grep -q -- '--core=1:' "$T/l" && grep -q -- '--as=1073741824' "$T/l" || fail "a child that aborts on a crafted file can leave a core dump, and a crash notice: $(grep -a vipsthumbnail "$T/l" | head -2)"
-    grep -c 'prlimit "${limits\[@\]}" timeout' "$REPO/bin/overtake" | grep -qx 2 || fail "a vips child isn't limited"
-pass "icons in your folder get stripped copies from a limited child; a crafted one and a pipe get none; no name in a command line"
-
-  # What each scan owes the shell, whatever state it finds
-  H="$T/icons2"; make_home "$H"; CD="$H/.cache/overtake/user-icons"; IC="$H/.local/share/icons/hicolor/256x256/apps"
-  [[ ! -e $IC ]] || fail "(setup) the folder is there"
-  sbx "$H" "$O" icon-copies >"$T/out" 2>&1 || { cat "$T/out"; fail "icon-copies with no folder"; }
-  [[ -d $IC ]] || fail "the scan didn't make the folder the plugins watch"
-  "$real_vips_icons" "$REPO/preview.png" --size 32x32 -o "$T/small.png"
-  cp "$T/small.png" "$IC/hardzero.png"
-  sbx "$H" bash -c 'ulimit -c 0; exec "$@"' _ "$O" icon-copies >"$T/out" 2>&1 || { cat "$T/out"; fail "icon-copies with core dumps off"; }
-  [[ -n $(grep -P '^hardzero\t' "$CD/index" | cut -f2) ]] || fail "with core dumps off for good, a plain icon got no copy: $(cat "$CD/index")"
-  ln -s "$T/small.png" "$IC/linked.png"
-  sbx "$H" "$O" icon-copies >"$T/out" 2>&1 || { cat "$T/out"; fail "icon-copies"; }
-  [[ -n $(grep -P '^linked\t' "$CD/index" | cut -f2) ]] || fail "a linked icon wasn't copied, so it would be looked up: $(cat "$CD/index")"
-  # (a low hard memory limit of your own stays yours; a compressed SVG is listed)
-  cp "$T/small.png" "$IC/lowlimit.png"
-  sbx "$H" bash -c 'ulimit -v 900000; exec "$@"' _ "$O" icon-copies >"$T/out" 2>&1 || { cat "$T/out"; fail "icon-copies under a low memory limit"; }
-  [[ -n $(grep -P '^lowlimit\t' "$CD/index" | cut -f2) ]] || fail "under a low hard memory limit, a plain icon got no copy: $(cat "$CD/index")"
-  : >"$IC/zipped.svgz"
-  sbx "$H" "$O" icon-copies >"$T/out" 2>&1 || { cat "$T/out"; fail "icon-copies"; }
-  grep -qP '^zipped\t' "$CD/index" || fail "a compressed SVG isn't listed, so it would be looked up"
-  # (a folder that can't be made takes nothing else with it)
-  HX="$T/icons2x"; make_home "$HX"; mkdir -p "$HX/.local/share/icons/hicolor/48x48/apps"; cp "$T/small.png" "$HX/.local/share/icons/hicolor/48x48/apps/there.png"
-  chmod 555 "$HX/.local/share/icons/hicolor"
-  sbx "$HX" "$O" icon-copies >"$T/out" 2>&1 || { chmod 755 "$HX/.local/share/icons/hicolor"; cat "$T/out"; fail "a folder that can't be made stopped the scan"; }
-  chmod 755 "$HX/.local/share/icons/hicolor"
-  [[ -n $(grep -P '^there\t' "$HX/.cache/overtake/user-icons/index" | cut -f2) ]] || fail "a folder that can't be made cost the other icons their copies"
-  # (a failed copy from a full disk, a day ago; what a stopped scan leaves)
-  id=$(sha256sum <<<"retried"); id=${id%% *}; id=${id:0:32}.png
-  cp "$T/small.png" "$IC/retried.png"; touch -d '2 days ago' "$IC/retried.png"; : >"$CD/$id"; touch -d '2 hours ago' "$CD/$id"
-  : >"$CD/.index.left"; : >"$CD/.icon.left"
-  sbx "$H" "$O" icon-copies >"$T/out" 2>&1 || { cat "$T/out"; fail "icon-copies"; }
-  [[ -z $(grep -P '^retried\t' "$CD/index" | cut -f2) ]] || fail "a failed copy was tried again within the day"
-  [[ ! -e $CD/.index.left && ! -e $CD/.icon.left ]] || fail "a scan left what a stopped scan left"
-  touch -d '2 days ago' "$CD/$id"
-  sbx "$H" "$O" icon-copies >"$T/out" 2>&1 || { cat "$T/out"; fail "icon-copies"; }
-  [[ -n $(grep -P '^retried\t' "$CD/index" | cut -f2) ]] || fail "a copy that failed a day ago wasn't tried again"
-  # (past the limit: known, so not looked up)
-  H="$T/icons3"; make_home "$H"; CD="$H/.cache/overtake/user-icons"; SC="$H/.local/share/icons/hicolor/scalable/apps"; mkdir -p "$SC"
-  for i in $(seq 501); do : >"$SC/n$i.svg"; done
-  stub vipsthumbnail 'exit 1'
-  sbx "$H" "$O" icon-copies >"$T/out" 2>&1 || { cat "$T/out"; fail "icon-copies"; }
-  rm -f "$STUB/vipsthumbnail"
-  [[ $(wc -l <"$CD/index") == 501 ]] || fail "names past the limit aren't all known: $(wc -l <"$CD/index")"
-  # (uninstall takes the folder only if nothing has been saved there)
-  H="$T/icons4"; make_home "$H"; sbx "$H" ./install.sh --yes >"$T/log" 2>&1 || { cat "$T/log"; fail "install"; }
-  sbx "$H" "$O" icon-copies >"$T/out" 2>&1
-  sbx "$H" ./uninstall.sh --yes >"$T/log" 2>&1 || { cat "$T/log"; fail "uninstall"; }
-  [[ ! -e $H/.local/share/icons/hicolor ]] || fail "uninstall left the empty folder the scan made"
-  [[ -d $H/.local/share/icons ]] || fail "uninstall removed more than it says"
-  H="$T/icons5"; make_home "$H"; sbx "$H" ./install.sh --yes >"$T/log" 2>&1 || { cat "$T/log"; fail "install"; }
-  mkdir -p "$H/.local/share/icons/hicolor/256x256/apps"; : >"$H/.local/share/icons/hicolor/256x256/apps/yours.png"
-  sbx "$H" ./uninstall.sh --yes >"$T/log" 2>&1 || { cat "$T/log"; fail "uninstall"; }
-  [[ -e $H/.local/share/icons/hicolor/256x256/apps/yours.png ]] || fail "uninstall took a saved icon"
-pass "a scan makes the folder; works with core dumps off for good; knows linked names and names past the limit; a failed copy is tried again after a day"
-else
-  echo "skipped: no vipsthumbnail (icon copies)"
-fi
-
 # ---------- Modes are kept ----------
 fresh
 LAY="$H/.local/state/omarchy/workspace-layouts"; mkdir -p "$LAY"; printf 'return { default = "floating" }\n' >"$LAY/one.lua"

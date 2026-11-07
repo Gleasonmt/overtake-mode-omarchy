@@ -75,7 +75,7 @@ must("  id: card\n", """  id: card
   function testSources() { return thumb.sources.join(",") }
 """)
 # (with no theme here every lookup answers nothing: a recorder shows which names reach it)
-must("Quickshell.iconPath(n, true)", '"looked-up:" + n')
+must("Quickshell.iconPath(name, true)", '"looked-up:" + name')
 open(q, "w").write(t)
 PY
 mkdir -p "$E/rootw/np"
@@ -285,7 +285,7 @@ case $SCEN in
   full*|stop|stale|aged|removed|closedfull|nearfull|dndsave|rohome) mount -t tmpfs -o size=256k tmpfs "$N";;
 esac
 case $SCEN in
-  link*|focus|pathimage|rawclaim|flood*|stall|huge*|entry*|textargv|linkrace|codefail|dndrules|dndsave|rohome|onlyhidden|appmodes|critical|cardicon|emptylist)
+  link*|focus|pathimage|rawclaim|flood*|stall|huge*|entry*|textargv|linkrace|codefail|dndrules|dndsave|rohome|onlyhidden|appmodes|critical|emptylist)
     ROOT=rootw; WAITS=5
     export QT_QPA_PLATFORM=vnc QT_QUICK_BACKEND=software;;
 esac
@@ -313,7 +313,6 @@ fill() { dd if=/dev/zero of="$N/filler" bs=4k 2>/dev/null; sync; }
 [[ $SCEN == oldlive ]] && printf '[{"key":"nold","app":"Signal","summary":"Old","body":"SECRET-1","urgency":1,"ts":%s}]\n' "$(( $(date +%s) - 432000 ))" > "$N/live.json"
 [[ $SCEN == onlyhidden ]] && printf '[{"key":"nhid","app":"omarchy-action","summary":"Done","body":"SECRET-1","urgency":1,"ts":%s,"closed_ts":%s,"closed_reason":"expired"}]\n' "$(date +%s)" "$(date +%s)" > "$H"
 [[ $SCEN == rohome ]] && { : > "$H"; : > "$N/live.json"; : > "$N/quiet.json"; mount --bind "$N" "$N"; mount -o remount,ro,bind "$N" || echo "reply=[(setup) not read-only]"; }
-mkdir -p "$HOME/.cache/overtake/user-icons"; [[ $SCEN == cardicon ]] || : > "$HOME/.cache/overtake/user-icons/index"
 [[ $SCEN == refused ]] || start
 case $SCEN in
   appmodes)   # the center's per-app settings, as the service reads them
@@ -434,22 +433,6 @@ case $SCEN in
     send --app Evil --summary Fine --actions 1 --empty-list-hint
     allcards 1
     echo "pictures=[$(reply pictures)]"
-    ;;
-  cardicon)   # the icon a card draws, by name
-    notify-send -a benign -i siteok Early Early
-    sleep 1; ctl sources; echo "before=[$(reply sources)]"
-    ctl closeall 1
-    D=$HOME/.cache/overtake/user-icons; mkdir -p "$HOME/.local/share/icons/hicolor/256x256/apps"
-    : > "$HOME/.local/share/icons/hicolor/256x256/apps/justsaved.png"
-    notify-send -a benign -i siteok Waiting Waiting
-    sleep 1; ctl sources; echo "waiting=[$(reply sources)]"
-    printf 'siteok\tabc.png\nsitebad\t\n' > "$D/.i"; mv -f "$D/.i" "$D/index"
-    sleep 2; ctl sources; echo "arrived=[$(reply sources)]"
-    for name in siteok sitebad justsaved sysicon /etc/passwd; do
-      ctl closeall 1
-      notify-send -a benign -i "$name" Card Card
-      sleep 1; ctl sources; echo "${name##*/}=[$(reply sources)]"
-    done
     ;;
   entrybomb|entryfifo)   # an app whose Icon= names a file, and a sender naming that app
     mkdir -p "$HOME/.local/share/applications"
@@ -911,18 +894,6 @@ pass "app names, icons, button text, list hints, variants and structs count too:
 out=$(run_scen emptylist)
 has "$out" pictures '"cards=1 pictures=0 senders=1"' || fail "an empty list hint was counted as too big: $out"
 pass "an empty list hint isn't counted as too big"
-
-# ---- A card's icon by name ----
-out=$(run_scen cardicon)
-[[ $(value "$out" before) != *siteok* ]] || fail "a card looked an icon up before the list arrived: $out"
-[[ $(value "$out" waiting) != *siteok* ]] || fail "a card looked an icon up before the list arrived: $out"
-[[ $(value "$out" arrived) == *overtake/user-icons/abc.png* ]] || fail "a card up when the list arrived didn't get its icon: $out"
-[[ $(value "$out" siteok) == *overtake/user-icons/abc.png* ]] || fail "a card didn't draw the copy of an icon in your folder: $out"
-for name in siteok sitebad justsaved; do [[ $(value "$out" $name) != *"looked-up:$name"* ]] || fail "$name reached the lookup: $out"; done
-[[ $(value "$out" sitebad) != *sitebad* ]] || fail "an icon with no copy was drawn: $out"
-[[ $(value "$out" sysicon) == *"looked-up:sysicon"* ]] || fail "a system icon wasn't looked up once a scan had looked for it: $out"
-[[ $(value "$out" passwd) != *passwd* ]] || fail "a path reached a card's icon: $out"
-pass "a card draws a copy of an icon in your folder and a system icon by name, also when the list arrives late; no copy or a path draws nothing"
 
 # ---- An app whose icon is a file ----
 out=$(run_scen entrybomb)

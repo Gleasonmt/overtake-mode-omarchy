@@ -24,27 +24,26 @@ OVERTAKE_OMARCHY_PLUGINS="$T/src" sbx "$H" env OVERTAKE_OMARCHY_PLUGINS="$T/src"
 ls -A "$H/.config/omarchy/plugins" | grep -q '^\.overtake-build' && fail "a temporary build folder was left behind"
 pass "a patch that no longer fits drops only that copy, cleanly"
 
-# The card's icon by name, as built: a name in your own folder never reaches Qt's
-# lookup. (Real Quickshell offscreen resolves no theme, so no file could be decoded
-# there to show this; a crafted file was measured in a real Hyprland session.)
+# The card's icon, as built: a name goes to Qt's theme lookup and nothing else;
+# a path, or a picture the sender supplies, reaches nothing. (Real Quickshell
+# offscreen resolves no theme, so no file could be decoded there to show this;
+# a crafted file was measured in a real Hyprland session.)
 fresh_icons="$T/icons"; mkdir -p "$fresh_icons"
 cp -a "$OMARCHY_SRC/notifications/." "$fresh_icons/"
 python3 -I "$REPO/patches/apply.py" notifications "$fresh_icons" >/dev/null || fail "the notifications patch doesn't apply"
+grep -q 'Util.fileUrl(value)' "$fresh_icons/Toast.qml" && fail "a card still opens an entry's icon by file path"
+grep -q 'Security.localImageUrl(card.row.image)' "$fresh_icons/Toast.qml" && fail "a card still opens a picture a sender names"
+[[ $(grep -c 'Quickshell.iconPath(' "$fresh_icons/Toast.qml") == 1 ]] || fail "a card looks an icon up somewhere other than overtakeIcon"
 node -e '
 const fs = require("fs")
-const src = fs.readFileSync(process.argv[1], "utf8").replace(/^\.pragma.*$/m, "").replace(/^\.import.*$/mg, "")
-const I = new Function("Security", src + "; return { overtakeParseCopies, overtakeSource }")({})
-const seen = [], look = n => { seen.push(n); return "image://icon/" + n }
+const m = fs.readFileSync(process.argv[1], "utf8").match(/function overtakeIcon\(name\) \{\n([\s\S]*?)\n  \}\n/)
 const check = (what, ok) => { if (!ok) { console.log("FAIL: " + what); process.exit(1) } }
-const copies = I.overtakeParseCopies("site\tabc.png\nbomb\t\n"), saved = { justsaved: true, site: true }, asked = []
-const icon = (n, c = copies, checked = {}) => I.overtakeSource(n, look, c, "/c", saved, checked, x => asked.push(x))
-check("no list yet: nothing is looked up", icon("firefox", null) === "" && !seen.length)
-check("a copied icon is drawn from its copy", icon("site") === "file:///c/abc.png")
-check("one with no copy shows none", icon("bomb") === "")
-check("one just saved shows none", icon("justsaved") === "")
-check("a path is no name", icon("/tmp/x.png") === "" && icon("file:///x") === "")
+check("the card has overtakeIcon", !!m)
+const seen = [], Quickshell = { iconPath: (n, c) => { seen.push(n); return c === true ? "image://icon/" + n : "?" } }
+const icon = n => new Function("Quickshell", "name", m[1])(Quickshell, n)
+for (const bad of ["/tmp/x.png", "/home/me/fifo", "file:///x", "../x", "a/b", "a b", "", null, "x".repeat(200)])
+  check("no icon name: " + String(bad).slice(0, 20), icon(bad) === "")
 check("none of those reached the lookup", !seen.length)
-check("a name not yet looked for draws nothing, and is asked for", icon("firefox") === "" && !seen.length && asked.join() === "firefox")
-check("a name a scan found nowhere of yours is looked up", icon("firefox", copies, { firefox: true }) === "image://icon/firefox" && seen.length === 1)
-' "$fresh_icons/Icons.js" || fail "a card's icon by name"
-pass "a card's icon by name: copies for your folder, the lookup only for the rest"
+check("a name is looked up, in the theme only", icon("firefox") === "image://icon/firefox" && seen.join() === "firefox")
+' "$fresh_icons/Toast.qml" || fail "a card's icon by name"
+pass "a card's icon: a name goes to the theme lookup; a path, or a picture the sender names, goes nowhere"

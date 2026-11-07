@@ -92,7 +92,6 @@ plan() {
   cat <<'EOF'
 Overtake Mode will add (./uninstall.sh removes it, keeping ~/.config/overtake and ~/Pictures/overtake unless you add --purge):
   ~/.local/bin/overtake
-  ~/.local/share/icons/hicolor/256x256/apps (empty, if missing, while Classic or Studio is on)
   ~/.config/hypr/overtake.lua, overtake-classic.lua, overtake-studio.lua
   ~/.config/omarchy/plugins/overtake.*   its own plugins, plus patched copies of
                                           Omarchy's workspaces, bluetooth, audio,
@@ -113,7 +112,7 @@ Overtake Mode will add (./uninstall.sh removes it, keeping ~/.config/overtake an
   6-sunrise.png, only if each is exactly the file that version shipped)
   ~/.local/state/overtake/, ~/.cache/overtake/
                                           its state (yours only), the Background lists
-                                          and stripped copies of theme previews and your icons
+                                          and stripped copies of theme previews
 EOF
   cat <<'EOF'
 
