@@ -36,14 +36,15 @@ const src = fs.readFileSync(process.argv[1], "utf8").replace(/^\.pragma.*$/m, ""
 const I = new Function("Security", src + "; return { overtakeParseCopies, overtakeSource }")({})
 const seen = [], look = n => { seen.push(n); return "image://icon/" + n }
 const check = (what, ok) => { if (!ok) { console.log("FAIL: " + what); process.exit(1) } }
-const copies = I.overtakeParseCopies("site\tabc.png\nbomb\t\n"), saved = { justsaved: true, site: true }
-const icon = (n, c = copies) => I.overtakeSource(n, look, c, "/c", saved)
+const copies = I.overtakeParseCopies("site\tabc.png\nbomb\t\n"), saved = { justsaved: true, site: true }, asked = []
+const icon = (n, c = copies, checked = {}) => I.overtakeSource(n, look, c, "/c", saved, checked, x => asked.push(x))
 check("no list yet: nothing is looked up", icon("firefox", null) === "" && !seen.length)
 check("a copied icon is drawn from its copy", icon("site") === "file:///c/abc.png")
 check("one with no copy shows none", icon("bomb") === "")
 check("one just saved shows none", icon("justsaved") === "")
 check("a path is no name", icon("/tmp/x.png") === "" && icon("file:///x") === "")
 check("none of those reached the lookup", !seen.length)
-check("a system icon is looked up", icon("firefox") === "image://icon/firefox" && seen.length === 1)
+check("a name not yet looked for draws nothing, and is asked for", icon("firefox") === "" && !seen.length && asked.join() === "firefox")
+check("a name a scan found nowhere of yours is looked up", icon("firefox", copies, { firefox: true }) === "image://icon/firefox" && seen.length === 1)
 ' "$fresh_icons/Icons.js" || fail "a card's icon by name"
 pass "a card's icon by name: copies for your folder, the lookup only for the rest"

@@ -48,7 +48,7 @@ Uninstalling Overtake Mode will:
     post-update hook (hooks/post-update.d/overtake.hook),
     ~/.config/omarchy/plugins/overtake.*, its .desktop file,
     ~/.local/share/overtake, ~/.local/state/overtake and ~/.cache/overtake,
-    and ~/.local/share/icons/hicolor if nothing has been saved in it
+    and ~/.local/share/icons/hicolor if it's empty
 EOF
 if [[ $PURGE ]]; then
   echo "  delete ~/.config/overtake and ~/Pictures/overtake (--purge)"
@@ -234,7 +234,9 @@ fi
 rm -f "$HOME/.local/share/applications/overtake-trash.desktop"
 rm -f "$HOME/.config/omarchy/hooks/post-update.d/overtake.hook"
 # (the icon folder Overtake's scan makes, if nothing has been saved there)
-rmdir -p --ignore-fail-on-non-empty "${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor/256x256/apps" 2>/dev/null || true
+for icon_dir in hicolor/256x256/apps hicolor/256x256 hicolor; do
+  rmdir "${XDG_DATA_HOME:-$HOME/.local/share}/icons/$icon_dir" 2>/dev/null || true
+done
 # Screensaver art you had before Overtake replaced it, if what's there now is
 # what Overtake wrote. Art you wrote or picked stays, with your old art kept
 # beside it.

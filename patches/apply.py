@@ -136,26 +136,62 @@ PATCHES = {
   property bool overtakeIconScanned: false
   property var overtakeIconCopies: null   // name -> its copy's file, null until the first scan has been read
   property var overtakeIconSaved: Object.create(null)
+  property var overtakeIconChecked: Object.create(null)   // names a scan looked for and didn't find in your folder
+  property var overtakeIconAsked: Object.create(null)
+  property var overtakeIconAsking: Object.create(null)
+  property var overtakeIconAnswering: Object.create(null)
+  function overtakeIconSource(name, lookup) {
+    return Icons.overtakeSource(name, lookup, overtakeIconCopies, overtakeIconDir, overtakeIconSaved, overtakeIconChecked, overtakeIconAsk)
+  }
+  function overtakeIconAsk(name) {
+    if (name in overtakeIconAsked || name in overtakeIconAsking || name in overtakeIconAnswering) return
+    overtakeIconAsked[name] = true
+    Qt.callLater(overtakeIconRescan)
+  }
+  function overtakeIconRescan() {
+    if (overtakeIconScan.running) { overtakeIconScan.again = true; return }
+    overtakeIconAsking = overtakeIconAsked
+    overtakeIconAsked = Object.create(null)
+    overtakeIconScan.running = true
+  }
   FileView {
     id: overtakeIconList
     path: service.overtakeIconDir + "/index"
     watchChanges: true
     printErrors: false
     onFileChanged: reload()
-    onLoaded: if (service.overtakeIconScanned) service.overtakeIconCopies = Icons.overtakeParseCopies(text())
+    onLoaded: {
+      if (!service.overtakeIconScanned) return
+      var next = Icons.overtakeParseCopies(text())
+      for (var name in service.overtakeIconAnswering) if (!(name in next)) service.overtakeIconChecked[name] = true
+      service.overtakeIconAnswering = Object.create(null)
+      service.overtakeIconCopies = next   // (and a card that drew nothing looks again)
+      if (overtakeIconFolder.nameFilters[0] === "no-such-file") {   // (the scan has made the folder: one made later would go unseen)
+        overtakeIconFolder.folder = "file://" + (Quickshell.env("XDG_DATA_HOME") || Quickshell.env("HOME") + "/.local/share") + "/icons/hicolor/256x256/apps"
+        overtakeIconFolder.nameFilters = ["*.png", "*.svg", "*.svgz", "*.jpg", "*.jpeg", "*.xpm"]
+      }
+    }
   }
   // (a file that isn't there yet can't be watched)
   Timer { interval: 2000; repeat: true; running: service.overtakeIconScanned && !service.overtakeIconCopies; onTriggered: overtakeIconList.reload() }
-  // (the scan makes the folder: this model never notices one made after it looked)
   Process {
+    id: overtakeIconScan
+    property bool again: false
     command: ["overtake", "icon-copies"]
     running: true
-    onExited: { service.overtakeIconScanned = true; overtakeIconList.reload() }
+    onExited: {
+      for (var name in service.overtakeIconAsking) service.overtakeIconAnswering[name] = true
+      service.overtakeIconAsking = Object.create(null)
+      service.overtakeIconScanned = true
+      overtakeIconList.reload()
+      if (again) { again = false; service.overtakeIconRescan() }
+    }
   }
   FolderListModel {
-    folder: service.overtakeIconCopies ? "file://" + (Quickshell.env("XDG_DATA_HOME") || Quickshell.env("HOME") + "/.local/share") + "/icons/hicolor/256x256/apps" : ""
+    id: overtakeIconFolder
+    folder: "file://" + service.overtakeIconDir
     showDirs: false
-    nameFilters: service.overtakeIconCopies ? ["*.png", "*.svg", "*.svgz", "*.jpg", "*.jpeg", "*.xpm"] : ["no-such-file"]
+    nameFilters: ["no-such-file"]
     onCountChanged: {
       var names = Object.create(null)
       for (var i = 0; i < count; i++) names[String(get(i, "fileName")).replace(/\\.[^.]*$/, "")] = true
@@ -291,9 +327,7 @@ PATCHES = {
   // Overtake Mode: icons by name, see plugins/overtake.taskbar/UserIcons.qml
   // (read from the scene, so a card up before the list arrives gets its icon)
   function overtakeIcon(name) {
-    return Icons.overtakeSource(name, function(n) { return Quickshell.iconPath(n, true) },
-                                scene ? scene.overtakeIconCopies : null, scene ? scene.overtakeIconDir : "",
-                                scene ? scene.overtakeIconSaved : ({}))
+    return scene ? scene.overtakeIconSource(name, function(n) { return Quickshell.iconPath(n, true) }) : ""
   }
 '''),
       # Overtake Mode: icons by name, see plugins/overtake.taskbar/UserIcons.qml.
@@ -309,11 +343,14 @@ function overtakeParseCopies(text) {
   })
   return next
 }
-function overtakeSource(name, lookup, copies, dir, saved) {
+function overtakeSource(name, lookup, copies, dir, saved, checked, ask) {
   name = String(name || "")
   if (!/^[A-Za-z0-9_][A-Za-z0-9_.+-]{0,127}$/.test(name) || !copies) return ""
   if (name in copies) return copies[name] ? "file://" + dir + "/" + copies[name] : ""
-  return name in saved ? "" : lookup(name)
+  if (name in saved) return ""
+  if (name in checked) return lookup(name)
+  ask(name)   // (nothing until a scan has looked for it in your folder)
+  return ""
 }
 
 function isSymbolic(source) {'''),

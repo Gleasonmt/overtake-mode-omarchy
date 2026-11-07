@@ -920,7 +920,7 @@ out=$(run_scen cardicon)
 [[ $(value "$out" siteok) == *overtake/user-icons/abc.png* ]] || fail "a card didn't draw the copy of an icon in your folder: $out"
 for name in siteok sitebad justsaved; do [[ $(value "$out" $name) != *"looked-up:$name"* ]] || fail "$name reached the lookup: $out"; done
 [[ $(value "$out" sitebad) != *sitebad* ]] || fail "an icon with no copy was drawn: $out"
-[[ $(value "$out" sysicon) == *"looked-up:sysicon"* ]] || fail "a system icon wasn't looked up: $out"
+[[ $(value "$out" sysicon) == *"looked-up:sysicon"* ]] || fail "a system icon wasn't looked up once a scan had looked for it: $out"
 [[ $(value "$out" passwd) != *passwd* ]] || fail "a path reached a card's icon: $out"
 pass "a card draws a copy of an icon in your folder and a system icon by name, also when the list arrives late; no copy or a path draws nothing"
 

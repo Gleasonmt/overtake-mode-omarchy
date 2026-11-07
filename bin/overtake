@@ -2034,7 +2034,7 @@ icon_copies() {
   icons="${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor"
   mkdir -p -m 700 "$dir"
   chmod 700 "$dir"
-  mkdir -p "$icons/256x256/apps" 2>/dev/null   # (the folder the plugins watch: one made later they'd never notice)
+  mkdir -p "$icons/256x256/apps" 2>/dev/null || true   # (the folder the plugins watch: one made later they'd never notice)
   mapfile -t limits < <(child_limits)
   (
     flock -w 60 9 || exit 0   # (one at a time: the next finds its work done)
@@ -2063,7 +2063,7 @@ icon_copies() {
         rm -f "$tmp" "$out.new"
       fi
       [[ -s $out ]] && printf '%s\t%s\n' "$name" "$id" >>"$index" || printf '%s\t\n' "$name" >>"$index"
-    done < <(find -L "$icons" ! -type d \( -name '*.png' -o -name '*.svg' -o -name '*.svgz' -o -name '*.jpg' -o -name '*.jpeg' -o -name '*.xpm' \) -print0 2>/dev/null | sort -zrV)
+    done < <(find -L "$icons" -maxdepth 3 ! -type d \( -name '*.png' -o -name '*.svg' -o -name '*.svgz' -o -name '*.jpg' -o -name '*.jpeg' -o -name '*.xpm' \) -print0 2>/dev/null | sort -zrV)
     chmod 600 "$index"; mv -f "$index" "$dir/index"
   ) 9>"$dir/.lock"
 }

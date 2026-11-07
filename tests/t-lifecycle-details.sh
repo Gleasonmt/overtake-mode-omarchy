@@ -586,6 +586,19 @@ pass "icons in your folder get stripped copies from a limited child; a crafted o
   ln -s "$T/small.png" "$IC/linked.png"
   sbx "$H" "$O" icon-copies >"$T/out" 2>&1 || { cat "$T/out"; fail "icon-copies"; }
   [[ -n $(grep -P '^linked\t' "$CD/index" | cut -f2) ]] || fail "a linked icon wasn't copied, so it would be looked up: $(cat "$CD/index")"
+  # (a low hard memory limit of your own stays yours; a compressed SVG is listed)
+  cp "$T/small.png" "$IC/lowlimit.png"
+  sbx "$H" bash -c 'ulimit -v 900000; exec "$@"' _ "$O" icon-copies >"$T/out" 2>&1 || { cat "$T/out"; fail "icon-copies under a low memory limit"; }
+  [[ -n $(grep -P '^lowlimit\t' "$CD/index" | cut -f2) ]] || fail "under a low hard memory limit, a plain icon got no copy: $(cat "$CD/index")"
+  : >"$IC/zipped.svgz"
+  sbx "$H" "$O" icon-copies >"$T/out" 2>&1 || { cat "$T/out"; fail "icon-copies"; }
+  grep -qP '^zipped\t' "$CD/index" || fail "a compressed SVG isn't listed, so it would be looked up"
+  # (a folder that can't be made takes nothing else with it)
+  HX="$T/icons2x"; make_home "$HX"; mkdir -p "$HX/.local/share/icons/hicolor/48x48/apps"; cp "$T/small.png" "$HX/.local/share/icons/hicolor/48x48/apps/there.png"
+  chmod 555 "$HX/.local/share/icons/hicolor"
+  sbx "$HX" "$O" icon-copies >"$T/out" 2>&1 || { chmod 755 "$HX/.local/share/icons/hicolor"; cat "$T/out"; fail "a folder that can't be made stopped the scan"; }
+  chmod 755 "$HX/.local/share/icons/hicolor"
+  [[ -n $(grep -P '^there\t' "$HX/.cache/overtake/user-icons/index" | cut -f2) ]] || fail "a folder that can't be made cost the other icons their copies"
   # (a failed copy from a full disk, a day ago; what a stopped scan leaves)
   id=$(sha256sum <<<"retried"); id=${id%% *}; id=${id:0:32}.png
   cp "$T/small.png" "$IC/retried.png"; touch -d '2 days ago' "$IC/retried.png"; : >"$CD/$id"; touch -d '2 hours ago' "$CD/$id"
@@ -608,6 +621,7 @@ pass "icons in your folder get stripped copies from a limited child; a crafted o
   sbx "$H" "$O" icon-copies >"$T/out" 2>&1
   sbx "$H" ./uninstall.sh --yes >"$T/log" 2>&1 || { cat "$T/log"; fail "uninstall"; }
   [[ ! -e $H/.local/share/icons/hicolor ]] || fail "uninstall left the empty folder the scan made"
+  [[ -d $H/.local/share/icons ]] || fail "uninstall removed more than it says"
   H="$T/icons5"; make_home "$H"; sbx "$H" ./install.sh --yes >"$T/log" 2>&1 || { cat "$T/log"; fail "install"; }
   mkdir -p "$H/.local/share/icons/hicolor/256x256/apps"; : >"$H/.local/share/icons/hicolor/256x256/apps/yours.png"
   sbx "$H" ./uninstall.sh --yes >"$T/log" 2>&1 || { cat "$T/log"; fail "uninstall"; }
@@ -657,7 +671,7 @@ H="$T/ret"; make_home "$H"
 printf 'x = 1\nreturn {\n  a = 1,\n}\n' >"$H/.config/hypr/bindings.lua"; cp "$H/.config/hypr/bindings.lua" "$T/bind"
 if sbx "$H" ./install.sh --dry-run >"$T/out" 2>&1; then cat "$T/out"; fail "--dry-run didn't say a final return stops it"; fi
 if sbx "$H" ./install.sh --yes >"$T/out" 2>&1; then cat "$T/out"; fail "install added lines after a final return"; fi
-grep -q 'has a return at its top level' "$T/out" || { cat "$T/out"; fail "install didn't say why it stopped"; }
+grep -q 'has a return outside any function' "$T/out" || { cat "$T/out"; fail "install didn't say why it stopped"; }
 [[ ! -e $H/.local/bin/overtake ]] || fail "install wrote files before stopping at a final return"
 cmp -s "$H/.config/hypr/bindings.lua" "$T/bind" || fail "bindings.lua changed"
 while IFS= read -r body; do
@@ -668,6 +682,9 @@ local M = {}\n  return M\n
 return\n
 x = 1 return x\n
 if x then y = 1 end\n\treturn {\n  a = 1,\n}\n
+do return end\nx = 1\n
+if DEBUG then return end\nx = 1\n
+while true do return end\nx = 1\n
 LUA
 while IFS= read -r body; do
   H="$T/ret2"; rm -rf "$H"; make_home "$H"; printf -- "$body" >"$H/.config/hypr/bindings.lua"

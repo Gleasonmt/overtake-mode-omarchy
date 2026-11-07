@@ -64,24 +64,26 @@ if [[ -n $MENU_FIRST && ! $MENU_FIRST =~ ^[[:space:]]*\{ ]]; then
 fi
 
 # Lua stops at a top-level return: Overtake's lines after one would break the file.
-# (read past comments and strings, and counting blocks: one inside a function is fine)
+# (read past comments and strings. One inside a function is fine; any other, even in
+# a block like `do return end`, can stop the lines after it.)
 lua_top_return() {
   python3 -I - "$1" <<'LUA'
 import re, sys
 text = open(sys.argv[1], encoding="utf-8", errors="replace").read()
 tokens = re.compile(r"""--\[(=*)\[.*?\]\1\]|--[^\n]*|\[(=*)\[.*?\]\2\]|"(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*'|[A-Za-z_][A-Za-z0-9_]*""", re.S)
-depth = 0
+blocks = []
 for token in tokens.finditer(text):
     word = token.group()
-    if word in ("function", "do", "if", "repeat"): depth += 1
-    elif word in ("end", "until"): depth -= 1
-    elif word == "return" and depth <= 0: sys.exit(0)
+    if word in ("function", "do", "if", "repeat"): blocks.append(word)
+    elif word in ("end", "until"):
+        if blocks: blocks.pop()
+    elif word == "return" and "function" not in blocks: sys.exit(0)
 sys.exit(1)
 LUA
 }
 for file in "$HOME/.config/hypr/bindings.lua" "$HOME/.config/hypr/autostart.lua"; do
   if [[ -f $file ]] && ! grep -q '>>> overtake' "$file" && lua_top_return "$file"; then
-    die "$file has a return at its top level, and Overtake's lines would have to follow it. Move them above it or remove it, then run this again."
+    die "$file has a return outside any function, and Overtake's lines would have to follow it. Move them above it or remove it, then run this again."
   fi
 done
 

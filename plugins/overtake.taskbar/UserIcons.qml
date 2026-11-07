@@ -7,15 +7,21 @@ import Quickshell.Io
 // are the system's; the ones in your own icon folder aren't always yours (Omarchy's
 // web-app installer saves a site's icon there unmodified), so those are drawn
 // from stripped copies a limited child made (`overtake icon-copies`), or not at all.
+// A name that isn't known yet draws nothing until a scan has looked for it.
 Scope {
   id: root
   readonly property string home: Quickshell.env("HOME")
   readonly property string dir: (Quickshell.env("XDG_CACHE_HOME") || home + "/.cache") + "/overtake/user-icons"
+  readonly property string watched: "file://" + (Quickshell.env("XDG_DATA_HOME") || home + "/.local/share") + "/icons/hicolor/256x256/apps"
   property bool scanned: false   // the first scan has finished, so the folder exists
   property bool ready: false     // and its list has been read
   property var copies: Object.create(null)   // name -> its copy's file, or "" if it has none
   property var incoming: Object.create(null)  // names just saved, not yet copied
-  property int lastCount: -1
+  property var checked: Object.create(null)   // names a scan looked for and didn't find in your folder
+  property var asked: Object.create(null)     // for the next scan
+  property var asking: Object.create(null)    // for the one running
+  property var answering: Object.create(null) // for the list about to be read
+  property var lastNames: null
 
   // A name, never a path: Qt's lookup opens a path on the main thread, and a named
   // pipe hangs the shell for good.
@@ -24,7 +30,18 @@ Scope {
     if (!safe(name) || !ready) return ""
     if (name in copies) return copies[name] ? "file://" + dir + "/" + copies[name] : ""
     if (name in incoming) return ""
-    return Quickshell.iconPath(name, true)
+    if (name in checked) return Quickshell.iconPath(name, true)
+    if (!(name in asked || name in asking || name in answering)) {
+      asked[name] = true
+      Qt.callLater(root.rescan)
+    }
+    return ""
+  }
+  function rescan() {
+    if (scan.running) { scan.again = true; return }
+    asking = asked
+    asked = Object.create(null)
+    scan.running = true
   }
 
   FileView {
@@ -40,32 +57,45 @@ Scope {
         var at = line.indexOf("\t")
         if (at > 0) next[line.slice(0, at)] = line.slice(at + 1)
       })
-      root.copies = next
+      for (var name in root.answering) if (!(name in next)) root.checked[name] = true
+      root.answering = Object.create(null)
+      root.copies = next   // (and what drew nothing looks again)
+      if (!root.ready) {   // (a folder made after the watcher looked would go unseen, so not before)
+        saved.folder = root.watched
+        saved.nameFilters = ["*.png", "*.svg", "*.svgz", "*.jpg", "*.jpeg", "*.xpm"]
+      }
       root.ready = true
     }
   }
   // (a file that isn't there yet can't be watched)
   Timer { interval: 2000; repeat: true; running: root.scanned && !root.ready; onTriggered: list.reload() }
+  // A download writes in place, and may try a few addresses, with no sign here that
+  // it has finished: another look, once it's likely to have.
+  Timer { id: settled; interval: 15000; onTriggered: root.rescan() }
   // Where the installer saves: known as soon as a file lands, before it's copied.
-  // This model never notices a folder made after it looked, so it waits for the
-  // scan, which makes the folder. Nothing is looked up until then.
   FolderListModel {
     id: saved
-    folder: root.ready ? "file://" + (Quickshell.env("XDG_DATA_HOME") || root.home + "/.local/share") + "/icons/hicolor/256x256/apps" : ""
+    folder: "file://" + root.dir
     showDirs: false
-    nameFilters: root.ready ? ["*.png", "*.svg", "*.svgz", "*.jpg", "*.jpeg", "*.xpm"] : ["no-such-file"]
+    nameFilters: ["no-such-file"]
     onCountChanged: {
-      var next = Object.create(null), changed = root.lastCount >= 0
-      for (var i = 0; i < count; i++) {
-        var name = String(get(i, "fileName")).replace(/\.[^.]*$/, "")
-        next[name] = true
-        if (!(name in root.copies)) changed = true
-      }
+      var next = Object.create(null)
+      for (var i = 0; i < count; i++) next[String(get(i, "fileName")).replace(/\.[^.]*$/, "")] = true
       root.incoming = next
-      root.lastCount = count
+      noticed.restart()
+    }
+  }
+  // (a listing can come in more than one step: what it comes to is what counts)
+  Timer {
+    id: noticed
+    interval: 300
+    onTriggered: {
+      var names = Object.keys(root.incoming).sort().join("\n"), changed = root.lastNames !== null && root.lastNames !== names
+      for (var name in root.incoming) if (!(name in root.copies)) changed = true
+      root.lastNames = names
       if (!changed) return   // (the first listing, of what the scan just copied)
-      if (scan.running) scan.again = true
-      else scan.running = true
+      settled.restart()
+      root.rescan()
     }
   }
   Process {
@@ -74,9 +104,11 @@ Scope {
     command: ["overtake", "icon-copies"]
     running: true
     onExited: {
+      for (var name in root.asking) root.answering[name] = true
+      root.asking = Object.create(null)
       root.scanned = true
       list.reload()
-      if (again) { again = false; running = true }
+      if (again) { again = false; root.rescan() }
     }
   }
 }
