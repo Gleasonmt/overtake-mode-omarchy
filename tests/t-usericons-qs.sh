@@ -9,9 +9,9 @@ command -v qs >/dev/null || { echo "skipped: no qs (the real-Quickshell test nee
 
 recorder() {  # recorder <folder>: UserIcons.qml, its lookup a recorder
   mkdir -p "$1"; cp "$REPO/plugins/overtake.taskbar/UserIcons.qml" "$1/"
-  sed -i 's|return Quickshell.iconPath(name, true)|return "image://icon/" + name|; s|interval: 120000 + Math.random() \* 30000|interval: 4000|; s|> 90000|> 2500|; s|< 90000|< 2500|' "$1/UserIcons.qml"
+  sed -i 's|return Quickshell.iconPath(name, true)|return "image://icon/" + name|; s|interval: 120000 + Math.random() \* 30000|interval: 4000 + Math.random() * 1000|; s|> 90000|> 2500|; s|< 90000|< 2500|' "$1/UserIcons.qml"
   grep -q 'image://icon/' "$1/UserIcons.qml" || fail "(setup) the lookup wasn't replaced"
-  [[ $(grep -o 'interval: 4000\|[<>] 2500' "$1/UserIcons.qml" | wc -l) == 3 ]] || fail "(setup) the two-minute scan wasn't made a four-second one"
+  [[ $(grep -o 'interval: 4000 + Math.random() \* 1000\|[<>] 2500' "$1/UserIcons.qml" | wc -l) == 3 ]] || fail "(setup) the two-minute scan wasn't made a four-second one"
 }
 cmp -s "$REPO/plugins/overtake.taskbar/UserIcons.qml" "$REPO/plugins/overtake.notification-center/UserIcons.qml" || fail "the two copies of UserIcons.qml differ"
 runqs() {  # runqs <home> <run dir> <seconds> <log>
@@ -90,7 +90,21 @@ early=$(grep -a 'UI early' <<<"$out"); later=$(grep -a 'UI later' <<<"$out")
 (( $(wc -l <"$H/scans") >= 2 )) || fail "the failed scan wasn't asked again: $(wc -l <"$H/scans")"
 pass "an earlier list is used at once; a failed scan answers nothing"
 
-# 3. With the real scan: an icon saved in your folder after the start is drawn from its
+# 3. Three places, one list: after the start, one periodic scan serves all (the
+# others find the list fresh and skip).
+H=$E/home4; R=$E/run4; mkdir -p "$H/.cache/overtake/user-icons" "$R" "$H/go"; chmod 700 "$R"
+printf 'siteclean\tabc.png\n' >"$H/.cache/overtake/user-icons/index"
+cat >"$E/cfg/shell.qml" <<'QML'
+import QtQuick
+import Quickshell
+ShellRoot { UserIcons { } UserIcons { } UserIcons { } }
+QML
+runqs "$H" "$R" 11.5 "$E/log4" || true
+scans=$(wc -l <"$H/scans")
+(( scans >= 5 && scans <= 7 )) || fail "three places ran $scans scans in 11 s (3 at the start, then one or two per period expected)"
+pass "three places share the periodic scan"
+
+# 4. With the real scan: an icon saved in your folder after the start is drawn from its
 # copy once asked for; one that isn't a picture, and one in ~/.icons, are known too.
 if command -v vipsthumbnail >/dev/null; then
   H=$E/home3; R=$E/run3; IC=$H/.local/share/icons/hicolor/256x256/apps; mkdir -p "$IC" "$H/.icons/hicolor/48x48/apps" "$R"; chmod 700 "$R"

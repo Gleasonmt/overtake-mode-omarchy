@@ -427,6 +427,9 @@ Terminal=false
 Categories=System;FileTools;
 DESKTOP
 
+# The first icon scan, so the list the plugins watch is there from the first start.
+"$HOME/.local/bin/overtake" icon-copies >/dev/null 2>&1 || true
+
 # Which version is now installed, for the root plugin (Setup.qml): after
 # `omarchy plugin update` it asks for this installer to be run again. Written
 # last, so an install that stopped halfway still asks, and before the shell
