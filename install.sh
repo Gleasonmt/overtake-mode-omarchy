@@ -114,6 +114,9 @@ Overtake Mode will add (./uninstall.sh removes it, keeping ~/.config/overtake an
   (and it removes six pictures an earlier version put in ~/Pictures/overtake/studio:
   1-mesa-day.png, 2-mesa-night.png, 3-ribbons.png, 4-aurora.png, 5-orbs.png and
   6-sunrise.png, only if each is exactly the file that version shipped)
+  ~/.config/omarchy/backgrounds/<theme>/overtake-hills-day.png
+                                          a link to the day hills for each theme, so
+                                          it's in Omarchy's own Background list too
   ~/.local/state/overtake/, ~/.cache/overtake/
                                           its state (yours only), the Background lists
                                           and stripped copies of theme previews and your icons
@@ -410,7 +413,17 @@ ceb87066830adfcd800d5bec3db4fe347f2270875a4b2c6ef684edef4a5166b5 4-aurora.png
 26667f6f20ae1d4d9c8f8186773cea497a3e64f49e2ec8cba3b6eb491f8deeb5 5-orbs.png
 5e9b3937e42cd7f4ac2e80dd65fca39794cdfdabc85b477097056a97c480181e 6-sunrise.png
 DIGESTS
-say "settings: ~/.config/overtake (existing files kept); wallpapers: ~/Pictures/overtake/{slideshow,studio}"
+# The day hills in Omarchy's own Background list too: a link in each theme's
+# folder for your extra backgrounds (~/.config/omarchy/backgrounds/<theme>/, what
+# Omarchy's picker lists besides the theme's own). A file of yours by that name stays.
+for dir in "${OMARCHY_PATH:-/usr/share/omarchy}/themes"/*/ "$HOME/.config/omarchy/themes"/*/; do
+  [[ -d $dir ]] || continue
+  name=${dir%/}; name=${name##*/}
+  link="$HOME/.config/omarchy/backgrounds/$name/overtake-hills-day.png"
+  [[ -e $link && ! -L $link ]] && continue
+  mkdir -p "${link%/*}" && ln -sfn "$PICTURES/slideshow/1-hills-day.png" "$link"
+done
+say "settings: ~/.config/overtake (existing files kept); wallpapers: ~/Pictures/overtake/{slideshow,studio}, and the day hills in Omarchy's Background list"
 
 # The Recycle Bin as an app, so it can be found in Start, pinned to Start or the
 # taskbar, and added back to the desktop after being removed from it.

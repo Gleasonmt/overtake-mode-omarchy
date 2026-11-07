@@ -48,6 +48,8 @@ Uninstalling Overtake Mode will:
     post-update hook (hooks/post-update.d/overtake.hook),
     ~/.config/omarchy/plugins/overtake.*, its .desktop file,
     ~/.local/share/overtake, ~/.local/state/overtake and ~/.cache/overtake
+  remove its day-hills links from ~/.config/omarchy/backgrounds/<theme>/
+    (overtake-hills-day.png; a folder left empty goes too)
 EOF
 if [[ $PURGE ]]; then
   echo "  delete ~/.config/overtake and ~/Pictures/overtake (--purge)"
@@ -253,6 +255,15 @@ rm -rf "${PLUGINS:?}/overtake.taskbar" "${PLUGINS:?}/overtake.workspaces" \
        "${PLUGINS:?}/overtake.battery" "${PLUGINS:?}/overtake.menubar" "${PLUGINS:?}/overtake.control-center" \
        "${PLUGINS:?}"/.overtake-build.* \
        "$HOME/.local/state/overtake" "${XDG_CACHE_HOME:-$HOME/.cache}/overtake" "$HOME/.local/share/overtake"
+
+# The day-hills links in Omarchy's backgrounds folders: only a link of that name
+# that points at Overtake's picture (or at nothing, once that's gone).
+for link in "$HOME/.config/omarchy/backgrounds"/*/overtake-hills-day.png; do
+  [[ -L $link ]] || continue
+  [[ $link -ef $HOME/Pictures/overtake/slideshow/1-hills-day.png || ! -e $link ]] || continue
+  rm -f "$link"
+  rmdir "${link%/*}" 2>/dev/null || true   # (only if that left it empty)
+done
 
 if [[ $PURGE ]]; then
   if [[ $(readlink -f "${XDG_STATE_HOME:-$HOME/.local/state}/omarchy/current/background" 2>/dev/null) == "$HOME/Pictures/overtake/"* ]]; then

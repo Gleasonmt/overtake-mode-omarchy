@@ -2097,6 +2097,7 @@ bg_picker() {
   for file in "$HOME/.local/state/omarchy/current/theme/backgrounds"/* "$HOME/.config/omarchy/backgrounds/$theme"/*; do
     [[ -f $file && ${file,,} =~ \.(png|jpe?g|webp|gif|bmp|mp4|m4v|mov|webm|mkv|avi)$ ]] || continue   # (what Omarchy 4.5 lists, videos too)
     base=${file##*/}; base=${base%.*}
+    [[ ${file##*/} == overtake-hills-day.png && -L $file ]] && continue   # (install's link: listed as Classic's)
     # a live background pack (linked here from ~/.config/omarchy/live-backgrounds)
     # goes in the Live group under its own name, through the same link
     # (compared with the shell's own -ef: no picture's path in a command line)
