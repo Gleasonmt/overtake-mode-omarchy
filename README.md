@@ -158,7 +158,8 @@ grouped by app, with per-app Show / Quiet / Off and Do Not Disturb.
   follow sunrise and sunset), and an **Overtake Mode** entry in the Omarchy menu.
   A wallpaper you pick yourself stays put; Super+Ctrl+Alt+Space goes back to
   the slideshow.
-- **Every wallpaper in Change background** (the desktop's right-click menu),
+- **Every wallpaper in Change background** (the desktop's right-click menu,
+  and Omarchy's own Background menu and Super+Ctrl+Space while the mode is on),
   named by where it comes from: this theme's own ("Topside Mountain
   View (This Theme, Live)"), the live wallpapers of your other themes
   ("Topside Dusk (Live)"), the Classic and Studio pictures, then every other
