@@ -24,26 +24,23 @@ OVERTAKE_OMARCHY_PLUGINS="$T/src" sbx "$H" env OVERTAKE_OMARCHY_PLUGINS="$T/src"
 ls -A "$H/.config/omarchy/plugins" | grep -q '^\.overtake-build' && fail "a temporary build folder was left behind"
 pass "a patch that no longer fits drops only that copy, cleanly"
 
-# The card's icon, as built: a name goes to Qt's theme lookup and nothing else;
-# a path, or a picture the sender supplies, reaches nothing. (Real Quickshell
-# offscreen resolves no theme, so no file could be decoded there to show this;
-# a crafted file was measured in a real Hyprland session.)
+# The card's icon, as built: every name goes through UserIcons.qml, the same file as
+# the taskbar's, written into the copy; a path, or a picture the sender supplies,
+# reaches nothing. (Real Quickshell offscreen resolves no theme, so no file could be
+# decoded there to show this; a crafted file was measured in a real Hyprland session.)
 fresh_icons="$T/icons"; mkdir -p "$fresh_icons"
 cp -a "$OMARCHY_SRC/notifications/." "$fresh_icons/"
 python3 -I "$REPO/patches/apply.py" notifications "$fresh_icons" >/dev/null || fail "the notifications patch doesn't apply"
+cmp -s "$fresh_icons/UserIcons.qml" "$REPO/plugins/overtake.taskbar/UserIcons.qml" || fail "the copy's UserIcons.qml isn't the taskbar's"
 grep -q 'Util.fileUrl(value)' "$fresh_icons/Toast.qml" && fail "a card still opens an entry's icon by file path"
 grep -q 'Security.localImageUrl(card.row.image)' "$fresh_icons/Toast.qml" && fail "a card still opens a picture a sender names"
-[[ $(grep -c 'Quickshell.iconPath(' "$fresh_icons/Toast.qml") == 1 ]] || fail "a card looks an icon up somewhere other than overtakeIcon"
-node -e '
-const fs = require("fs")
-const m = fs.readFileSync(process.argv[1], "utf8").match(/function overtakeIcon\(name\) \{\n([\s\S]*?)\n  \}\n/)
-const check = (what, ok) => { if (!ok) { console.log("FAIL: " + what); process.exit(1) } }
-check("the card has overtakeIcon", !!m)
-const seen = [], Quickshell = { iconPath: (n, c) => { seen.push(n); return c === true ? "image://icon/" + n : "?" } }
-const icon = n => new Function("Quickshell", "name", m[1])(Quickshell, n)
-for (const bad of ["/tmp/x.png", "/home/me/fifo", "file:///x", "../x", "a/b", "a b", "", null, "x".repeat(200)])
-  check("no icon name: " + String(bad).slice(0, 20), icon(bad) === "")
-check("none of those reached the lookup", !seen.length)
-check("a name is looked up, in the theme only", icon("firefox") === "image://icon/firefox" && seen.join() === "firefox")
-' "$fresh_icons/Toast.qml" || fail "a card's icon by name"
-pass "a card's icon: a name goes to the theme lookup; a path, or a picture the sender names, goes nowhere"
+grep -q 'Quickshell.iconPath(' "$fresh_icons/Toast.qml" && fail "a card looks an icon up itself, not through UserIcons"
+[[ $(grep -c 'card.overtakeIcon(' "$fresh_icons/Toast.qml") == 2 ]] || fail "a card's two lookups don't both go through overtakeIcon"
+grep -q 'return scene ? scene.overtakeIcons.source(name) : ""' "$fresh_icons/Toast.qml" || fail "overtakeIcon doesn't ask the service's UserIcons"
+grep -q 'readonly property UserIcons overtakeIcons: UserIcons {}' "$fresh_icons/Service.qml" || fail "the service has no UserIcons"
+[[ $(grep -c 'Quickshell.iconPath(' "$fresh_icons/UserIcons.qml") == 1 ]] || fail "UserIcons looks up in more than one place"
+# (a plugin that already has the file isn't patched over it)
+taken="$T/icons-taken"; mkdir -p "$taken"; cp -a "$OMARCHY_SRC/notifications/." "$taken/"; : >"$taken/UserIcons.qml"
+rc=0; python3 -I "$REPO/patches/apply.py" notifications "$taken" >/dev/null 2>&1 || rc=$?
+(( rc == 3 )) || fail "a plugin that already has UserIcons.qml was patched over it (exit $rc)"
+pass "a card's icon goes through the taskbar's UserIcons, written into the copy; never a path or a sender's picture"

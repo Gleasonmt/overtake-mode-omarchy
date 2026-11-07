@@ -69,6 +69,28 @@ done
 pass "a disk with no inodes never drops a copy or leaves one half written ($kept_seen of 8 counts failed a build)"
 rm -rf "$P"; cp -a "$T/fresh" "$P"
 
+# An icon scan on a full cache: it says so (non-zero), so the shell doesn't take
+# it for an answer, and the old list stays.
+if command -v vipsthumbnail >/dev/null; then
+  CD="$H/.cache/overtake/user-icons"; IC="$H/.local/share/icons/hicolor/256x256/apps"; mkdir -p "$CD" "$IC"
+  vipsthumbnail "$REPO/preview.png" --size 64x64 -o "$T/small.png" 2>/dev/null
+  cp "$T/small.png" "$IC/one.png"
+  sbx "$H" "$O" icon-copies >"$T/out" 2>&1 || { cat "$T/out"; fail "icon-copies"; }
+  grep -qP '^one\t.' "$CD/index" || fail "(setup) no copy of one.png: $(cat "$CD/index")"
+  cp "$CD/index" "$T/index.before"
+  mount -t tmpfs -o size=64k tmpfs "$CD"
+  cp "$T/index.before" "$CD/index"
+  cp "$T/small.png" "$IC/two.png"
+  dd if=/dev/zero of="$CD/.fill" bs=1k 2>/dev/null || true
+  rc=0; sbx "$H" "$O" icon-copies >"$T/out" 2>&1 || rc=$?
+  (( rc != 0 )) || fail "a scan on a full disk exited 0, so the shell would take it for an answer"
+  cmp -s "$CD/index" "$T/index.before" || fail "a scan on a full disk changed the list"
+  umount "$CD"
+  pass "a scan on a full disk says so and leaves the list as it was"
+else
+  echo "skipped: no vipsthumbnail (a scan on a full disk)"
+fi
+
 # Your own files, through the real installer: at every size they're either as
 # they were, or whole with the block closed, and a failure stops it.
 B="$H/.config/hypr/bindings.lua"

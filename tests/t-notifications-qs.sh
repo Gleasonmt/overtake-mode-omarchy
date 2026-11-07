@@ -72,6 +72,7 @@ must("  id: card\n", """  id: card
     return !!url
   }
   function testPicture() { return thumb.best + " status=" + picture.status }
+  function testSources() { return thumb.sources.join(",") }
 """)
 open(q, "w").write(t)
 PY
@@ -149,6 +150,7 @@ ShellRoot {
         r = "cards=" + svc.testToasts.count + " pictures=" + n + " senders=" + w
       }
       else if (c === "picture") { var d = firstReal(); r = d && svc.testCards[d.key] ? svc.testCards[d.key].testPicture() : "none" }
+      else if (c === "sources") { var e = firstReal(); r = e && svc.testCards[e.key] ? svc.testCards[e.key].testSources() : "none" }
       else if (c === "closeall") svc.clearAll("dismissed", true)
       else if (c === "forgetall") r = IpcRegistry.call("notifications", "forgetAll", []).output
       else if (c === "paneldnd") panel.toggleDnd()
@@ -161,6 +163,13 @@ ShellRoot {
   }
 }
 QML
+# A third build for the card's icon by name: with no theme here every lookup answers
+# nothing, so the copy's UserIcons gets a recorder in place of it.
+cp -a "$E/rootw/." "$E/rooti/"
+for f in "$E/rooti/ov/UserIcons.qml" "$E/rooti/np/UserIcons.qml"; do
+  sed -i 's|return Quickshell.iconPath(name, true)|return "image://icon/" + name|' "$f"
+  grep -q 'image://icon/' "$f" || fail "(setup) the recorder wasn't put into $f"
+done
 cat > "$E/root/shell.qml" <<'QML'
 import QtQuick
 import Quickshell
@@ -242,6 +251,19 @@ done
 # omarchy-shell, asked of the test's shell over two files.
 # (the app's name comes on stdin)
 printf '#!/bin/bash\nprintf "%%s\\n" "overtake $*" >> "%s/clip-argv"\n[[ $1 == notification-open ]] && cat >> "%s/focus-stdin"\nexit 0\n' "$E" "$E" > "$E/bin/overtake"
+# (the scan: a list at once, so names are drawn; the card-icon scenario's waits for a sign and lists two)
+cat >> "$E/bin/overtake" <<'STUB'
+if [[ $1 == icon-copies ]]; then
+  d=$HOME/.cache/overtake/user-icons; mkdir -p "$d"
+  if [[ -e $HOME/cardicon ]]; then
+    until [[ -e $HOME/go ]]; do sleep 0.1; done
+    printf 'siteok\tabc.png\nsitebad\t\n' >"$d/.i"; mv -f "$d/.i" "$d/index"
+  else
+    [[ -e $d/index ]] || : >"$d/index"
+  fi
+fi
+STUB
+sed -i 's/^exit 0$//' "$E/bin/overtake"; echo 'exit 0' >> "$E/bin/overtake"
 chmod +x "$E/bin/overtake"
 cat > "$E/bin/omarchy-shell" <<'STUB'
 #!/bin/bash
@@ -283,6 +305,9 @@ esac
 case $SCEN in
   link*|focus|pathimage|rawclaim|flood*|stall|huge*|entry*|textargv|linkrace|codefail|dndrules|dndsave|rohome|onlyhidden|appmodes|critical|emptylist)
     ROOT=rootw; WAITS=5
+    export QT_QPA_PLATFORM=vnc QT_QUICK_BACKEND=software;;
+  cardicon)
+    ROOT=rooti; WAITS=5; touch "$HOME/cardicon"
     export QT_QPA_PLATFORM=vnc QT_QUICK_BACKEND=software;;
 esac
 ctl() { echo "$1 $(date +%s%N)" > "$HOME/ctl"; sleep "${2:-0.5}"; }
@@ -429,6 +454,20 @@ case $SCEN in
     send --app Evil --summary Fine --actions 1 --empty-list-hint
     allcards 1
     echo "pictures=[$(reply pictures)]"
+    ;;
+  cardicon)   # the icon a card draws, by name: nothing before a scan has listed your folders
+    notify-send -a benign -i siteok Early Early
+    sleep 1; ctl sources; echo "before=[$(reply sources)]"
+    touch "$HOME/go"
+    sleep 2; ctl sources; echo "arrived=[$(reply sources)]"
+    for name in siteok sitebad sysicon /etc/passwd; do
+      ctl closeall 1
+      notify-send -a benign -i "$name" Card Card
+      sleep 1; ctl sources; echo "${name##*/}=[$(reply sources)]"
+    done
+    sleep 5; ctl closeall 1   # (by now a scan has looked for sysicon and not found it)
+    notify-send -a benign -i sysicon Card Card
+    sleep 1; ctl sources; echo "sysiconlater=[$(reply sources)]"
     ;;
   entrybomb|entryfifo)   # an app whose Icon= names a file, and a sender naming that app
     mkdir -p "$HOME/.local/share/applications"
@@ -890,6 +929,18 @@ pass "app names, icons, button text, list hints, variants and structs count too:
 out=$(run_scen emptylist)
 has "$out" pictures '"cards=1 pictures=0 senders=1"' || fail "an empty list hint was counted as too big: $out"
 pass "an empty list hint isn't counted as too big"
+
+# ---- A card's icon by name ----
+out=$(run_scen cardicon)
+[[ $(value "$out" before) != *siteok* && $(value "$out" before) != *looked-up* ]] || fail "a card drew or looked up an icon before the list arrived: $out"
+[[ $(value "$out" arrived) == *overtake/user-icons/abc.png* ]] || fail "a card up when the list arrived didn't get its icon: $out"
+[[ $(value "$out" siteok) == *overtake/user-icons/abc.png* ]] || fail "a card didn't draw the copy of an icon in your folder: $out"
+for name in siteok sitebad; do [[ $(value "$out" $name) != *"image://icon/$name"* ]] || fail "$name reached the lookup: $out"; done
+[[ $(value "$out" sitebad) != *sitebad* ]] || fail "an icon with no copy was drawn: $out"
+[[ $(value "$out" sysicon) != *"image://icon/sysicon"* ]] || fail "a system name was looked up before a scan had looked for it: $out"
+[[ $(value "$out" sysiconlater) == *"image://icon/sysicon"* ]] || fail "a system name wasn't looked up once a scan had looked for it: $out"
+[[ $(value "$out" passwd) != *passwd* ]] || fail "a path reached a card's icon: $out"
+pass "a card draws the copy of an icon in your folder, also when the list arrives late; a system name only after a scan; no copy or a path draws nothing"
 
 # ---- An app whose icon is a file ----
 out=$(run_scen entrybomb)

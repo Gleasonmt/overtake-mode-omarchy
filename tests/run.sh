@@ -35,6 +35,7 @@ run "omarchy mode" bash tests/t-omarchy-mode.sh
 run "your files, byte for byte" bash tests/t-install-files.sh
 run "full disk" bash tests/t-full-disk.sh
 run "root plugin in real Quickshell" bash tests/t-setup-qs.sh
+run "icons in real Quickshell" bash tests/t-usericons-qs.sh
 run "wttr.in limits" bash tests/t-sun-times.sh
 run "private folders" bash tests/t-folders.sh
 run "notification history" bash tests/t-notifications.sh

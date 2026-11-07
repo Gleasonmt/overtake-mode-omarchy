@@ -525,6 +525,96 @@ echo '[{"address":"0xc1","pid":1,"class":"org.omarchy.agent","initialClass":"org
 printf 'kitty\n' | sbx "$H" "$O" notification-open >>"$T/log" 2>&1 || fail "an agent terminal's window wasn't found"
 log_text | grep -aqF 'address:0xc1' || fail "an agent terminal's window wasn't focused"
 pass "a click finds an agent terminal by its first title"
+
+# ---------- Icon copies ----------
+if command -v vipsthumbnail >/dev/null; then
+  real_vips=$(command -v vipsthumbnail)
+  IC="$H/.local/share/icons/hicolor/256x256/apps"; DOT="$H/.icons/mine/48x48/apps"; mkdir -p "$IC" "$DOT"
+  "$real_vips" "$REPO/preview.png" --size 64x64 -o "$T/small.png"
+  cp "$T/small.png" "$IC/siteclean.png"; cp "$T/small.png" "$IC/PRIVATEICONNAME.png"; cp "$T/small.png" "$DOT/dotdir.png"
+  # (XMP in a JPEG: what vips carries over unless told to strip)
+  "$real_vips" "$T/small.png" --size 64x64 -o "$T/ibase.jpg"
+  python3 -I - "$T/ibase.jpg" "$IC/sitenoted.jpg" <<'PY2'
+import struct, sys
+j = open(sys.argv[1], "rb").read()
+xmp = b"http://ns.adobe.com/xap/1.0/\0<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">ICONMARKER</x:xmpmeta>"
+open(sys.argv[2], "wb").write(j[:2] + b"\xff\xe1" + struct.pack(">H", len(xmp) + 2) + xmp + j[2:])
+PY2
+  head -c 3000 /dev/urandom >"$IC/junk.png"
+  mkfifo "$IC/sitefifo.png"
+  stub vipsthumbnail "exec $real_vips \"\$@\""
+  : >"$ARGV_LOG"
+  sbx "$H" "$O" icon-copies >"$T/out" 2>&1 || { cat "$T/out"; fail "icon-copies"; }
+  CD="$H/.cache/overtake/user-icons"
+  idx() { sed -n "s/^$1\t//p" "$CD/index"; }
+  [[ -n $(idx siteclean) && -s $CD/$(idx siteclean) ]] || fail "no copy of a clean icon: $(cat "$CD/index")"
+  [[ -n $(idx dotdir) && -s $CD/$(idx dotdir) ]] || fail "no copy of an icon in ~/.icons: $(cat "$CD/index")"
+  [[ -n $(idx sitenoted) && -s $CD/$(idx sitenoted) ]] || fail "no copy of an icon with metadata: $(cat "$CD/index")"
+  grep -qa ICONMARKER "$CD/$(idx sitenoted)" && fail "an icon's own metadata survived in the copy"
+  python3 -I - "$CD/$(idx sitenoted)" <<'PY2' || fail "a copy holds text or metadata chunks"
+import struct, sys
+d = open(sys.argv[1], "rb").read(); i = 8; bad = []
+while i < len(d):
+    n, kind = struct.unpack(">I4s", d[i:i + 8]); i += n + 12
+    if kind in (b"tEXt", b"zTXt", b"iTXt", b"eXIf", b"iCCP"): bad.append(kind)
+sys.exit(1 if bad else 0)
+PY2
+  grep -q '^junk' "$CD/index" && [[ -z $(idx junk) ]] || fail "a file that isn't a picture got a copy, or isn't listed: $(cat "$CD/index")"
+  grep -qP '^sitefifo\t$' "$CD/index" || fail "a pipe wasn't recorded as having no copy, so it would be looked up: $(cat "$CD/index")"
+  log_text | grep -aq PRIVATEICONNAME && fail "an icon's name was in a command line"
+  log_text >"$T/l"; grep -aq 'vipsthumbnail' "$T/l" || fail "(setup) the child didn't run"
+  grep -q -- '--core=1:' "$T/l" && grep -q -- '--as=1073741824' "$T/l" || fail "the child that reads an icon isn't limited: $(grep -a vipsthumbnail "$T/l" | head -2)"
+  grep -c 'prlimit "${limits\[@\]}" timeout' "$REPO/bin/overtake" | grep -qx 2 || fail "a vips child isn't limited"
+  [[ $(stat -c %a "$CD") == 700 && $(stat -c %a "$CD/index") == 600 ]] || fail "icon copies aren't private"
+  rm -f "$STUB/vipsthumbnail"
+  pass "icons in your folders get stripped copies from a limited child; a non-picture and a pipe get none; no name in a command line"
+
+  # What each scan owes the shell, whatever state it finds
+  H="$T/icons2"; make_home "$H"; CD="$H/.cache/overtake/user-icons"; IC="$H/.local/share/icons/hicolor/256x256/apps"
+  sbx "$H" "$O" icon-copies >"$T/out" 2>&1 || { cat "$T/out"; fail "icon-copies with no folder"; }
+  [[ ! -e $H/.local/share/icons ]] || fail "the scan made a folder under ~/.local/share/icons"
+  [[ -f $CD/index && ! -s $CD/index ]] || fail "no folders: no (empty) list"
+  mkdir -p "$IC"; cp "$T/small.png" "$IC/hardzero.png"
+  sbx "$H" bash -c 'ulimit -c 0; exec "$@"' _ "$O" icon-copies >"$T/out" 2>&1 || { cat "$T/out"; fail "icon-copies with core dumps off"; }
+  [[ -n $(grep -P '^hardzero\t' "$CD/index" | cut -f2) ]] || fail "with core dumps off for good, a plain icon got no copy: $(cat "$CD/index")"
+  ln -s "$T/small.png" "$IC/linked.png"
+  sbx "$H" "$O" icon-copies >"$T/out" 2>&1 || { cat "$T/out"; fail "icon-copies"; }
+  [[ -n $(grep -P '^linked\t' "$CD/index" | cut -f2) ]] || fail "a linked icon wasn't copied, so it would be looked up: $(cat "$CD/index")"
+  cp "$T/small.png" "$IC/lowlimit.png"
+  sbx "$H" bash -c 'ulimit -v 900000; exec "$@"' _ "$O" icon-copies >"$T/out" 2>&1 || { cat "$T/out"; fail "icon-copies under a low memory limit"; }
+  [[ -n $(grep -P '^lowlimit\t' "$CD/index" | cut -f2) ]] || fail "under a low hard memory limit, a plain icon got no copy: $(cat "$CD/index")"
+  : >"$IC/zipped.svgz"
+  sbx "$H" "$O" icon-copies >"$T/out" 2>&1 || { cat "$T/out"; fail "icon-copies"; }
+  grep -qP '^zipped\t' "$CD/index" || fail "a compressed SVG isn't listed, so it would be looked up"
+  # (a failed copy from a full disk, a day ago; what a stopped scan leaves)
+  id=$(sha256sum <<<"retried"); id=${id%% *}; id=${id:0:32}.png
+  cp "$T/small.png" "$IC/retried.png"; touch -d '2 days ago' "$IC/retried.png"; : >"$CD/$id"; touch -d '2 hours ago' "$CD/$id"
+  : >"$CD/.index.left"; : >"$CD/.icon.left"
+  sbx "$H" "$O" icon-copies >"$T/out" 2>&1 || { cat "$T/out"; fail "icon-copies"; }
+  [[ -z $(grep -P '^retried\t' "$CD/index" | cut -f2) ]] || fail "a failed copy was tried again within the day"
+  [[ ! -e $CD/.index.left && ! -e $CD/.icon.left ]] || fail "a scan left what a stopped scan left"
+  touch -d '2 days ago' "$CD/$id"
+  sbx "$H" "$O" icon-copies >"$T/out" 2>&1 || { cat "$T/out"; fail "icon-copies"; }
+  [[ -n $(grep -P '^retried\t' "$CD/index" | cut -f2) ]] || fail "a copy that failed a day ago wasn't tried again"
+  # (a scan whose lock stays busy for a minute says so, and leaves the list; a full disk is in t-full-disk.sh)
+  cp "$CD/index" "$T/index.before"
+  ( flock 9; sleep 65 ) 9>"$CD/.lock" &
+  HOLD=$!; sleep 0.5
+  rc=0; sbx "$H" "$O" icon-copies >"$T/out" 2>&1 || rc=$?
+  kill "$HOLD" 2>/dev/null; wait "$HOLD" 2>/dev/null || true
+  (( rc == 3 )) || fail "a scan whose lock stayed busy exited $rc, not 3"
+  cmp -s "$CD/index" "$T/index.before" || fail "a scan that couldn't run changed the list"
+  # (past the limit: known, so not looked up)
+  H="$T/icons3"; make_home "$H"; CD="$H/.cache/overtake/user-icons"; SC="$H/.local/share/icons/hicolor/scalable/apps"; mkdir -p "$SC"
+  for i in $(seq 501); do : >"$SC/n$i.svg"; done
+  stub vipsthumbnail 'exit 1'
+  sbx "$H" "$O" icon-copies >"$T/out" 2>&1 || { cat "$T/out"; fail "icon-copies"; }
+  rm -f "$STUB/vipsthumbnail"
+  [[ $(wc -l <"$CD/index") == 501 ]] || fail "names past the limit aren't all known: $(wc -l <"$CD/index")"
+  pass "a scan makes no folder of yours; works with core dumps off; knows linked names, ~/.icons and names past the limit; a failed copy is tried again after a day; one that couldn't scan says so"
+else
+  echo "skipped: no vipsthumbnail (icon copies)"
+fi
 # ---------- Modes are kept ----------
 fresh
 LAY="$H/.local/state/omarchy/workspace-layouts"; mkdir -p "$LAY"; printf 'return { default = "floating" }\n' >"$LAY/one.lua"
@@ -739,13 +829,10 @@ pass "bg-picker refuses to print a file name with control characters; apply puts
 
 # ---------- Studio's old pictures ----------
 grep -q '1-mesa-day.png' <<<"$(sbx "$H" ./install.sh --dry-run)" || fail "the install list doesn't mention the old pictures it removes"
-grep -q 'user-icons' <<<"$(sbx "$H" ./install.sh --dry-run)" || fail "the install list doesn't mention the icon copies it removes"
 fresh
 S="$H/Pictures/overtake/studio"
 printf 'my own picture' >"$S/1-mesa-day.png"
-mkdir -p "$H/.cache/overtake/user-icons"; : >"$H/.cache/overtake/user-icons/index"   # (what 0.1.15 kept)
 sbx "$H" ./install.sh --yes >>"$T/log" 2>&1 || { cat "$T/log"; fail "reinstall"; }
-[[ ! -e $H/.cache/overtake/user-icons ]] || fail "install left 0.1.15's icon copies"
 [[ $(<"$S/1-mesa-day.png") == "my own picture" ]] || fail "install removed a picture you made with an old picture's name"
 # (the real pictures aren't in the repository any more: a copy of the installer
 # that knows this test's bytes stands in for them)

@@ -2015,6 +2015,11 @@ theme_previews() {
   done
 }
 
+# Stripped copies of the icons in your own folders, made by a child under limits, and
+# the list a shell plugin draws them from (UserIcons.qml): a name's file is read
+# through a redirect into a numbered temp, so no icon's name is in a command line.
+# Exits non-zero when it couldn't scan (the lock busy for a minute, a full disk), so
+# the shell doesn't take that for an answer.
 # Limits for a child that reads a crafted file. A core limit of 1 stops a piped
 # crash handler where 0 doesn't, but needs a hard limit above 0 to be allowed.
 child_limits() {
@@ -2023,6 +2028,50 @@ child_limits() {
   hard=$(ulimit -Hv)
   [[ $hard == unlimited ]] || (( hard * 1024 >= memory )) || memory=$((hard * 1024))
   printf '%s\n' "--core=$core:" "--as=$memory"
+}
+
+icon_copies() {
+  local dir src name id tmp out seen=" " count=0 limits=() again
+  local -a folders=()
+  dir="${XDG_CACHE_HOME:-$HOME/.cache}/overtake/user-icons"
+  # (where Qt looks under your home: ~/.icons, your data folder, and any data folder of yours)
+  folders=("$HOME/.icons" "${XDG_DATA_HOME:-$HOME/.local/share}/icons")
+  local d; IFS=: read -r -a dirs <<<"${XDG_DATA_DIRS:-}"
+  for d in "${dirs[@]}"; do [[ $d == "$HOME"/* ]] && folders+=("$d/icons"); done
+  mkdir -p -m 700 "$dir"
+  chmod 700 "$dir"
+  mapfile -t limits < <(child_limits)
+  (
+    flock -w 60 9 || exit 3   # (one at a time; the next finds its work done)
+    rm -f "$dir"/.index.* "$dir"/.icon.*     # (what a stopped scan or a full disk left)
+    index=$(mktemp "$dir/.index.XXXXXX") || exit 4
+    while IFS= read -r -d '' src; do
+      name=${src##*/}; name=${name%.*}
+      [[ $name =~ ^[A-Za-z0-9_][A-Za-z0-9_.+-]{0,127}$ && $seen != *" $name "* ]] || continue
+      seen+="$name "
+      # (past the limit, or not a file, a pipe say: known, so never looked up, with no copy)
+      if (( ++count > 500 )) || [[ ! -f $src ]]; then printf '%s\t\n' "$name" >>"$index"; continue; fi
+      id=$(sha256sum <<<"$name"); id=${id%% *}; id=${id:0:32}.png
+      out=$dir/$id
+      # (a file that made no copy is tried again after a day: it may have been a full disk)
+      again=""; [[ -s $out || -z $(find "$out" -mmin +1440 2>/dev/null) ]] || again=1
+      if [[ -n $again || ! $out -nt $src ]]; then
+        tmp=$(mktemp "$dir/.icon.XXXXXX") || exit 4
+        : >"$out.new"
+        # (the type comes from what's in the file; over 32 MB isn't an icon)
+        if head -c 33554433 <"$src" >"$tmp" && (( $(stat -c %s "$tmp") <= 33554432 )) &&
+           ( exec 9>&-; exec env VIPS_CONCURRENCY=1 prlimit "${limits[@]}" timeout 10 vipsthumbnail "$tmp" --size 256x256 -o "$out.new.png[strip]" ) >/dev/null 2>&1; then
+          chmod 600 "$out.new.png"; mv -f "$out.new.png" "$out"
+        else
+          rm -f "$out.new.png"; : >"$out"; chmod 600 "$out"
+        fi
+        rm -f "$tmp" "$out.new"
+      fi
+      [[ -s $out ]] || id=""
+      printf '%s\t%s\n' "$name" "$id" >>"$index"   # (a write that fails ends the scan: set -e)
+    done < <(find "${folders[@]}" -maxdepth 4 ! -type d \( -name '*.png' -o -name '*.svg' -o -name '*.svgz' -o -name '*.jpg' -o -name '*.jpeg' -o -name '*.xpm' \) -print0 2>/dev/null | sort -zrV)
+    chmod 600 "$index"; mv -f "$index" "$dir/index"
+  ) 9>"$dir/.lock"
 }
 
 bg_picker() {
@@ -2167,6 +2216,7 @@ case "${1:-help}" in
   show-desktop) show_desktop ;;
   bg-picker) bg_picker "${2:-}" ;;
   theme-previews) theme_previews ;;
+  icon-copies) icon_copies ;;
   next-wallpaper)
     if [[ ! -f $FLAG ]]; then :
     elif [[ $(wallpaper_mode) == day-night ]] && picked_wallpaper; then apply_day_night   # back from a picked wallpaper

@@ -86,7 +86,10 @@ function check(what, ok) {
     check(`Icon=${String(bad).slice(0, 20)} is no icon name`, !safe(bad))
   for (const good of ["firefox", "org.gnome.Nautilus", "google-chrome", "libreoffice-writer", "gtk+"])
     check(`Icon=${good} is an icon name`, safe(good))
-  check("both plugins use the same UserIcons", fs.readFileSync(path.join(repo, "plugins/overtake.taskbar/UserIcons.qml"), "utf8") === fs.readFileSync(path.join(repo, "plugins/overtake.notification-center/UserIcons.qml"), "utf8"))
+  const userIcons = fs.readFileSync(path.join(repo, "plugins/overtake.taskbar/UserIcons.qml"), "utf8")
+  check("both plugins use the same UserIcons", userIcons === fs.readFileSync(path.join(repo, "plugins/overtake.notification-center/UserIcons.qml"), "utf8"))
+  const embedded = fs.readFileSync(path.join(repo, "patches/apply.py"), "utf8").match(/\nUSER_ICONS_QML = r'''([\s\S]*?)'''\n/)
+  check("the notifications copy gets the same UserIcons", !!embedded && embedded[1] === userIcons)
   // Quickshell.iconPath only with a name written here: any other goes through UserIcons.
   const dirs = ["plugins/overtake.taskbar", "plugins/overtake.menubar", "plugins/overtake.notification-center", "plugins/overtake.control-center"]
   const tables = { "Dock.qml": "icon", "StartMenu.qml": ["icon", "name"] }   // (from their own tables of names)

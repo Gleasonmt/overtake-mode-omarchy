@@ -113,11 +113,10 @@ Overtake Mode will add (./uninstall.sh removes it, keeping ~/.config/overtake an
                                           whose patch no longer fits)
   (and it removes six pictures an earlier version put in ~/Pictures/overtake/studio:
   1-mesa-day.png, 2-mesa-night.png, 3-ribbons.png, 4-aurora.png, 5-orbs.png and
-  6-sunrise.png, only if each is exactly the file that version shipped; and the
-  icon copies 0.1.15 kept in ~/.cache/overtake/user-icons)
+  6-sunrise.png, only if each is exactly the file that version shipped)
   ~/.local/state/overtake/, ~/.cache/overtake/
                                           its state (yours only), the Background lists
-                                          and stripped copies of theme previews
+                                          and stripped copies of theme previews and your icons
 EOF
   cat <<'EOF'
 
@@ -411,7 +410,6 @@ ceb87066830adfcd800d5bec3db4fe347f2270875a4b2c6ef684edef4a5166b5 4-aurora.png
 26667f6f20ae1d4d9c8f8186773cea497a3e64f49e2ec8cba3b6eb491f8deeb5 5-orbs.png
 5e9b3937e42cd7f4ac2e80dd65fca39794cdfdabc85b477097056a97c480181e 6-sunrise.png
 DIGESTS
-rm -rf "${XDG_CACHE_HOME:-${HOME:?}/.cache}/overtake/user-icons"   # (0.1.15's stripped icon copies)
 say "settings: ~/.config/overtake (existing files kept); wallpapers: ~/Pictures/overtake/{slideshow,studio}"
 
 # The Recycle Bin as an app, so it can be found in Start, pinned to Start or the
