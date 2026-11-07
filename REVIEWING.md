@@ -2,7 +2,7 @@
 
 Notes for marketplace reviewers: what the automated baseline will report, where
 to find each thing it points at, and how to check the rest quickly. Line numbers
-are for release v0.1.18.
+are for release v0.1.19.
 
 ## Shape
 
@@ -45,8 +45,8 @@ Precedents: [#13499](https://github.com/omacom/omarchy-plugin-marketplace/issues
 
 ## Install and uninstall
 
-- `install.sh`: `plan()` (line 74) prints every file it will add and every
-  existing file it will change; nothing is written before the prompt (line 135)
+- `install.sh`: `plan()` (line 95) prints every file it will add and every
+  existing file it will change; nothing is written before the prompt (line 156)
   or `--yes`, and it refuses without a terminal. `--dry-run` only prints.
 - **Omarchy mode is Omarchy as it ships.** Overtake's bar, its copies of
   Omarchy's notifications and battery services, its shortcuts, window rules
@@ -171,7 +171,7 @@ Run them yourself (scratch homes, stubbed desktop commands, nothing touches your
 ## Trying it without touching your desktop
 
 ```bash
-git clone --branch v0.1.18 https://github.com/Gleasonmt/overtake-mode-omarchy.git && cd overtake-mode-omarchy
+git clone --branch v0.1.19 https://github.com/Gleasonmt/overtake-mode-omarchy.git && cd overtake-mode-omarchy
 ./install.sh --dry-run                     # the full change list; writes nothing
 scratch=$(mktemp -d)      # a private, empty home to install into
 mkdir -p "$scratch/.config/omarchy" && echo '{}' > "$scratch/.config/omarchy/shell.json"
