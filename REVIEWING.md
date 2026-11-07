@@ -120,7 +120,7 @@ Precedents: [macOS Dock #13499](https://github.com/omacom/omarchy-plugin-marketp
 - **Files:** Overtake's folders (`~/.local/state/overtake`,
   `~/.config/overtake`, `~/.cache/overtake`) are 0700 (a folder you symlinked is left as you set it up), created that way
   before anything is written, and tightened at install and at every start if they've been left open; edits to existing files keep their mode
-  (temp file next to them, then a rename: `replace_file`, `install.sh:179`; a failure stops with a message); no `/tmp` state; the slideshow's saved pid is checked against `/proc/<pid>/cmdline`
+  (temp file next to them, then a rename: `replace_file`, `install.sh:184`; a failure stops with a message); no `/tmp` state; the slideshow's saved pid is checked against `/proc/<pid>/cmdline`
   before it's stopped (`stop_slideshow` :643).
 - **Background work:** in Omarchy mode, none beyond one check at login that the patched copies match the installed Omarchy (and, only if a login notice couldn't be shown, six `overtake status` retries over 60 s), `overtake status` when the Omarchy menu opens, at plugin start, and before each settings write. In Classic and Studio: the mode, the Trash and Do Not Disturb
   (Omarchy's `notifications/history.json` and `quiet.json`) are watched, not

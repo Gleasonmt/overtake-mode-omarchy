@@ -72,10 +72,7 @@ must("  id: card\n", """  id: card
     return !!url
   }
   function testPicture() { return thumb.best + " status=" + picture.status }
-  function testSources() { return thumb.sources.join(",") }
 """)
-# (with no theme here every lookup answers nothing: a recorder shows which names reach it)
-must("Quickshell.iconPath(name, true)", '"looked-up:" + name')
 open(q, "w").write(t)
 PY
 mkdir -p "$E/rootw/np"
@@ -152,7 +149,6 @@ ShellRoot {
         r = "cards=" + svc.testToasts.count + " pictures=" + n + " senders=" + w
       }
       else if (c === "picture") { var d = firstReal(); r = d && svc.testCards[d.key] ? svc.testCards[d.key].testPicture() : "none" }
-      else if (c === "sources") { var e = firstReal(); r = e && svc.testCards[e.key] ? svc.testCards[e.key].testSources() : "none" }
       else if (c === "closeall") svc.clearAll("dismissed", true)
       else if (c === "forgetall") r = IpcRegistry.call("notifications", "forgetAll", []).output
       else if (c === "paneldnd") panel.toggleDnd()

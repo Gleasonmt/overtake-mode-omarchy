@@ -568,6 +568,12 @@ if sbx "$H" ./install.sh --yes >"$T/out" 2>&1; then cat "$T/out"; fail "install 
 grep -q 'has a return outside any function' "$T/out" || { cat "$T/out"; fail "install didn't say why it stopped"; }
 [[ ! -e $H/.local/bin/overtake ]] || fail "install wrote files before stopping at a final return"
 cmp -s "$H/.config/hypr/bindings.lua" "$T/bind" || fail "bindings.lua changed"
+# (one that can't be read isn't one without a return)
+printf 'x = 1\n' >"$H/.config/hypr/bindings.lua"; chmod 000 "$H/.config/hypr/bindings.lua"
+if sbx "$H" ./install.sh --dry-run >"$T/out" 2>&1; then chmod 644 "$H/.config/hypr/bindings.lua"; cat "$T/out"; fail "--dry-run went on past a bindings.lua it can't read"; fi
+chmod 644 "$H/.config/hypr/bindings.lua"
+grep -q "can't be read" "$T/out" || { cat "$T/out"; fail "install didn't say the file can't be read"; }
+grep -q 'Traceback' "$T/out" && fail "an unreadable file printed a traceback"
 while IFS= read -r body; do
   H="$T/ret2"; rm -rf "$H"; make_home "$H"; printf -- "$body" >"$H/.config/hypr/bindings.lua"
   if sbx "$H" ./install.sh --dry-run >"$T/out" 2>&1; then cat "$T/out"; fail "--dry-run missed a top-level return in: $body"; fi
@@ -733,10 +739,13 @@ pass "bg-picker refuses to print a file name with control characters; apply puts
 
 # ---------- Studio's old pictures ----------
 grep -q '1-mesa-day.png' <<<"$(sbx "$H" ./install.sh --dry-run)" || fail "the install list doesn't mention the old pictures it removes"
+grep -q 'user-icons' <<<"$(sbx "$H" ./install.sh --dry-run)" || fail "the install list doesn't mention the icon copies it removes"
 fresh
 S="$H/Pictures/overtake/studio"
 printf 'my own picture' >"$S/1-mesa-day.png"
+mkdir -p "$H/.cache/overtake/user-icons"; : >"$H/.cache/overtake/user-icons/index"   # (what 0.1.15 kept)
 sbx "$H" ./install.sh --yes >>"$T/log" 2>&1 || { cat "$T/log"; fail "reinstall"; }
+[[ ! -e $H/.cache/overtake/user-icons ]] || fail "install left 0.1.15's icon copies"
 [[ $(<"$S/1-mesa-day.png") == "my own picture" ]] || fail "install removed a picture you made with an old picture's name"
 # (the real pictures aren't in the repository any more: a copy of the installer
 # that knows this test's bytes stands in for them)

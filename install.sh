@@ -69,7 +69,10 @@ fi
 lua_top_return() {
   python3 -I - "$1" <<'LUA'
 import re, sys
-text = open(sys.argv[1], encoding="utf-8", errors="replace").read()
+try:
+    text = open(sys.argv[1], encoding="utf-8", errors="replace").read()
+except OSError:
+    sys.exit(2)   # (can't be read: not "no return")
 tokens = re.compile(r"""--\[(=*)\[.*?\]\1\]|--[^\n]*|\[(=*)\[.*?\]\2\]|"(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*'|[A-Za-z_][A-Za-z0-9_]*""", re.S)
 blocks = []
 for token in tokens.finditer(text):
@@ -82,8 +85,9 @@ sys.exit(1)
 LUA
 }
 for file in "$HOME/.config/hypr/bindings.lua" "$HOME/.config/hypr/autostart.lua"; do
-  if [[ -f $file ]] && ! grep -q '>>> overtake' "$file" && lua_top_return "$file"; then
-    die "$file has a return outside any function, and Overtake's lines would have to follow it. Move them above it or remove it, then run this again."
+  if [[ -f $file ]] && ! grep -q '>>> overtake' "$file"; then
+    lua_top_return "$file" && die "$file has a return outside any function, and Overtake's lines would have to follow it. Move them above it or remove it, then run this again."
+    [[ $? != 2 ]] || die "$file can't be read. Fix its permissions, then run this again."
   fi
 done
 
@@ -109,7 +113,8 @@ Overtake Mode will add (./uninstall.sh removes it, keeping ~/.config/overtake an
                                           whose patch no longer fits)
   (and it removes six pictures an earlier version put in ~/Pictures/overtake/studio:
   1-mesa-day.png, 2-mesa-night.png, 3-ribbons.png, 4-aurora.png, 5-orbs.png and
-  6-sunrise.png, only if each is exactly the file that version shipped)
+  6-sunrise.png, only if each is exactly the file that version shipped; and the
+  icon copies 0.1.15 kept in ~/.cache/overtake/user-icons)
   ~/.local/state/overtake/, ~/.cache/overtake/
                                           its state (yours only), the Background lists
                                           and stripped copies of theme previews
@@ -406,6 +411,7 @@ ceb87066830adfcd800d5bec3db4fe347f2270875a4b2c6ef684edef4a5166b5 4-aurora.png
 26667f6f20ae1d4d9c8f8186773cea497a3e64f49e2ec8cba3b6eb491f8deeb5 5-orbs.png
 5e9b3937e42cd7f4ac2e80dd65fca39794cdfdabc85b477097056a97c480181e 6-sunrise.png
 DIGESTS
+rm -rf "${XDG_CACHE_HOME:-${HOME:?}/.cache}/overtake/user-icons"   # (0.1.15's stripped icon copies)
 say "settings: ~/.config/overtake (existing files kept); wallpapers: ~/Pictures/overtake/{slideshow,studio}"
 
 # The Recycle Bin as an app, so it can be found in Start, pinned to Start or the
