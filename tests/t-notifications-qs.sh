@@ -460,7 +460,7 @@ case $SCEN in
     sleep 1; ctl sources; echo "before=[$(reply sources)]"
     touch "$HOME/go"
     sleep 2; ctl sources; echo "arrived=[$(reply sources)]"
-    for name in siteok sitebad sysicon /etc/passwd; do
+    for name in siteok sitebad siteok-x sysicon /etc/passwd; do
       ctl closeall 1
       notify-send -a benign -i "$name" Card Card
       sleep 1; ctl sources; echo "${name##*/}=[$(reply sources)]"
@@ -937,9 +937,9 @@ out=$(run_scen cardicon)
 [[ $(value "$out" siteok) == *overtake/user-icons/abc.png* ]] || fail "a card didn't draw the copy of an icon in your folder: $out"
 for name in siteok sitebad; do [[ $(value "$out" $name) != *"image://icon/$name"* ]] || fail "$name reached the lookup: $out"; done
 [[ $(value "$out" sitebad) != *sitebad* ]] || fail "an icon with no copy was drawn: $out"
-[[ $(value "$out" sysicon) != *"image://icon/sysicon"* ]] || fail "a system name was looked up before a scan had looked for it: $out"
 [[ $(value "$out" sysiconlater) == *"image://icon/sysicon"* ]] || fail "a system name wasn't looked up once a scan had looked for it: $out"
 [[ $(value "$out" passwd) != *passwd* ]] || fail "a path reached a card's icon: $out"
+[[ $(value "$out" siteok-x) != *siteok* ]] || fail "a name whose prefix is in your folder drew something: $out"
 pass "a card draws the copy of an icon in your folder, also when the list arrives late; a system name only after a scan; no copy or a path draws nothing"
 
 # ---- An app whose icon is a file ----

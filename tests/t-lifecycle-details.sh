@@ -529,9 +529,9 @@ pass "a click finds an agent terminal by its first title"
 # ---------- Icon copies ----------
 if command -v vipsthumbnail >/dev/null; then
   real_vips=$(command -v vipsthumbnail)
-  IC="$H/.local/share/icons/hicolor/256x256/apps"; DOT="$H/.icons/mine/48x48/apps"; mkdir -p "$IC" "$DOT"
+  IC="$H/.local/share/icons/hicolor/256x256/apps"; DOT="$H/.icons/hicolor/48x48/apps"; TH="$H/.local/share/icons/Papirus/48x48/apps"; mkdir -p "$IC" "$DOT" "$TH"
   "$real_vips" "$REPO/preview.png" --size 64x64 -o "$T/small.png"
-  cp "$T/small.png" "$IC/siteclean.png"; cp "$T/small.png" "$IC/PRIVATEICONNAME.png"; cp "$T/small.png" "$DOT/dotdir.png"
+  cp "$T/small.png" "$IC/siteclean.png"; cp "$T/small.png" "$IC/PRIVATEICONNAME.png"; cp "$T/small.png" "$DOT/dotdir.png"; cp "$T/small.png" "$TH/themed.png"
   # (XMP in a JPEG: what vips carries over unless told to strip)
   "$real_vips" "$T/small.png" --size 64x64 -o "$T/ibase.jpg"
   python3 -I - "$T/ibase.jpg" "$IC/sitenoted.jpg" <<'PY2'
@@ -548,7 +548,8 @@ PY2
   CD="$H/.cache/overtake/user-icons"
   idx() { sed -n "s/^$1\t//p" "$CD/index"; }
   [[ -n $(idx siteclean) && -s $CD/$(idx siteclean) ]] || fail "no copy of a clean icon: $(cat "$CD/index")"
-  [[ -n $(idx dotdir) && -s $CD/$(idx dotdir) ]] || fail "no copy of an icon in ~/.icons: $(cat "$CD/index")"
+  [[ -n $(idx dotdir) && -s $CD/$(idx dotdir) ]] || fail "no copy of an icon in ~/.icons/hicolor: $(cat "$CD/index")"
+  grep -q '^themed' "$CD/index" && fail "a theme of your own was scanned: $(cat "$CD/index")"
   [[ -n $(idx sitenoted) && -s $CD/$(idx sitenoted) ]] || fail "no copy of an icon with metadata: $(cat "$CD/index")"
   grep -qa ICONMARKER "$CD/$(idx sitenoted)" && fail "an icon's own metadata survived in the copy"
   python3 -I - "$CD/$(idx sitenoted)" <<'PY2' || fail "a copy holds text or metadata chunks"
@@ -562,18 +563,28 @@ PY2
   grep -q '^junk' "$CD/index" && [[ -z $(idx junk) ]] || fail "a file that isn't a picture got a copy, or isn't listed: $(cat "$CD/index")"
   grep -qP '^sitefifo\t$' "$CD/index" || fail "a pipe wasn't recorded as having no copy, so it would be looked up: $(cat "$CD/index")"
   log_text | grep -aq PRIVATEICONNAME && fail "an icon's name was in a command line"
+  log_text | grep -a vipsthumbnail | grep -aqE '[0-9a-f]{32}' && fail "an icon's hashed name was in a command line"
   log_text >"$T/l"; grep -aq 'vipsthumbnail' "$T/l" || fail "(setup) the child didn't run"
   grep -q -- '--core=1:' "$T/l" && grep -q -- '--as=1073741824' "$T/l" || fail "the child that reads an icon isn't limited: $(grep -a vipsthumbnail "$T/l" | head -2)"
   grep -c 'prlimit "${limits\[@\]}" timeout' "$REPO/bin/overtake" | grep -qx 2 || fail "a vips child isn't limited"
   [[ $(stat -c %a "$CD") == 700 && $(stat -c %a "$CD/index") == 600 ]] || fail "icon copies aren't private"
   rm -f "$STUB/vipsthumbnail"
-  pass "icons in your folders get stripped copies from a limited child; a non-picture and a pipe get none; no name in a command line"
+  gone=$CD/$(idx siteclean); rm -f "$IC/siteclean.png"
+  sbx "$H" "$O" icon-copies >"$T/out" 2>&1 || { cat "$T/out"; fail "icon-copies"; }
+  [[ ! -e $gone ]] || fail "a removed icon kept its copy"
+  grep -q '^siteclean' "$CD/index" && fail "a removed icon is still listed"
+  pass "icons in your hicolor folders get stripped copies from a limited child; a non-picture and a pipe get none; a theme of yours is Qt's; no name or hash in a command line; a removed icon's copy goes"
 
   # What each scan owes the shell, whatever state it finds
   H="$T/icons2"; make_home "$H"; CD="$H/.cache/overtake/user-icons"; IC="$H/.local/share/icons/hicolor/256x256/apps"
   sbx "$H" "$O" icon-copies >"$T/out" 2>&1 || { cat "$T/out"; fail "icon-copies with no folder"; }
   [[ ! -e $H/.local/share/icons ]] || fail "the scan made a folder under ~/.local/share/icons"
   [[ -f $CD/index && ! -s $CD/index ]] || fail "no folders: no (empty) list"
+  # (a hicolor that's a link to elsewhere, as a dotfiles manager leaves it)
+  HL="$T/elsewhere/hicolor/48x48/apps"; mkdir -p "$HL" "$H/.local/share/icons"; cp "$T/small.png" "$HL/viaLink.png"; ln -s "$T/elsewhere/hicolor" "$H/.local/share/icons/hicolor"
+  sbx "$H" "$O" icon-copies >"$T/out" 2>&1 || { cat "$T/out"; fail "icon-copies through a link"; }
+  [[ -n $(grep -P '^viaLink\t' "$CD/index" | cut -f2) ]] || fail "an icon behind a linked hicolor got no copy: $(cat "$CD/index")"
+  rm "$H/.local/share/icons/hicolor"
   mkdir -p "$IC"; cp "$T/small.png" "$IC/hardzero.png"
   sbx "$H" bash -c 'ulimit -c 0; exec "$@"' _ "$O" icon-copies >"$T/out" 2>&1 || { cat "$T/out"; fail "icon-copies with core dumps off"; }
   [[ -n $(grep -P '^hardzero\t' "$CD/index" | cut -f2) ]] || fail "with core dumps off for good, a plain icon got no copy: $(cat "$CD/index")"
@@ -611,7 +622,7 @@ PY2
   sbx "$H" "$O" icon-copies >"$T/out" 2>&1 || { cat "$T/out"; fail "icon-copies"; }
   rm -f "$STUB/vipsthumbnail"
   [[ $(wc -l <"$CD/index") == 501 ]] || fail "names past the limit aren't all known: $(wc -l <"$CD/index")"
-  pass "a scan makes no folder of yours; works with core dumps off; knows linked names, ~/.icons and names past the limit; a failed copy is tried again after a day; one that couldn't scan says so"
+  pass "a scan makes no folder of yours; follows a linked hicolor; works with core dumps off; knows linked names and names past the limit; a failed copy is tried again after a day; one that couldn't scan says so"
 else
   echo "skipped: no vipsthumbnail (icon copies)"
 fi

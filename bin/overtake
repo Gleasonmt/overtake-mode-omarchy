@@ -2031,46 +2031,53 @@ child_limits() {
 }
 
 icon_copies() {
-  local dir src name id tmp out seen=" " count=0 limits=() again
-  local -a folders=()
+  local dir src name id tmp out count=0 limits=() again base
+  local -a folders=() dirs=()
+  local -A seen=() keep=()
   dir="${XDG_CACHE_HOME:-$HOME/.cache}/overtake/user-icons"
-  # (where Qt looks under your home: ~/.icons, your data folder, and any data folder of yours)
-  folders=("$HOME/.icons" "${XDG_DATA_HOME:-$HOME/.local/share}/icons")
-  local d; IFS=: read -r -a dirs <<<"${XDG_DATA_DIRS:-}"
-  for d in "${dirs[@]}"; do [[ $d == "$HOME"/* ]] && folders+=("$d/icons"); done
+  # (the hicolor trees under your home, where installers save an app's icon: ~/.icons,
+  # your data folder, any data folder of yours. A whole theme you installed is yours,
+  # like the system's, and Qt draws it itself)
+  IFS=: read -r -a dirs <<<"${XDG_DATA_DIRS:-}"
+  for base in "$HOME/.icons" "${XDG_DATA_HOME:-$HOME/.local/share}/icons" "${dirs[@]/%//icons}"; do
+    [[ $base == "$HOME"/* && -d $base/hicolor ]] && folders+=("$base/hicolor")
+  done
   mkdir -p -m 700 "$dir"
   chmod 700 "$dir"
   mapfile -t limits < <(child_limits)
   (
     flock -w 60 9 || exit 3   # (one at a time; the next finds its work done)
-    rm -f "$dir"/.index.* "$dir"/.icon.*     # (what a stopped scan or a full disk left)
+    rm -f "$dir"/.index.* "$dir"/.icon.* "$dir"/*.new "$dir"/*.new.png     # (what a stopped scan or a full disk left)
     index=$(mktemp "$dir/.index.XXXXXX") || exit 4
-    while IFS= read -r -d '' src; do
-      name=${src##*/}; name=${name%.*}
-      [[ $name =~ ^[A-Za-z0-9_][A-Za-z0-9_.+-]{0,127}$ && $seen != *" $name "* ]] || continue
-      seen+="$name "
-      # (past the limit, or not a file, a pipe say: known, so never looked up, with no copy)
-      if (( ++count > 500 )) || [[ ! -f $src ]]; then printf '%s\t\n' "$name" >>"$index"; continue; fi
-      id=$(sha256sum <<<"$name"); id=${id%% *}; id=${id:0:32}.png
-      out=$dir/$id
-      # (a file that made no copy is tried again after a day: it may have been a full disk)
-      again=""; [[ -s $out || -z $(find "$out" -mmin +1440 2>/dev/null) ]] || again=1
-      if [[ -n $again || ! $out -nt $src ]]; then
-        tmp=$(mktemp "$dir/.icon.XXXXXX") || exit 4
-        : >"$out.new"
-        # (the type comes from what's in the file; over 32 MB isn't an icon)
-        if head -c 33554433 <"$src" >"$tmp" && (( $(stat -c %s "$tmp") <= 33554432 )) &&
-           ( exec 9>&-; exec env VIPS_CONCURRENCY=1 prlimit "${limits[@]}" timeout 10 vipsthumbnail "$tmp" --size 256x256 -o "$out.new.png[strip]" ) >/dev/null 2>&1; then
-          chmod 600 "$out.new.png"; mv -f "$out.new.png" "$out"
-        else
-          rm -f "$out.new.png"; : >"$out"; chmod 600 "$out"
+    if (( ${#folders[@]} )); then
+      while IFS= read -r -d '' src; do
+        name=${src##*/}; name=${name%.*}
+        [[ $name =~ ^[A-Za-z0-9_][A-Za-z0-9_.+-]{0,127}$ && -z ${seen[$name]:-} ]] || continue
+        seen[$name]=1
+        # (past the limit, or not a file, a pipe say: known, so never looked up, with no copy)
+        if (( ++count > 500 )) || [[ ! -f $src ]]; then printf '%s\t\n' "$name" >>"$index"; continue; fi
+        id=$(sha256sum <<<"$name"); id=${id%% *}; id=${id:0:32}.png
+        out=$dir/$id; keep[$id]=1
+        # (a file that made no copy is tried again after a day: it may have been a full disk)
+        again=""; [[ -s $out || -z $(find "$out" -mmin +1440 2>/dev/null) ]] || again=1
+        if [[ -n $again || ! $out -nt $src ]]; then
+          tmp=$(mktemp "$dir/.icon.XXXXXX") || exit 4
+          # (the type comes from what's in the file; over 32 MB isn't an icon; the child
+          # sees only numbered temp names, so neither the name nor its hash is in its argv)
+          if head -c 33554433 <"$src" >"$tmp" && (( $(stat -c %s "$tmp") <= 33554432 )) &&
+             ( exec 9>&-; exec env VIPS_CONCURRENCY=1 prlimit "${limits[@]}" timeout 10 vipsthumbnail "$tmp" --size 256x256 -o "$tmp.png[strip]" ) >/dev/null 2>&1; then
+            chmod 600 "$tmp.png"; mv -f "$tmp.png" "$out"
+          else
+            rm -f "$tmp.png"; : >"$out"; chmod 600 "$out"
+          fi
+          rm -f "$tmp"
         fi
-        rm -f "$tmp" "$out.new"
-      fi
-      [[ -s $out ]] || id=""
-      printf '%s\t%s\n' "$name" "$id" >>"$index"   # (a write that fails ends the scan: set -e)
-    done < <(find "${folders[@]}" -maxdepth 4 ! -type d \( -name '*.png' -o -name '*.svg' -o -name '*.svgz' -o -name '*.jpg' -o -name '*.jpeg' -o -name '*.xpm' \) -print0 2>/dev/null | sort -zrV)
+        [[ -s $out ]] || id=""
+        printf '%s\t%s\n' "$name" "$id" >>"$index"   # (a write that fails ends the scan: set -e)
+      done < <(find -L "${folders[@]}" -maxdepth 5 ! -type d \( -name '*.png' -o -name '*.svg' -o -name '*.svgz' -o -name '*.jpg' -o -name '*.jpeg' -o -name '*.xpm' \) -print0 2>/dev/null | head -z -n 5000 | sort -zrV)
+    fi
     chmod 600 "$index"; mv -f "$index" "$dir/index"
+    for out in "$dir"/*.png; do [[ -n ${keep[${out##*/}]:-} ]] || rm -f "$out"; done   # (an icon that's gone takes its copy with it)
   ) 9>"$dir/.lock"
 }
 
