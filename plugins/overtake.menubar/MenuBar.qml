@@ -44,7 +44,7 @@ Panel {
   readonly property var entry: appId ? (webappEntry(appId) || DesktopEntries.heuristicLookup(appId) || DesktopEntries.byId(appId)) : null
   readonly property string appName: !toplevel ? "Desktop"
     : appId === "org.quickshell" ? "Settings"
-    // foot, Alacritty, Ghostty… all read as "Terminal", the name a Mac shows.
+    // foot, Alacritty, Ghostty… all read as "Terminal", one name for the lot.
     : isTerminal ? "Terminal"
     : entry ? String(entry.name) : (appId || "App")
   readonly property string address: {

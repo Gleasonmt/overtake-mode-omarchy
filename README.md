@@ -40,7 +40,7 @@ workspaces and its shortcuts for them, and puts them back when you switch to Oma
 ## Install
 
 ```bash
-git clone --branch v0.1.17 https://github.com/Gleasonmt/overtake-mode-omarchy.git && cd overtake-mode-omarchy && ./install.sh
+git clone --branch v0.1.18 https://github.com/Gleasonmt/overtake-mode-omarchy.git && cd overtake-mode-omarchy && ./install.sh
 ```
 
 The installer lists every file it will add and every file of yours it will

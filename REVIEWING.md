@@ -2,7 +2,7 @@
 
 Notes for marketplace reviewers: what the automated baseline will report, where
 to find each thing it points at, and how to check the rest quickly. Line numbers
-are for release v0.1.17.
+are for release v0.1.18.
 
 ## Shape
 
@@ -14,7 +14,7 @@ are for release v0.1.17.
   (`patches/apply.py`), the `overtake` command (`bin/overtake`, bash), Hyprland
   Lua (`hypr/`) and an Omarchy menu extension (`menu/`).
 - Because `omarchy plugin add` alone can't set it up, we're asking for
-  `manual-setup`, like [Omarchy to Windows #13475](https://github.com/omacom/omarchy-plugin-marketplace/issues/13475).
+  `manual-setup`, like [#13475](https://github.com/omacom/omarchy-plugin-marketplace/issues/13475).
 
 ## Capabilities the baseline reports
 
@@ -38,8 +38,8 @@ lines). Omarchy runs it as the user near the end of `omarchy update`; it runs
 `overtake resume` (at login) runs the same check, for updates made another
 way. `./uninstall.sh` removes the hook.
 
-Precedents: [macOS Dock #13499](https://github.com/omacom/omarchy-plugin-marketplace/issues/13499)
-(`installer` + `remote-build`), [Omarchy to Windows #13475](https://github.com/omacom/omarchy-plugin-marketplace/issues/13475)
+Precedents: [#13499](https://github.com/omacom/omarchy-plugin-marketplace/issues/13499)
+(`installer` + `remote-build`), [#13475](https://github.com/omacom/omarchy-plugin-marketplace/issues/13475)
 (thin root plugin + installer + `manual-setup`), [StartBar #10918](https://github.com/omacom/omarchy-plugin-marketplace/issues/10918)
 (a Start-menu taskbar desktop).
 
@@ -171,7 +171,7 @@ Run them yourself (scratch homes, stubbed desktop commands, nothing touches your
 ## Trying it without touching your desktop
 
 ```bash
-git clone --branch v0.1.17 https://github.com/Gleasonmt/overtake-mode-omarchy.git && cd overtake-mode-omarchy
+git clone --branch v0.1.18 https://github.com/Gleasonmt/overtake-mode-omarchy.git && cd overtake-mode-omarchy
 ./install.sh --dry-run                     # the full change list; writes nothing
 scratch=$(mktemp -d)      # a private, empty home to install into
 mkdir -p "$scratch/.config/omarchy" && echo '{}' > "$scratch/.config/omarchy/shell.json"
