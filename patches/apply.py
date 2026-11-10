@@ -410,6 +410,25 @@ PATCHES = {
       # in the shell every plugin shares (measured: over a second for 32 KB of "<",
       # for each notification, in stock too). So a body is cut to 8 KB, and "<" no
       # longer restarts the search.
+      # Overtake Mode: the copy takes no command from a notification. Omarchy's
+      # omarchy-exec-argv and omarchy-actions hints (omarchy-notification-send
+      # --exec / --action) run a program when the toast or a button is clicked,
+      # and any sender on the session bus may set them: nothing says who did.
+      # Refused here, at the one place both hints are read, so nothing is stored,
+      # advertised as clickable, run, or shown as a button. The click goes the
+      # toast's other ways: the sender's own action, its window, its site.
+      ("Security.js",
+'''function parseExecArgv(value) {
+  if (Array.isArray(value)) {''',
+'''function parseExecArgv(value) {
+  return null   // Overtake Mode: no command from a hint, whoever sent it (see apply.py)
+  if (Array.isArray(value)) {'''),
+      ("Security.js",
+'''function parseExecActions(value) {
+  var text = String(value || "")''',
+'''function parseExecActions(value) {
+  return null   // Overtake Mode: no buttons from a hint either (see parseExecArgv)
+  var text = String(value || "")'''),
       ("Store.js",
 '''              body: Security.bounded(n.body, Security.MAX_BODY) }''',
 '''              body: Security.bounded(n.body, 8192) }   // Overtake Mode: see apply.py'''),
@@ -517,7 +536,7 @@ PATCHES = {
 '''      var row = Store.restored(rows[i])
       if (!row) continue
       if (!replay && service.overtakeRestoreHeldBack(row)) continue  // Overtake Mode
-      if (replay) { row.execArgv = ""; row.execActions = "" }  // Overtake Mode: a row brought back from the history file has no sender left to vouch for its command
+      row.execArgv = ""; row.execActions = ""  // Overtake Mode: a row read back from a file carries no command either (see Security.js parseExecArgv)
       if (service.overtakeOn && row.urgency === NotificationUrgency.Critical) row.duration = 15000  // Overtake Mode'''),
       # Do Not Disturb has to be known before a card is restored, and the files
       # load in no fixed order. So live.json waits for quiet.json.

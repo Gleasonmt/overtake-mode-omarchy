@@ -206,6 +206,7 @@ ShellRoot {
       else if (c === "cmd") { var fc = svc.testToasts.count ? svc.testToasts.get(0) : null; r = fc ? "argv=[" + fc.execArgv + "] actions=[" + fc.execActions + "]" : "none" }
       else if (c === "clickbutton") { var fb = svc.testToasts.count ? svc.testToasts.get(0) : null; if (fb) svc.runExecAction(fb.key, 0); r = fb ? "clicked" : "none" }
       else if (c === "clickcard") { var fa = svc.testToasts.count ? svc.testToasts.get(0) : null; if (fa) svc.activate(fa.key); r = fa ? "clicked" : "none" }
+      else if (c === "clickable") { var fk = svc.testToasts.count ? svc.testToasts.get(0) : null; r = fk ? "clickable=" + svc.clickable(fk.key) : "none" }
       else if (c === "forgetfirst") {   // the row closed last
         var hist = svc.historyEntries
         r = hist.length ? IpcRegistry.call("notifications", "forget", [String(hist[0].key)]).output : "empty"
@@ -693,6 +694,23 @@ PNG
     echo "marker=[$(cd "$HOME" && ls -d REPLAYED-* 2>/dev/null | tr '\n' ' ')]"
     echo "history=[$(secrets)]"
     ;;
+  livecmd)   # a live sender's --exec command and --action button: the copy takes neither
+    for i in 1 2; do
+      notify-send -a Slack -h "string:omarchy-exec-argv:[\"touch\",\"$HOME/LIVE-MARKER\"]" \
+        -h "string:omarchy-actions:[{\"label\":\"Run\",\"argv\":[\"touch\",\"$HOME/LIVE-BUTTON\"]}]" "Live $i" "SECRET-$i"
+    done
+    sleep 1.5
+    ctl count 0.5
+    echo "count=[$(sed 's/^.*CTL/CTL/' "$E/qs-$SCEN.log" | grep -a '^CTL count' | tail -1)]"
+    ctl cmd 0.5
+    echo "cmd=[$(reply cmd)]"
+    ctl clickable 0.5
+    echo "clickable=[$(reply clickable)]"
+    ctl clickbutton 1     # (two cards: the button on one, a click on the other)
+    ctl clickcard 1.5
+    echo "marker=[$(cd "$HOME" && ls -d LIVE-* 2>/dev/null | tr '\n' ' ')]"
+    echo "history=[$(secrets)]"
+    ;;
   oldlive)   # a card from days ago in live.json
     ctl count 0.5
     echo "count=[$(sed 's/^.*CTL/CTL/' "$E/qs-$SCEN.log" | grep -a '^CTL count' | tail -1)]"
@@ -1061,6 +1079,12 @@ has "$out" count 'CTL count -> "toasts=2"' || fail "the history rows didn't come
 has "$out" cmd '"argv=\[\] actions=\[\]"' || fail "a card brought back from history kept its command or buttons: $out"
 has "$out" marker "" || fail "a card brought back from history ran its command: $out"
 pass "a card brought back from history by Omarchy's shortcut has no command and no buttons, and a click runs nothing"
+out=$(run_scen livecmd)
+has "$out" count 'CTL count -> "toasts=2"' || fail "the live cards with a command didn't arrive: $out"
+has "$out" cmd '"argv=\[\] actions=\[\]"' || fail "a live card kept the sender's command or buttons: $out"
+has "$out" clickable '"clickable=false"' || fail "a live card with only a hinted command counts as clickable: $out"
+has "$out" marker "" || fail "a live card ran the sender's command: $out"
+pass "a live toast takes no command or buttons from a sender's hints, and a click runs nothing"
 out=$(run_scen oldlive)
 has "$out" count 'CTL count -> "toasts=0"' || fail "a card days old was restored: $out"
 has "$out" live "" || fail "a card days old stayed in live.json: $out"
