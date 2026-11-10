@@ -337,7 +337,7 @@ pad() { head -c 2000 /dev/zero | tr '\0' x; }
 fill() { dd if=/dev/zero of="$N/filler" bs=4k 2>/dev/null; sync; }
 [[ $SCEN == oldlive ]] && printf '[{"key":"nold","app":"Signal","summary":"Old","body":"SECRET-1","urgency":1,"ts":%s}]\n' "$(( $(date +%s) - 432000 ))" > "$N/live.json"
 [[ $SCEN == onlyhidden ]] && printf '[{"key":"nhid","app":"omarchy-action","summary":"Done","body":"SECRET-1","urgency":1,"ts":%s,"closed_ts":%s,"closed_reason":"expired"}]\n' "$(date +%s)" "$(date +%s)" > "$H"
-[[ $SCEN == replay ]] && jq -nc --arg home "$HOME" --argjson ts "$(date +%s)" '[{key:"nrep",app:"Slack",summary:"Replayed",body:"SECRET-1",urgency:1,ts:$ts,closed_ts:$ts,closed_reason:"expired",execArgv:(["touch",$home+"/REPLAYED-MARKER"]|tojson),execActions:([{label:"Run",argv:["touch",$home+"/REPLAYED-BUTTON"]}]|tojson)}]' > "$H"
+[[ $SCEN == replay ]] && jq -nc --arg home "$HOME" --argjson ts "$(date +%s)" '[1,2] | map({key:("nrep"+tostring),app:"Slack",summary:"Replayed",body:"SECRET-1",urgency:1,ts:$ts,closed_ts:$ts,closed_reason:"expired",execArgv:(["touch",$home+"/REPLAYED-MARKER"]|tojson),execActions:([{label:"Run",argv:["touch",$home+"/REPLAYED-BUTTON"]}]|tojson)})' > "$H"
 [[ $SCEN == rohome ]] && { : > "$H"; : > "$N/live.json"; : > "$N/quiet.json"; mount --bind "$N" "$N"; mount -o remount,ro,bind "$N" || echo "reply=[(setup) not read-only]"; }
 [[ $SCEN == refused ]] || start
 case $SCEN in
@@ -688,7 +688,7 @@ PNG
     echo "count=[$(sed 's/^.*CTL/CTL/' "$E/qs-$SCEN.log" | grep -a '^CTL count' | tail -1)]"
     ctl cmd 0.5
     echo "cmd=[$(reply cmd)]"
-    ctl clickbutton 1
+    ctl clickbutton 1     # (two rows came back: the button on one card, a click on the other)
     ctl clickcard 1.5
     echo "marker=[$(cd "$HOME" && ls -d REPLAYED-* 2>/dev/null | tr '\n' ' ')]"
     echo "history=[$(secrets)]"
@@ -1057,7 +1057,7 @@ pass "an in-place removal the disk refuses part-way leaves every row in place"
 
 # ---- Cards restored after a restart ----
 out=$(run_scen replay)
-has "$out" count 'CTL count -> "toasts=1"' || fail "the history row didn't come back as a card: $out"
+has "$out" count 'CTL count -> "toasts=2"' || fail "the history rows didn't come back as cards: $out"
 has "$out" cmd '"argv=\[\] actions=\[\]"' || fail "a card brought back from history kept its command or buttons: $out"
 has "$out" marker "" || fail "a card brought back from history ran its command: $out"
 pass "a card brought back from history by Omarchy's shortcut has no command and no buttons, and a click runs nothing"
