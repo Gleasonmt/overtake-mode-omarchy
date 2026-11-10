@@ -276,9 +276,10 @@ Panel {
   // that sent it, brought forward if it's open. Never the command a sender
   // attached (Omarchy's omarchy-exec-argv hint, which any sender on the bus
   // may set, and which Omarchy keeps in the history file): the toast runs
-  // that at the moment it's clicked, with the sender still there; an entry in
-  // this list is read back from the file later, and nothing can tell any more
-  // who put it there. The one thing from the message text is that site's host:
+  // that only on a card that arrived live; an entry in this list is read back
+  // from the file later, and nothing can tell any more who put it there (the
+  // patched copy blanks it the same way on a card Omarchy's history shortcut
+  // brings back). The one thing from the message text is that site's host:
   // Omarchy reads it from the link a browser's message starts with, so any
   // sender naming itself a browser chooses it. A click opens https://<host>/,
   // no path or query, as on the toast. If neither can happen the entry stays

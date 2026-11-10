@@ -202,6 +202,10 @@ ShellRoot {
       }
       else if (c === "reloadlive") svc.overtakeLiveInPlace.reload()   // (its load order at start varies)
       else if (c === "count") r = "toasts=" + svc.testToasts.count
+      else if (c === "showhistory") r = IpcRegistry.call("notifications", "showHistory", []).output   // (Omarchy's history shortcut)
+      else if (c === "cmd") { var fc = svc.testToasts.count ? svc.testToasts.get(0) : null; r = fc ? "argv=[" + fc.execArgv + "] actions=[" + fc.execActions + "]" : "none" }
+      else if (c === "clickbutton") { var fb = svc.testToasts.count ? svc.testToasts.get(0) : null; if (fb) svc.runExecAction(fb.key, 0); r = fb ? "clicked" : "none" }
+      else if (c === "clickcard") { var fa = svc.testToasts.count ? svc.testToasts.get(0) : null; if (fa) svc.activate(fa.key); r = fa ? "clicked" : "none" }
       else if (c === "forgetfirst") {   // the row closed last
         var hist = svc.historyEntries
         r = hist.length ? IpcRegistry.call("notifications", "forget", [String(hist[0].key)]).output : "empty"
@@ -333,6 +337,7 @@ pad() { head -c 2000 /dev/zero | tr '\0' x; }
 fill() { dd if=/dev/zero of="$N/filler" bs=4k 2>/dev/null; sync; }
 [[ $SCEN == oldlive ]] && printf '[{"key":"nold","app":"Signal","summary":"Old","body":"SECRET-1","urgency":1,"ts":%s}]\n' "$(( $(date +%s) - 432000 ))" > "$N/live.json"
 [[ $SCEN == onlyhidden ]] && printf '[{"key":"nhid","app":"omarchy-action","summary":"Done","body":"SECRET-1","urgency":1,"ts":%s,"closed_ts":%s,"closed_reason":"expired"}]\n' "$(date +%s)" "$(date +%s)" > "$H"
+[[ $SCEN == replay ]] && jq -nc --arg home "$HOME" --argjson ts "$(date +%s)" '[{key:"nrep",app:"Slack",summary:"Replayed",body:"SECRET-1",urgency:1,ts:$ts,closed_ts:$ts,closed_reason:"expired",execArgv:(["touch",$home+"/REPLAYED-MARKER"]|tojson),execActions:([{label:"Run",argv:["touch",$home+"/REPLAYED-BUTTON"]}]|tojson)}]' > "$H"
 [[ $SCEN == rohome ]] && { : > "$H"; : > "$N/live.json"; : > "$N/quiet.json"; mount --bind "$N" "$N"; mount -o remount,ro,bind "$N" || echo "reply=[(setup) not read-only]"; }
 [[ $SCEN == refused ]] || start
 case $SCEN in
@@ -676,6 +681,17 @@ PNG
     FILELIMIT= start
     ctl dnd
     echo "restart=[$(secrets)]"
+    ;;
+  replay)   # Omarchy's history shortcut brings the last rows back as cards: without their command or buttons
+    ctl showhistory 1.5
+    ctl count 0.5
+    echo "count=[$(sed 's/^.*CTL/CTL/' "$E/qs-$SCEN.log" | grep -a '^CTL count' | tail -1)]"
+    ctl cmd 0.5
+    echo "cmd=[$(reply cmd)]"
+    ctl clickbutton 1
+    ctl clickcard 1.5
+    echo "marker=[$(cd "$HOME" && ls -d REPLAYED-* 2>/dev/null | tr '\n' ' ')]"
+    echo "history=[$(secrets)]"
     ;;
   oldlive)   # a card from days ago in live.json
     ctl count 0.5
@@ -1040,6 +1056,11 @@ has "$out" restart "SECRET-1 SECRET-2 SECRET-3 " || fail "other rows were lost a
 pass "an in-place removal the disk refuses part-way leaves every row in place"
 
 # ---- Cards restored after a restart ----
+out=$(run_scen replay)
+has "$out" count 'CTL count -> "toasts=1"' || fail "the history row didn't come back as a card: $out"
+has "$out" cmd '"argv=\[\] actions=\[\]"' || fail "a card brought back from history kept its command or buttons: $out"
+has "$out" marker "" || fail "a card brought back from history ran its command: $out"
+pass "a card brought back from history by Omarchy's shortcut has no command and no buttons, and a click runs nothing"
 out=$(run_scen oldlive)
 has "$out" count 'CTL count -> "toasts=0"' || fail "a card days old was restored: $out"
 has "$out" live "" || fail "a card days old stayed in live.json: $out"

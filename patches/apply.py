@@ -517,6 +517,7 @@ PATCHES = {
 '''      var row = Store.restored(rows[i])
       if (!row) continue
       if (!replay && service.overtakeRestoreHeldBack(row)) continue  // Overtake Mode
+      if (replay) { row.execArgv = ""; row.execActions = "" }  // Overtake Mode: a row brought back from the history file has no sender left to vouch for its command
       if (service.overtakeOn && row.urgency === NotificationUrgency.Critical) row.duration = 15000  // Overtake Mode'''),
       # Do Not Disturb has to be known before a card is restored, and the files
       # load in no fixed order. So live.json waits for quiet.json.

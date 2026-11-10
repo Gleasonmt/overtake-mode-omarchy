@@ -130,7 +130,8 @@ grouped by app, with per-app Show / Quiet / Off and Do Not Disturb.
   after 5, critical ones after 15) into the bell at the end of the taskbar, which counts new ones.
   Its panel groups them by app, newest first; open an app to see its
   notifications, click one to open it (the site for a browser's notification, or the app brought
-  forward; a command a script attached to its toast runs only from the toast), or clear one, an app's, or all. It holds what Omarchy keeps: the
+  forward; a command a script attached to its toast runs only while that toast is on screen: a
+  notification brought back from history, in the center or with Omarchy's history shortcut, never runs it), or clear one, an app's, or all. It holds what Omarchy keeps: the
   last 100, for a day from when each closed. The gear opens **Manage**, where each app is set to
   Show, Quiet (still collected, with no pop-ups except verification codes, critical battery alerts, Omarchy's own messages and critical alerts from scripts; temporary notifications still pop up, as they can't be collected) or Off (saved in
   `~/.config/overtake/notifications.json`). Do Not Disturb sits at the bottom. It hides most pop-ups; verification codes, critical battery alerts, Omarchy's own messages and critical alerts from scripts still show, and plain `notify-send` messages and temporary notifications aren't kept.
