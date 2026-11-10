@@ -122,11 +122,10 @@ Panel {
       // past Omarchy's one day: not shown, whatever the file still holds
       if (Number(e.closed_ts || e.ts || 0) < Date.now() / 1000 - 86400) return
       // Omarchy's own "you just did that" toasts (Overtake Mode on, silenced
-      // notifications, ...) are feedback, not something to come back to,
-      // unless they carry an action (a screenshot's "click to edit").
-      if (e.app === "omarchy-action" && !e.execArgv) { hidden.push(e.key); return }
+      // notifications, a screenshot's "click to edit") are feedback for the
+      // moment, not something to come back to: their action is the toast's.
+      if (e.app === "omarchy-action") { hidden.push(e.key); return }
       var entry = Object.assign({}, e)
-      if (entry.app === "omarchy-action") entry.app = "Omarchy"
       // When it arrived, in ms (Omarchy writes seconds; the seen file is ms).
       entry.timestamp = Math.round(Number(e.ts || e.closed_ts || 0) * 1000)
       out.push(entry)
@@ -273,31 +272,20 @@ Panel {
     onTriggered: if (historyProc.running || root.pendingKeys.length) restart(); else root.reload()
   }
 
-  // Like clicking the toast: its own action; for a browser's web notification,
-  // its site; otherwise the app that sent it, brought forward if it's open.
-  // The one thing from the message text is that site's host: Omarchy reads it from
-  // the link a browser's message starts with, so any sender naming itself a browser
-  // chooses it. A click opens https://<host>/, no path or query, as on the toast.
-  // If none of those can happen the
-  // entry stays in the list rather than vanishing for nothing. (Omarchy's toast
-  // also tries the sender's own window first; a stored process id may belong to
-  // another process by now, so the center doesn't use it.)
+  // A click: for a browser's web notification, its site; otherwise the app
+  // that sent it, brought forward if it's open. Never the command a sender
+  // attached (Omarchy's omarchy-exec-argv hint, which any sender on the bus
+  // may set, and which Omarchy keeps in the history file): the toast runs
+  // that at the moment it's clicked, with the sender still there; an entry in
+  // this list is read back from the file later, and nothing can tell any more
+  // who put it there. The one thing from the message text is that site's host:
+  // Omarchy reads it from the link a browser's message starts with, so any
+  // sender naming itself a browser chooses it. A click opens https://<host>/,
+  // no path or query, as on the toast. If neither can happen the entry stays
+  // in the list rather than vanishing for nothing. (Omarchy's toast also tries
+  // the sender's own window first; a stored process id may belong to another
+  // process by now, so the center doesn't use it.)
   function activate(entry) {
-    // The toast's own action, checked and run exactly as Omarchy's own
-    // notifications do (an argv of strings, through a login shell's PATH).
-    // (Omarchy's parseExecArgv: up to 32 strings of up to 4096 characters,
-    // no NUL, not starting with an option)
-    var argv = null, raw = String(entry.execArgv || "")
-    if (raw.length <= 32768) try { argv = JSON.parse(raw) } catch (e) {}
-    var valid = Array.isArray(argv) && argv.length > 0 && argv.length <= 32
-      && argv.every(function(a) { return typeof a === "string" && a.length <= 4096 && a.indexOf("\u0000") === -1 })
-      && argv[0] !== "" && argv[0].charAt(0) !== "-"
-    if (valid) {
-      Quickshell.execDetached(["bash", "-lc", 'exec "$@"', "bash"].concat(argv))
-      remove(entry)
-      close()
-      return
-    }
     var host = webHost(entry)
     if (host) {
       Qt.openUrlExternally("https://" + host + "/")

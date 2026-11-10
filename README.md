@@ -40,7 +40,7 @@ workspaces and its shortcuts for them, and puts them back when you switch to Oma
 ## Install
 
 ```bash
-git clone --branch v0.1.19 https://github.com/Gleasonmt/overtake-mode-omarchy.git && cd overtake-mode-omarchy && ./install.sh
+git clone --branch v0.1.20 https://github.com/Gleasonmt/overtake-mode-omarchy.git && cd overtake-mode-omarchy && ./install.sh
 ```
 
 The installer lists every file it will add and every file of yours it will
@@ -129,8 +129,8 @@ grouped by app, with per-app Show / Quiet / Off and Do Not Disturb.
 - **Notification center** — toasts slide off after 10 seconds (low-urgency ones
   after 5, critical ones after 15) into the bell at the end of the taskbar, which counts new ones.
   Its panel groups them by app, newest first; open an app to see its
-  notifications, click one to act on it (runs its action, opens the site for a browser's notification,
-  or brings the app forward), or clear one, an app's, or all. It holds what Omarchy keeps: the
+  notifications, click one to open it (the site for a browser's notification, or the app brought
+  forward; a command a script attached to its toast runs only from the toast), or clear one, an app's, or all. It holds what Omarchy keeps: the
   last 100, for a day from when each closed. The gear opens **Manage**, where each app is set to
   Show, Quiet (still collected, with no pop-ups except verification codes, critical battery alerts, Omarchy's own messages and critical alerts from scripts; temporary notifications still pop up, as they can't be collected) or Off (saved in
   `~/.config/overtake/notifications.json`). Do Not Disturb sits at the bottom. It hides most pop-ups; verification codes, critical battery alerts, Omarchy's own messages and critical alerts from scripts still show, and plain `notify-send` messages and temporary notifications aren't kept.

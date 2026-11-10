@@ -329,12 +329,24 @@ for (const how of ["open", "commit"]) {
   P.clearAll()
   check("the center's Clear all asks the service for forgetAll", P.historyProc.running && P.historyProc.command.join(" ") === "omarchy-shell notifications forgetAll" && P.entries.length === 0)
   const calls = []
-  const Q = { execDetached: () => calls.push("exec"), openProc: { running: false, set command(v) { calls.push("window") } },
+  const Q = { execDetached: () => calls.push("exec"),
+              openProc: { entry: null, name: "", stdinEnabled: false, get running() { return false }, set running(v) { if (v) calls.push("window") } },
               remove: () => calls.push("remove"), close: () => {}, Qt: { openUrlExternally: u => calls.push("site " + u) },
               Quickshell: { execDetached: () => calls.push("exec") } }
   Q.webHost = new Function("return (" + extract(panel, "webHost") + ")")()
-  new Function("Q", "with (Q) { return (" + extract(panel, "activate") + ") }")(Q)({ app: "Chromium", groupKey: "web:slack.com", execArgv: "" })
+  const activate = new Function("Q", "with (Q) { return (" + extract(panel, "activate") + ") }")(Q)
+  activate({ app: "Chromium", groupKey: "web:slack.com", execArgv: "" })
   check("a web notification opens its site, not the browser's window", calls[0] === "site https://slack.com/" && !calls.includes("window"))
+  // A command a sender attached (Omarchy's omarchy-exec-argv hint, kept in
+  // the history file) is never run from the center: the entry is opened like
+  // any other, by its site or its app's window.
+  calls.length = 0
+  activate({ app: "Chromium", groupKey: "web:slack.com", execArgv: JSON.stringify(["touch", "/tmp/pwned"]) })
+  activate({ app: "Slack", groupKey: "Slack", execArgv: JSON.stringify(["touch", "/tmp/pwned"]) })
+  check("a stored command is never run from the center", !calls.includes("exec") && calls[0] === "site https://slack.com/" && calls.includes("window"))
+  check("the center has no exec path for a notification's command",
+    !/\.execArgv|parseExecArgv|"-lc"|exec "\$@"/.test(panel)
+    && (panel.match(/execDetached\(/g) || []).length === 1 && /execDetached\(\["omarchy-shell", "notifications", "setDnd"/.test(panel))
 }
 // 4c. The minute-later check reads at most a code's length of the clipboard.
 check("the clipboard check is capped at a code's length", /wl-paste --no-newline 2>\/dev\/null \| head -c 65/.test(svc) && !/command: \["wl-paste"/.test(svc))
@@ -350,6 +362,12 @@ check("the clipboard check is capped at a code's length", /wl-paste --no-newline
     { key: "n2", app: "Signal", ts: now - 90000, closed_ts: now - 89000 },
   ]))
   check("the center leaves out an entry closed more than a day ago", shown.length === 1 && shown[0].key === "n1")
+  const feedback = parseHistory(JSON.stringify([
+    { key: "f1", app: "omarchy-action", summary: "Screenshot", execArgv: JSON.stringify(["touch", "/tmp/pwned"]), ts: now - 60, closed_ts: now - 30 },
+    { key: "f2", app: "omarchy-action", summary: "Done", ts: now - 60, closed_ts: now - 30 },
+    { key: "n3", app: "Signal", ts: now - 60, closed_ts: now - 30 },
+  ]))
+  check("Omarchy's own feedback rows aren't listed, with or without a command", feedback.length === 1 && feedback[0].key === "n3" && root.lastHiddenKeys.join() === "f1,f2")
   const capped = parseHistory
   const many = n => Array.from({ length: n }, (_, i) => ({ key: "n" + i, app: "A", ts: now - 60, closed_ts: now - 30 }))
   check("the center doesn't parse a history file past Omarchy's size limit", capped(" ".repeat(limits.historyMaxChars) + JSON.stringify(many(1))).length === 0)
