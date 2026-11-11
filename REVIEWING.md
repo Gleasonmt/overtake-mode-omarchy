@@ -67,8 +67,8 @@ Precedents: [#13499](https://github.com/omacom/omarchy-plugin-marketplace/issues
   service can take entries out (the notification center's remove and Clear
   all); per-app Show / Quiet / Off and the 15-second critical toasts hook into
   its delivery code; and Overtake's battery alerts cover each device instead
-  of Omarchy's single 10% warning. The notifications patch changes four files,
-  `Service.qml`, `Toast.qml`, `Store.js` and `Icons.js`. The copies
+  of Omarchy's single 10% warning. The notifications patch changes five files,
+  `Service.qml`, `Toast.qml`, `Store.js`, `Security.js` and `Icons.js`. The copies
   are built from the installed Omarchy by exact replacements
   (`patches/apply.py`, `build_copies` in `bin/overtake:283`), at install and
   again after every `omarchy update` (the hook above; the shell reloads a changed plugin folder by itself) and at login, so they follow Omarchy's code. If a patch no longer fits, that copy is removed, Omarchy's own is switched back on until an Overtake update supports that Omarchy (through the shell only if it lists the copy, otherwise in `shell.json`, and `overtake resume` repairs a stale one at login), and a notification says so (held until the shell can show it, if it isn't up yet). The copies are enabled only while Classic
@@ -118,9 +118,16 @@ Precedents: [#13499](https://github.com/omacom/omarchy-plugin-marketplace/issues
   its site, its app by name). A row read back from either file is blanked as
   well (`restoreRows`), for files written before this version, including
   the cards Omarchy's history shortcut brings back (`notifications.showHistory`).
-  Omarchy's own `--exec` toasts are its first-run setup notices
-  (`install/user/first-run/*`), sent before a plugin can be installed;
-  nothing in Omarchy uses `--action`; Overtake sends neither. The
+  Omarchy itself sends `--exec` toasts from `install/user/first-run/*`: the
+  welcome, git, Wi-Fi and update notices at first login, and two of those
+  files installed as post-update hooks (`setup-agent.hook`,
+  `setup-fingerprint.hook`, each once per account, on a later
+  `omarchy update`), so one can arrive while Overtake is installed; in
+  Classic or Studio its click only dismisses the card, and the same setup
+  is reached by the commands the hooks name (`omarchy menu summon
+  setup.default.agent`, `omarchy-setup-security-fingerprint`); in the
+  README's Known limits. Nothing in Omarchy 4.5.0 uses `--action`; Overtake
+  sends neither. The
   notification center's `activate` has no exec path at all
   (`notification-center/Panel.qml`), and Omarchy's own feedback rows,
   `omarchy-action`, are not listed there. A browser's web notification (Omarchy's `web:<host>` group, a plain hostname only) opens `https://<host>/` through `Qt.openUrlExternally`; otherwise the sender's open window comes forward (`notification_open` :1377, its app name on stdin, matched as plain text, on the center and on toasts). Omarchy's toast tries the sender's window first, which the center doesn't use: a stored process id may belong to another process by now. In the center, the only thing taken from the message text is that site's host: Omarchy reads it from the link a browser's message starts with, and any sender can name itself a browser, so one click opens `https://<host>/` of a sender's choosing, with no path or query, as Omarchy's toast does. Nothing is launched from the text. On a toast, a link in the text goes to the clipboard whole, and only `https://<host>/` opens; an email address is only copied.
