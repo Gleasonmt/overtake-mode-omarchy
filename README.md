@@ -371,11 +371,17 @@ then `omarchy plugin remove gleasonmt.overtake-mode`. Until the plugin is remove
 
 ## Known limits
 
-- Omarchy's own click-to-run notifications (its first-login notices, and the
-  default-agent and fingerprint invitations an update can send once) don't
-  run their command while Classic or Studio is on, as no notification's
-  attached command does; the click dismisses the card, and the same setup is
-  reached from Omarchy's menu.
+- While Classic or Studio is on, no notification's attached command runs,
+  Omarchy's own included, since nothing can tell who attached it. So these
+  clicks and buttons only dismiss the card: a crash notice's click to
+  diagnose (run `omarchy-agent-crash` from the terminal, or Omarchy's menu's
+  Agent); a pending migration's click (`omarchy-migrate`); a kernel switch's
+  click to reboot or retry (`omarchy-system reboot`, `omarchy-kernel`); a file
+  received over Tailscale (open it from your files); the Open and Cut buttons
+  on a saved screen recording or a finished download (open the file from
+  Videos or Downloads, or in Omacut); the agent account notices; and the
+  first-login notices and the default-agent invitation an update can send
+  once (Omarchy's menu, Setup).
 - Apps that draw their own title bar and can't hide it (Discord's desktop app,
   for one) keep their own buttons; listed in `no-controls.txt`.
 - Dragging such an app by its own title area snaps when you hold still over a

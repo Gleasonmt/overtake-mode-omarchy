@@ -118,16 +118,23 @@ Precedents: [#13499](https://github.com/omacom/omarchy-plugin-marketplace/issues
   its site, its app by name). A row read back from either file is blanked as
   well (`restoreRows`), for files written before this version, including
   the cards Omarchy's history shortcut brings back (`notifications.showHistory`).
-  Omarchy itself sends `--exec` toasts from `install/user/first-run/*`: the
-  welcome, git, Wi-Fi and update notices at first login, and two of those
-  files installed as post-update hooks (`setup-agent.hook`,
-  `setup-fingerprint.hook`, each once per account, on a later
-  `omarchy update`), so one can arrive while Overtake is installed; in
-  Classic or Studio its click only dismisses the card, and the same setup
-  is reached by the commands the hooks name (`omarchy menu summon
-  setup.default.agent`, `omarchy-setup-security-fingerprint`); in the
-  README's Known limits. Nothing in Omarchy 4.5.0 uses `--action`; Overtake
-  sends neither. The
+  Omarchy's own commands use both hints in ordinary use (its commands are
+  in `/usr/bin`; the `bin/` entries under `/usr/share/omarchy` are links to
+  them), and while the copy is active (Classic or Studio on) those toasts
+  lose their click or buttons, the click only dismissing the card: the
+  crash notice's click to diagnose (`omarchy-crash-watch`, on every crash),
+  a pending migration's click to run it (`omarchy-migrate-notify`), a
+  kernel switch's click to reboot or to retry (`omarchy-kernel`), a file
+  received over Tailscale's click to open it (`omarchy-tailscale-receive`),
+  an agent account notice's click (`omarchy-agent-account-state`), the
+  Open and Cut buttons on a saved screen recording
+  (`omarchy-capture-screenrecording`) and on a finished download
+  (`omarchy-chromium-ytdlp-host`), and the first-login notices
+  (`install/user/first-run/*`, one of which, `setup-agent.hook`, a
+  migration also installs as a post-update hook that invites once per
+  account). Listed in the README's Known limits, with where to do the same
+  thing. An allowlist of those commands would not help: any sender on the
+  bus could name them. Overtake sends neither hint. The
   notification center's `activate` has no exec path at all
   (`notification-center/Panel.qml`), and Omarchy's own feedback rows,
   `omarchy-action`, are not listed there. A browser's web notification (Omarchy's `web:<host>` group, a plain hostname only) opens `https://<host>/` through `Qt.openUrlExternally`; otherwise the sender's open window comes forward (`notification_open` :1377, its app name on stdin, matched as plain text, on the center and on toasts). Omarchy's toast tries the sender's window first, which the center doesn't use: a stored process id may belong to another process by now. In the center, the only thing taken from the message text is that site's host: Omarchy reads it from the link a browser's message starts with, and any sender can name itself a browser, so one click opens `https://<host>/` of a sender's choosing, with no path or query, as Omarchy's toast does. Nothing is launched from the text. On a toast, a link in the text goes to the clipboard whole, and only `https://<host>/` opens; an email address is only copied.
