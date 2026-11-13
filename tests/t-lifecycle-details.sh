@@ -838,6 +838,37 @@ sbx "$H" "$O" bg-picker apply >"$T/out" 2>&1 || { cat "$T/out"; fail "bg-picker 
 stub omarchy-menu-images
 pass "bg-picker refuses to print a file name with control characters; apply puts one up without printing"
 
+# ---------- The picker's previews ----------
+# Omarchy's picker writes a preview of every listed picture into its own cache,
+# at the umask it runs under. The stub does what its writer does: a plain write.
+fresh
+echo mine >"$H/.local/state/omarchy/current/theme.name"
+IS="$H/.cache/omarchy/image-selector"
+(umask 022; mkdir -p "$IS")            # Omarchy's own folder, as Omarchy makes it: 0755
+printf 'private' >"$H/Pictures/overtake/slideshow/mine.png"
+stub omarchy-menu-images 'd="$HOME/.cache/omarchy/image-selector"; mkdir -p "$d"; printf preview >"$d/new.jpg"; : >"$d/new.jpg.lock"
+echo "$HOME/.cache/overtake/bg-picker/3-overtake/Classic: Picture 1.png"'
+# previews an earlier version left at 0644: of one of Overtake's entries, of
+# one of Omarchy's own, and one that is a link (by Omarchy's index)
+old=0123456789abcdef0123456789abcdef; omarchys=fedcba9876543210fedcba9876543210; linked=00000000000000000000000000000000
+printf 'old preview' >"$IS/$old.jpg"; printf 'omarchy preview' >"$IS/$omarchys.jpg"; printf 'target' >"$H/target.jpg"
+ln -s "$H/target.jpg" "$IS/$linked.jpg"
+chmod 644 "$IS/$old.jpg" "$IS/$omarchys.jpg" "$H/target.jpg"
+printf '%s\t7:1\t%s\n' "$H/.cache/overtake/bg-picker/3-overtake/Classic: Picture 1.png" "$old" \
+  "$H/.config/omarchy/backgrounds/mine/x.png" "$omarchys" "$H/.cache/overtake/bg-picker/1-theme/Mine.png" "$linked" >"$IS/index.tsv"
+(umask 022; sbx "$H" "$O" bg-picker cache >"$T/out" 2>&1) || { cat "$T/out"; fail "bg-picker cache"; }
+[[ -f $IS/new.jpg ]] || fail "the stub picker made no preview"
+[[ $(stat -c %a "$IS/new.jpg") == 600 ]] || fail "a preview the picker makes for Overtake's list is $(stat -c %a "$IS/new.jpg"): other accounts can read it"
+[[ $(stat -c %a "$IS/$old.jpg") == 600 ]] || fail "a preview of one of Overtake's entries left at 0644 by an earlier version stays at $(stat -c %a "$IS/$old.jpg")"
+[[ $(stat -c %a "$IS/$omarchys.jpg") == 644 ]] || fail "a preview of Omarchy's own list was touched"
+[[ -L $IS/$linked.jpg && $(stat -c %a "$H/target.jpg") == 644 ]] || fail "a link in Omarchy's cache was followed"
+rm -f "$IS/new.jpg"; chmod 644 "$IS/$old.jpg"
+(umask 022; sbx "$H" "$O" bg-picker >"$T/out" 2>&1) || { cat "$T/out"; fail "bg-picker"; }
+[[ $(<"$T/out") == "$H/Pictures/overtake/slideshow/mine.png" ]] || { cat "$T/out"; fail "bg-picker printed something else"; }
+[[ $(stat -c %a "$IS/new.jpg") == 600 && $(stat -c %a "$IS/$old.jpg") == 600 ]] || fail "opening the picker leaves a preview readable: new $(stat -c %a "$IS/new.jpg"), old $(stat -c %a "$IS/$old.jpg")"
+stub omarchy-menu-images
+pass "the picker's previews of your pictures are 0600, new ones and ones an earlier version left at 0644; Omarchy's own and a link are left alone"
+
 # ---------- Studio's old pictures ----------
 grep -q '1-mesa-day.png' <<<"$(sbx "$H" ./install.sh --dry-run)" || fail "the install list doesn't mention the old pictures it removes"
 fresh

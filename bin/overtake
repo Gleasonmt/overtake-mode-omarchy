@@ -1933,6 +1933,27 @@ pretty_name() {  # topside-mountain-view -> Topside Mountain View
   echo "${out[*]}"
 }
 
+# Omarchy's picker makes a preview of each picture in its own cache
+# (`~/.cache/omarchy/image-selector`, a 0755 folder), as it does for Omarchy's
+# own Background menu, with `vipsthumbnail` at the usual umask: 0644. For a
+# picture of yours that's a copy other accounts could read. So here the picker
+# runs under umask 077 (the preview makers it starts inherit it), and previews
+# an earlier version left open are tightened before it runs: Omarchy's index
+# (`index.tsv`: entry path, size and time, preview name) says which preview was
+# made from which entry, and every entry of Overtake's list is under its own
+# folder. Nothing else in Omarchy's cache is touched.
+bg_tighten_previews() {  # bg_tighten_previews <list folder>: its entries' previews to 0600
+  local dir="${XDG_CACHE_HOME:-$HOME/.cache}/omarchy/image-selector" index name file files=()
+  index="$dir/index.tsv"
+  [[ -f $index && ! -L $index && -O $index ]] || return 0
+  while IFS= read -r name; do
+    file="$dir/$name.jpg"
+    [[ -f $file && ! -L $file && -O $file ]] && files+=("$file")
+  done < <(OV_LIST="$1/" awk -F '\t' 'BEGIN { p = ENVIRON["OV_LIST"] } index($1, p) == 1 && $3 ~ /^[0-9a-f]+$/ { print $3 }' "$index" 2>/dev/null | sort -u)
+  (( ${#files[@]} )) && chmod 600 -- "${files[@]}" 2>/dev/null
+  return 0
+}
+
 bg_link() {  # bg_link <group dir> <name> <file>: one entry for the list
   local link="$1/${2//\//-}.${3##*.}"   # (a / in a theme's name stays in the folder)
   BG_WANT[$link]=$3
@@ -2175,12 +2196,13 @@ bg_picker() {
   esac
   local groups=("$cache/1-theme" "$cache/2-live" "$cache/3-overtake" "$cache/4-themes")
   bg_link_all "${groups[@]}"
+  bg_tighten_previews "$cache"   # (and the picker runs under umask 077 below: see bg_tighten_previews)
   if [[ ${1:-} == cache ]]; then
-    omarchy-menu-images --cache-only "${groups[@]}" >/dev/null 2>&1 || true
+    (umask 077; omarchy-menu-images --cache-only "${groups[@]}") >/dev/null 2>&1 || true
     return 0
   fi
   local picked
-  picked=$(omarchy-menu-images --show-labels --lazy-thumbnails --selected "$BG_SELECTED" "${groups[@]}") || return 0
+  picked=$(umask 077; omarchy-menu-images --show-labels --lazy-thumbnails --selected "$BG_SELECTED" "${groups[@]}") || return 0
   [[ -n $picked ]] || return 0
   picked=${BG_WANT[$picked]:-$picked}
   # `bg-picker apply` (the desktop's Change background) puts it up itself
