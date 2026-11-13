@@ -345,7 +345,7 @@ picker makes of your pictures when you open Change background: they go into
 Omarchy's own cache (`~/.cache/omarchy/image-selector`), a folder other
 accounts can look into, so Overtake runs the picker with a 077 umask, and
 previews of its pictures that a version before 0.1.22 left readable are
-made yours only the next time you open it.
+made yours only at install, at login and when you next open it.
 
 What it reads on your machine, and keeps there:
 

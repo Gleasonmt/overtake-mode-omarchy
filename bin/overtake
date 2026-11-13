@@ -1941,15 +1941,18 @@ pretty_name() {  # topside-mountain-view -> Topside Mountain View
 # an earlier version left open are tightened before it runs: Omarchy's index
 # (`index.tsv`: entry path, size and time, preview name) says which preview was
 # made from which entry, and every entry of Overtake's list is under its own
-# folder. Nothing else in Omarchy's cache is touched.
-bg_tighten_previews() {  # bg_tighten_previews <list folder>: its entries' previews to 0600
+# folder. Nothing else in Omarchy's cache is touched. Run at install and at
+# login (`resume`) as well, so an upgrade doesn't wait for the picker to be
+# opened (`tighten-previews`, below).
+bg_tighten_previews() {  # bg_tighten_previews [<list folder>]: its entries' previews to 0600
   local dir="${XDG_CACHE_HOME:-$HOME/.cache}/omarchy/image-selector" index name file files=()
+  local list=${1:-${XDG_CACHE_HOME:-$HOME/.cache}/overtake/bg-picker}
   index="$dir/index.tsv"
   [[ -f $index && ! -L $index && -O $index ]] || return 0
   while IFS= read -r name; do
     file="$dir/$name.jpg"
     [[ -f $file && ! -L $file && -O $file ]] && files+=("$file")
-  done < <(OV_LIST="$1/" awk -F '\t' 'BEGIN { p = ENVIRON["OV_LIST"] } index($1, p) == 1 && $3 ~ /^[0-9a-f]+$/ { print $3 }' "$index" 2>/dev/null | sort -u)
+  done < <(OV_LIST="$list/" awk -F '\t' 'BEGIN { p = ENVIRON["OV_LIST"] } index($1, p) == 1 && $3 ~ /^[0-9a-f]+$/ { print $3 }' "$index" 2>/dev/null | sort -u)
   (( ${#files[@]} )) && chmod 600 -- "${files[@]}" 2>/dev/null
   return 0
 }
@@ -2257,6 +2260,7 @@ case "${1:-help}" in
   resume-wallpaper) [[ ${2:-} == refresh ]] && refresh_wallpaper; start_slideshow ;;   # internal: after a look change
   show-desktop) show_desktop ;;
   bg-picker) bg_picker "${2:-}" ;;
+  tighten-previews) bg_tighten_previews ;;   # (install runs it; see bg_tighten_previews)
   theme-previews) theme_previews ;;
   icon-copies) icon_copies ;;
   next-wallpaper)
@@ -2270,6 +2274,7 @@ case "${1:-help}" in
     # update` (a plain system upgrade): rebuilt at login if Omarchy's code changed.
     build_copies update >/dev/null 2>&1 || true
     repair_stale_copies
+    bg_tighten_previews
     if [[ -f $FLAG ]]; then fix_bar_widgets; [[ $(wallpaper_mode) == day-night ]] && ! picked_wallpaper && apply_day_night; start_slideshow; float_all; rescue_all; fi
     # A notice the shell wasn't up for yet: try again while it starts (in
     # Omarchy mode no other `overtake` command may run for a long time).

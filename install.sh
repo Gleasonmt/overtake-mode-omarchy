@@ -120,6 +120,9 @@ Overtake Mode will add (./uninstall.sh removes it, keeping ~/.config/overtake an
   ~/.local/state/overtake/, ~/.cache/overtake/
                                           its state (yours only), the Background lists
                                           and stripped copies of theme previews and your icons
+  (and in ~/.cache/omarchy/image-selector, Omarchy's picker cache, previews of your
+  pictures that a version before 0.1.22 left readable by other accounts are made
+  yours only; Omarchy's own are not touched)
 EOF
   cat <<'EOF'
 
@@ -333,6 +336,9 @@ done
 # `omarchy update` (and `overtake resume` at login). One whose patch no longer
 # fits is left out, and Omarchy's own is used.
 OVERTAKE_OMARCHY_PLUGINS=$OMARCHY_PLUGINS "$HOME/.local/bin/overtake" build-copies all
+# previews of your pictures that a version before 0.1.22 left readable by other
+# accounts in Omarchy's picker cache (see bg_tighten_previews in bin/overtake)
+"$HOME/.local/bin/overtake" tighten-previews
 mkdir -p "$HOME/.config/omarchy/hooks/post-update.d"
 cat >"$HOME/.config/omarchy/hooks/post-update.d/overtake.hook" <<'EOF'
 # Overtake Mode: rebuild its patched copies of Omarchy's plugins from the
