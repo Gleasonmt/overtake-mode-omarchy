@@ -1953,7 +1953,8 @@ bg_tighten_previews() {  # bg_tighten_previews [<list folder>]: its entries' pre
     file="$dir/$name.jpg"
     [[ -f $file && ! -L $file && -O $file ]] && files+=("$file")
   done < <(OV_LIST="$list/" awk -F '\t' 'BEGIN { p = ENVIRON["OV_LIST"] } index($1, p) == 1 && $3 ~ /^[0-9a-f]+$/ { print $3 }' "$index" 2>/dev/null | sort -u)
-  (( ${#files[@]} )) && chmod 600 -- "${files[@]}" 2>/dev/null
+  # (through xargs: more previews than one command line holds still all get done)
+  (( ${#files[@]} )) && printf '%s\0' "${files[@]}" | xargs -0 chmod 600 -- 2>/dev/null
   return 0
 }
 
